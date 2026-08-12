@@ -1,0 +1,71 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+
+import Layout from "./components/Layout";
+import { Loading } from "./components/ui";
+import { useAuth } from "./auth";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import PendingVerification from "./pages/PendingVerification";
+import DoctorOrders from "./pages/doctor/Orders";
+import NewOrder from "./pages/doctor/NewOrder";
+import DoctorOrderDetail from "./pages/doctor/OrderDetail";
+import Patients from "./pages/doctor/Patients";
+import Profile from "./pages/doctor/Profile";
+import StaffQueue from "./pages/staff/Queue";
+import StaffOrders from "./pages/staff/Orders";
+import StaffOrderDetail from "./pages/staff/OrderDetail";
+import StaffDoctors from "./pages/staff/Doctors";
+
+export default function App() {
+  const { me, loading } = useAuth();
+
+  if (loading) return <Loading />;
+
+  if (!me) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  if (me.role === "STAFF") {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/staff" element={<StaffQueue />} />
+          <Route path="/staff/orders" element={<StaffOrders />} />
+          <Route path="/staff/orders/:orderId" element={<StaffOrderDetail />} />
+          <Route path="/staff/doctors" element={<StaffDoctors />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/staff" replace />} />
+      </Routes>
+    );
+  }
+
+  if (me.doctor && me.doctor.verification_status !== "VERIFIED") {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/pending" element={<PendingVerification />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/pending" replace />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/orders" element={<DoctorOrders />} />
+        <Route path="/orders/new" element={<NewOrder />} />
+        <Route path="/orders/:orderId" element={<DoctorOrderDetail />} />
+        <Route path="/patients" element={<Patients />} />
+        <Route path="/profile" element={<Profile />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/orders" replace />} />
+    </Routes>
+  );
+}

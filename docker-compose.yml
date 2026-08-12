@@ -1,0 +1,26 @@
+# Postgres for local development. The app defaults to SQLite, so this is only
+# needed when you want to develop against the same engine you deploy on.
+#
+#   docker compose up -d
+#   DATABASE_URL=postgresql+psycopg://align:align@localhost:5432/align \
+#     .venv/bin/python -m uvicorn app.main:app --reload
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: align
+      POSTGRES_PASSWORD: align
+      POSTGRES_DB: align
+    ports:
+      - "5432:5432"
+    volumes:
+      - align-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U align"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  align-pgdata:
