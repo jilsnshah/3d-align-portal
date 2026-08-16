@@ -2,7 +2,7 @@
    Everything that differs between doctor and staff lives in the `actions` slot,
    passed in by the caller. */
 
-import { CATEGORY_LABEL, formatBytes, formatDate, formatMoney } from "../api";
+import { CATEGORY_LABEL, formatBytes, formatDate, formatMoney, formatRange } from "../api";
 import type { FileCategory, OrderDetail } from "../api";
 import { api } from "../api";
 import { ConfirmButton, StatusPill } from "./ui";
@@ -278,14 +278,23 @@ export function QuoteCard({ order, open = false }: { order: OrderDetail; open?: 
   const quotes = order.quotes;
   if (quotes.length === 0) return null;
   const current = quotes[quotes.length - 1];
+  // The estimate is overwritten by the treatment plan's real figure, so there
+  // is only ever one price on the card.
+  const isFinal = current.is_final;
+  const plan = order.plans.find((p) => p.status !== "SUPERSEDED" && Number(p.final_total) > 0);
 
   return (
     <Fold
-      title="Quote"
+      title={isFinal ? "Price" : "Expected quote"}
       open={open}
       summary={
         <>
-          {formatMoney(current.total, current.currency)}
+          {isFinal ? (
+            <span className="pill pill-ok">final</span>
+          ) : (
+            current.category_label && <span className="pill pill-gold">{current.category_label}</span>
+          )}{" "}
+          <b>{formatRange(current.total, current.total_max, current.currency)}</b>
           <span className="dim">
             {" "}
             · v{current.version}
@@ -305,17 +314,21 @@ export function QuoteCard({ order, open = false }: { order: OrderDetail; open?: 
             </tr>
           </thead>
           <tbody>
-            {current.line_items.map((item) => (
+            {current.line_items.map((item, index) => (
               <tr key={item.id}>
                 <td>{item.description}</td>
                 <td className="num" style={{ textAlign: "right" }}>
-                  {formatMoney(item.unit_price, current.currency)}
+                  {index === 0
+                    ? formatRange(current.category_price, current.category_price_max, current.currency)
+                    : formatMoney(item.unit_price, current.currency)}
                 </td>
                 <td className="num" style={{ textAlign: "right" }}>
                   {item.quantity}
                 </td>
                 <td className="num" style={{ textAlign: "right" }}>
-                  {formatMoney(item.amount, current.currency)}
+                  {index === 0
+                    ? formatRange(current.category_price, current.category_price_max, current.currency)
+                    : formatMoney(item.amount, current.currency)}
                 </td>
               </tr>
             ))}
@@ -332,7 +345,7 @@ export function QuoteCard({ order, open = false }: { order: OrderDetail; open?: 
                 Total
               </td>
               <td className="num" style={{ textAlign: "right", fontWeight: 650 }}>
-                {formatMoney(current.total, current.currency)}
+                {formatRange(current.total, current.total_max, current.currency)}
               </td>
             </tr>
           </tbody>
@@ -340,8 +353,9 @@ export function QuoteCard({ order, open = false }: { order: OrderDetail; open?: 
       </div>
 
       <p className="dim" style={{ marginTop: 10 }}>
-        Estimated aligners — upper {current.estimated_aligners_upper}, lower{" "}
-        {current.estimated_aligners_lower}.
+        {isFinal
+          ? `Confirmed with the treatment plan${plan ? ` — ${plan.total_aligners} aligners` : ""}. This is the price the case is invoiced at.`
+          : "An estimated range read off the clinical photographs. It is replaced by one exact figure once the treatment plan is ready."}
         {quotes.length > 1 && ` ${quotes.length - 1} earlier version(s) superseded.`}
       </p>
       {current.notes && (
@@ -369,10 +383,24 @@ export function PlanCard({ order, open = false }: { order: OrderDetail; open?: b
       }
     >
       <dl className="kv">
-        <dt>Upper aligners</dt>
-        <dd className="num">{plan.aligners_upper}</dd>
-        <dt>Lower aligners</dt>
-        <dd className="num">{plan.aligners_lower}</dd>
+        <dt>Total aligners</dt>
+        <dd className="num">
+          <b>{plan.total_aligners}</b> ({plan.aligners_upper} upper, {plan.aligners_lower} lower)
+        </dd>
+        {Number(plan.final_total) > 0 && (
+          <>
+            <dt>Final price</dt>
+            <dd className="num">
+              <b>{formatMoney(plan.final_total)}</b>
+              {Number(plan.final_tax) > 0 && (
+                <span className="dim">
+                  {" "}
+                  ({formatMoney(plan.final_price)} + {formatMoney(plan.final_tax)} tax)
+                </span>
+              )}
+            </dd>
+          </>
+        )}
         <dt>IPR</dt>
         <dd>{plan.ipr_required ? "Required" : "Not required"}</dd>
         <dt>Attachments</dt>
@@ -398,10 +426,12 @@ export function ShipmentsCard({
   order,
   onMarkDelivered,
   open = true,
+  deliverLabel = "Mark delivered",
 }: {
   order: OrderDetail;
   onMarkDelivered?: (shipmentId: string) => void;
   open?: boolean;
+  deliverLabel?: string;
 }) {
   if (order.shipments.length === 0) return null;
   const delivered = order.shipments.filter((s) => s.status === "DELIVERED").length;
@@ -438,7 +468,22 @@ export function ShipmentsCard({
                     ? `Training aligner${shipment.fit_round && shipment.fit_round > 1 ? ` · round ${shipment.fit_round}` : ""}`
                     : shipment.shipment_type === "FULL_CASE"
                       ? "Full case"
-                      : `Phase ${shipment.phase_number ?? "—"}`}
+                      : `Phase ${shipment.phase_number ?? "—"}${
+                          shipment.phase_round && shipment.phase_round > 1
+                            ? ` · round ${shipment.phase_round}`
+                            : ""
+                        }`}
+                  {shipment.is_final_phase && (
+                    <span className="pill pill-ok" style={{ marginLeft: 6 }}>
+                      final
+                    </span>
+                  )}
+                  {shipment.phase_decision === "REPEAT" && (
+                    <div className="dim">
+                      clinic asked for this again
+                      {shipment.decision_notes ? ` — ${shipment.decision_notes}` : ""}
+                    </div>
+                  )}
                 </td>
                 <td className="num">
                   {shipment.aligner_range_from
@@ -471,7 +516,7 @@ export function ShipmentsCard({
                         className="btn-ghost btn-sm"
                         onClick={() => onMarkDelivered(shipment.id)}
                       >
-                        Mark delivered
+                        {deliverLabel}
                       </button>
                     )}
                   </td>

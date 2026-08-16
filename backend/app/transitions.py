@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import HTTPException, status as http_status
 from sqlalchemy.orm import Session
 
-from .enums import STATUS_LABELS, TERMINAL_STATUSES, OrderStatus, UserRole
+from .enums import LAB_ROLES, STATUS_LABELS, TERMINAL_STATUSES, OrderStatus, UserRole
 from .models import Notification, Order, StatusEvent, User, utcnow
 
 S = OrderStatus
@@ -35,7 +35,8 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
     S.FIT_REVIEW: {S.ALIGNER_PRODUCTION, S.FIT_ISSUE, S.CANCELLED},
     S.FIT_ISSUE: {S.AWAITING_SCAN, S.IN_PLANNING, S.TRAINING_ALIGNER_PRODUCTION, S.CANCELLED},
     S.ALIGNER_PRODUCTION: {S.DISPATCHING, S.CANCELLED},
-    S.DISPATCHING: {S.COMPLETED, S.CANCELLED},
+    # A remade phase goes back to the bench before it can ship again.
+    S.DISPATCHING: {S.ALIGNER_PRODUCTION, S.COMPLETED, S.CANCELLED},
     S.COMPLETED: set(),
     S.CANCELLED: set(),
 }
@@ -49,8 +50,15 @@ DOCTOR_MOVES: set[tuple[OrderStatus, OrderStatus]] = {
     (S.AWAITING_SCAN, S.SCAN_SUBMITTED),
     (S.PLAN_SHARED, S.TRAINING_ALIGNER_PRODUCTION),
     (S.PLAN_SHARED, S.IN_PLANNING),
+    # The clinic receives the parcel, so it confirms delivery — and that is
+    # exactly what opens the fit review it then has to answer.
+    (S.TRAINING_ALIGNER_SHIPPED, S.FIT_REVIEW),
     (S.FIT_REVIEW, S.ALIGNER_PRODUCTION),
     (S.FIT_REVIEW, S.FIT_ISSUE),
+    # Receiving the batch with the last aligner finishes the case, and it is the
+    # clinic that confirms receipt.
+    (S.DISPATCHING, S.COMPLETED),
+    (S.DISPATCHING, S.ALIGNER_PRODUCTION),
     (S.DRAFT, S.CANCELLED),
 }
 
@@ -156,7 +164,7 @@ def _notify(
     if not actor_is_doctor:
         recipients.append(order.doctor.user_id)
     if actor_is_doctor or actor is None:
-        staff = db.query(User).filter(User.role == UserRole.STAFF, User.is_active.is_(True)).all()
+        staff = db.query(User).filter(User.role.in_(LAB_ROLES), User.is_active.is_(True)).all()
         recipients.extend(u.id for u in staff)
 
     for user_id in dict.fromkeys(recipients):

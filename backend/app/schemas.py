@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from datetime import datetime
+from datetime import date as date_type, datetime, time as time_type
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from . import enums
 
@@ -128,7 +128,64 @@ class FileOut(ORMModel):
     external_link: str
     revision: int
     is_current: bool = True
+    slot: str = ""
+    slot_label: str = ""
+    is_image: bool = False
+    uploaded_by: str = ""
     created_at: datetime
+
+    @field_validator("uploaded_by", mode="before")
+    @classmethod
+    def _uploader_name(cls, value):
+        """The ORM attribute is a User; the API sends a display name."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        doctor = getattr(value, "doctor", None)
+        return doctor.full_name if doctor is not None else "3D Align"
+
+
+class BinnedFileOut(FileOut):
+    deleted_at: Optional[datetime] = None
+    deleted_by: str = ""
+    purges_in_days: int = 0
+
+    @field_validator("deleted_by", mode="before")
+    @classmethod
+    def _deleter_name(cls, value):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        doctor = getattr(value, "doctor", None)
+        return doctor.full_name if doctor is not None else "3D Align"
+
+
+class SlotState(BaseModel):
+    """One named view in a records set — filled or waiting."""
+
+    slot: str
+    label: str
+    required: bool
+    file: Optional[FileOut] = None
+
+
+class RecordSet(BaseModel):
+    """A category rendered as the set it actually is."""
+
+    category: enums.FileCategory
+    label: str
+    revision: int
+    complete: bool
+    slots: list[SlotState]
+    extras: list[FileOut]
+    missing: list[str]
+    # Whether the caller may add or replace files here, decided by the same
+    # windows the upload endpoint enforces — so a button never lies.
+    required: bool = False
+    editable: bool = False
+    locked_reason: str = ""
 
 
 class QuoteLineItemIn(BaseModel):
@@ -146,9 +203,10 @@ class QuoteLineItemOut(ORMModel):
 
 
 class QuoteIn(BaseModel):
-    estimated_aligners_upper: int = Field(default=0, ge=0)
-    estimated_aligners_lower: int = Field(default=0, ge=0)
-    line_items: list[QuoteLineItemIn] = Field(min_length=1)
+    """The expected quote is a category, not a typed-in price."""
+
+    category: enums.AlignerCategory
+    extras: list[QuoteLineItemIn] = Field(default_factory=list)
     tax: Decimal = Decimal("0")
     currency: str = "INR"
     notes: str = ""
@@ -157,14 +215,19 @@ class QuoteIn(BaseModel):
 class QuoteOut(ORMModel):
     id: str
     version: int
-    estimated_aligners_upper: int
-    estimated_aligners_lower: int
+    category: Optional[str] = None
+    category_label: str = ""
+    category_price: Decimal = Decimal("0")
+    category_price_max: Decimal = Decimal("0")
+    subtotal_max: Decimal = Decimal("0")
+    total_max: Decimal = Decimal("0")
     subtotal: Decimal
     tax: Decimal
     total: Decimal
     currency: str
     notes: str
     status: enums.QuoteStatus
+    is_final: bool = False
     sent_at: Optional[datetime]
     responded_at: Optional[datetime]
     line_items: list[QuoteLineItemOut]
@@ -173,6 +236,10 @@ class QuoteOut(ORMModel):
 class PlanIn(BaseModel):
     aligners_upper: int = Field(default=0, ge=0)
     aligners_lower: int = Field(default=0, ge=0)
+    # The lab types the final figure once the plan gives an exact aligner
+    # count. Bands only ever drove the expected quote.
+    final_price: Decimal = Field(default=Decimal("0"), ge=0)
+    final_tax: Decimal = Field(default=Decimal("0"), ge=0)
     ipr_required: bool = False
     attachments_required: bool = False
     summary: str = ""
@@ -183,6 +250,12 @@ class PlanOut(ORMModel):
     version: int
     aligners_upper: int
     aligners_lower: int
+    total_aligners: int = 0
+    final_category: Optional[str] = None
+    final_category_label: str = ""
+    final_price: Decimal = Decimal("0")
+    final_tax: Decimal = Decimal("0")
+    final_total: Decimal = Decimal("0")
     ipr_required: bool
     attachments_required: bool
     summary: str
@@ -199,12 +272,17 @@ class PlanRespondIn(BaseModel):
 
 class ShipmentIn(BaseModel):
     shipment_type: enums.ShipmentType
-    phase_number: Optional[int] = None
-    aligner_range_from: Optional[int] = None
-    aligner_range_to: Optional[int] = None
+    # Phases chain: the start is derived from the previous phase, so the lab
+    # only says how far this one runs.
+    aligner_range_to: Optional[int] = Field(default=None, ge=1)
     carrier: str = ""
     tracking_number: str = ""
     tracking_url: str = ""
+
+
+class PhaseDecisionIn(BaseModel):
+    decision: enums.PhaseDecision
+    notes: str = ""
 
 
 class ShipmentUpdateIn(BaseModel):
@@ -219,6 +297,10 @@ class ShipmentOut(ORMModel):
     shipment_type: enums.ShipmentType
     fit_round: Optional[int]
     phase_number: Optional[int]
+    phase_round: Optional[int] = None
+    phase_decision: Optional[str] = None
+    decision_notes: str = ""
+    is_final_phase: bool = False
     aligner_range_from: Optional[int]
     aligner_range_to: Optional[int]
     carrier: str
@@ -236,12 +318,165 @@ class ScanRouteIn(BaseModel):
     location: str = ""
 
 
-class AppointmentOut(ORMModel):
+class AppointmentOut(BaseModel):
     id: str
-    scheduled_at: datetime
-    location: str
+    starts_at: datetime
+    ends_at: datetime
     status: enums.AppointmentStatus
-    notes: str
+    status_label: str
+    technician_name: str
+    technician_phone: str
+    contact_name: str
+    contact_phone: str
+    access_notes: str
+    assignment_reason: str
+    cancel_reason: str
+    outcome_notes: str
+    location: str
+
+
+# ---- booking -------------------------------------------------------------
+
+
+class SlotOut(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    available: bool
+    reason: str = ""
+
+
+class DayAvailability(BaseModel):
+    date: date_type
+    closed: bool
+    free_count: int
+    slots: list[SlotOut]
+
+
+class BookAppointmentIn(BaseModel):
+    starts_at: datetime
+    address_id: Optional[str] = None
+    contact_name: str = ""
+    contact_phone: str = ""
+    access_notes: str = ""
+
+
+class JobOrderOut(BaseModel):
+    id: str
+    order_number: str
+    patient_name: str
+    doctor_name: str
+    clinic_name: str
+    arch: enums.Arch
+    clinical_notes: str
+    status: enums.OrderStatus
+
+
+class JobOut(AppointmentOut):
+    order: JobOrderOut
+
+
+class BookingOut(JobOut):
+    address: Optional[AddressOut] = None
+
+
+class ReassignIn(BaseModel):
+    technician_id: str
+    force: bool = False
+
+
+class AvailabilityRuleIn(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    start_time: time_type
+    end_time: time_type
+
+
+class AvailabilityRuleOut(ORMModel, AvailabilityRuleIn):
+    id: str
+
+
+class AvailabilityIn(BaseModel):
+    rules: list[AvailabilityRuleIn]
+
+
+class TimeOffIn(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = ""
+
+
+class TimeOffOut(ORMModel, TimeOffIn):
+    id: str
+
+
+class TechnicianIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=1, max_length=200)
+    phone: str = ""
+    employee_code: str = ""
+    max_daily_jobs: int = Field(default=4, ge=1, le=20)
+
+
+class TechnicianUpdateIn(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    employee_code: Optional[str] = None
+    max_daily_jobs: Optional[int] = Field(default=None, ge=1, le=20)
+    is_active: Optional[bool] = None
+
+
+class TechnicianOut(BaseModel):
+    id: str
+    full_name: str
+    phone: str
+    employee_code: str
+    max_daily_jobs: int
+    is_active: bool
+    email: str
+    availability: list[AvailabilityRuleOut]
+    time_off: list[TimeOffOut]
+    upcoming_jobs: int
+
+
+class BookingSettingsIn(BaseModel):
+    slot_minutes: Optional[int] = Field(default=None, ge=15, le=240)
+    travel_buffer_minutes: Optional[int] = Field(default=None, ge=0, le=180)
+    booking_horizon_days: Optional[int] = Field(default=None, ge=1, le=180)
+    min_notice_hours: Optional[int] = Field(default=None, ge=0, le=336)
+    max_daily_jobs: Optional[int] = Field(default=None, ge=1, le=20)
+    working_hours: Optional[dict] = None
+    service_city: Optional[str] = None
+
+
+class AlignerPriceOut(ORMModel):
+    category: str
+    label: str = ""
+    range_from: int = 0
+    range_to: Optional[int] = None
+    price_min: Decimal
+    price_max: Decimal
+    is_active: bool
+
+
+class AlignerPriceIn(BaseModel):
+    category: enums.AlignerCategory
+    price_min: Decimal = Field(ge=0)
+    price_max: Decimal = Field(ge=0)
+    is_active: bool = True
+
+
+class PricingIn(BaseModel):
+    prices: list[AlignerPriceIn]
+
+
+class BookingSettingsOut(ORMModel):
+    slot_minutes: int
+    travel_buffer_minutes: int
+    booking_horizon_days: int
+    min_notice_hours: int
+    max_daily_jobs: int
+    working_hours: dict
+    service_city: str
 
 
 class FitReviewIn(BaseModel):
@@ -308,6 +543,17 @@ class OrderDetail(OrderSummary):
     invoice: Optional[InvoiceOut]
     events: list[EventOut]
     missing_categories: list[enums.FileCategory]
+    submit_blockers: list[str]
+    record_sets: list[RecordSet]
+    binned_count: int
+    scan_complete: bool
+    total_aligners: int = 0
+    next_phase_from: int = 0
+    next_phase_max: int = 0
+    next_phase_number: int = 1
+    next_phase_round: int = 1
+    phase_blocker: Optional[str] = None
+    awaiting_phase_decision: Optional[str] = None
 
 
 class NoteIn(BaseModel):

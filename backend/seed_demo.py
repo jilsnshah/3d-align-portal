@@ -78,6 +78,28 @@ check(
 print("  Verified.")
 
 
+import struct
+import zlib
+
+
+def _png(seed: str, w: int = 520, h: int = 390) -> bytes:
+    """A solid-colour PNG so previews show something, tinted per view."""
+    tone = sum(ord(c) for c in seed)
+    r, g, b = 150 + tone % 70, 120 + tone % 90, 120 + tone % 60
+    raw = b"".join(b"\x00" + bytes([r, g, b]) * w for _ in range(h))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
 def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
     order = check(
         doctor.post(
@@ -92,15 +114,23 @@ def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
         ),
         "create an order",
     )
-    for category, filename in (("RECORD_PHOTO", "frontal.jpg"), ("OPG", "opg.jpg")):
+    for slot in ("INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER"):
         check(
             doctor.post(
                 f"{BASE}/orders/{order['id']}/files",
-                data={"category": category},
-                files={"upload": (filename, io.BytesIO(b"demo-image-bytes" * 64), "image/jpeg")},
+                data={"category": "RECORD_PHOTO", "slot": slot},
+                files={"upload": (f"{slot.lower()}.png", io.BytesIO(_png(slot)), "image/png")},
             ),
-            f"upload {category}",
+            f"upload the {slot.lower()} photo",
         )
+    check(
+        doctor.post(
+            f"{BASE}/orders/{order['id']}/files",
+            data={"category": "OPG", "slot": ""},
+            files={"upload": ("opg.png", io.BytesIO(_png("OPG", 780, 390)), "image/png")},
+        ),
+        "upload the OPG",
+    )
     check(doctor.post(f"{BASE}/orders/{order['id']}/submit"), "submit the order")
     return order["id"]
 
@@ -113,13 +143,7 @@ def quote(order_id: str, amount: int, upper: int, lower: int) -> None:
             json={
                 "estimated_aligners_upper": upper,
                 "estimated_aligners_lower": lower,
-                "line_items": [
-                    {
-                        "description": "Clear aligner treatment, both arches",
-                        "unit_price": str(amount),
-                        "quantity": 1,
-                    }
-                ],
+                "category": "ALIGN_16_20",
                 "tax": str(round(amount * 0.18)),
                 "notes": "Includes refinements for 12 months.",
             },
@@ -133,17 +157,20 @@ def upload_scan(order_id: str) -> None:
         doctor.post(f"{BASE}/orders/{order_id}/scan-route", json={"route": "UPLOAD"}),
         "choose a scan route",
     )
-    check(
-        doctor.post(
-            f"{BASE}/orders/{order_id}/files",
-            data={"category": "INTRAORAL_SCAN"},
-            files={"upload": ("upper-arch.stl", io.BytesIO(b"solid demo" * 512), "model/stl")},
-        ),
-        "upload a scan",
-    )
+    # A scan is a set: upper, lower and bite. The case only advances once all
+    # three are present.
+    for slot in ("UPPER_ARCH", "LOWER_ARCH", "BITE"):
+        check(
+            doctor.post(
+                f"{BASE}/orders/{order_id}/files",
+                data={"category": "INTRAORAL_SCAN", "slot": slot},
+                files={"upload": (f"{slot.lower()}.stl", io.BytesIO(b"solid demo" * 512), "model/stl")},
+            ),
+            f"upload the {slot.lower()} scan",
+        )
 
 
-def share_plan(order_id: str, upper: int, lower: int) -> None:
+def share_plan(order_id: str, upper: int, lower: int, final_price: int = 60000) -> None:
     check(
         staff.post(f"{BASE}/staff/orders/{order_id}/scan/accept", json={"note": "Scan is clean."}),
         "accept the scan",
@@ -154,6 +181,8 @@ def share_plan(order_id: str, upper: int, lower: int) -> None:
             json={
                 "aligners_upper": upper,
                 "aligners_lower": lower,
+                "final_price": str(final_price),
+                "final_tax": str(round(final_price * 0.18)),
                 "ipr_required": True,
                 "attachments_required": True,
                 "summary": "IPR 0.3 mm between 13-23. Attachments on 14, 24, 35, 45.",
@@ -176,7 +205,7 @@ print("  AL…  quote awaiting the doctor")
 
 # 3 — waiting on a scan
 case3 = new_case("Kabir Nair", "Class II div 1, mild crowding.", priority="EXPRESS")
-quote(case3, 46000, 22, 20)
+quote(case3, 46000, 16, 14)
 check(doctor.post(f"{BASE}/orders/{case3}/quote/accept"), "accept a quote")
 print("  AL…  awaiting intraoral scan (express)")
 
@@ -185,15 +214,15 @@ case4 = new_case("Meera Iyer", "Relapse after fixed appliance therapy.")
 quote(case4, 38000, 14, 12)
 check(doctor.post(f"{BASE}/orders/{case4}/quote/accept"), "accept a quote")
 upload_scan(case4)
-share_plan(case4, 14, 12)
+share_plan(case4, 14, 12, final_price=38000)
 print("  AL…  treatment plan awaiting approval")
 
 # 5 — fit review with the doctor
 case5 = new_case("Arjun Rao", "Deep bite, wants aligners not braces.")
-quote(case5, 51000, 24, 22)
+quote(case5, 51000, 18, 16)
 check(doctor.post(f"{BASE}/orders/{case5}/quote/accept"), "accept a quote")
 upload_scan(case5)
-share_plan(case5, 24, 22)
+share_plan(case5, 18, 16, final_price=58000)
 check(doctor.post(f"{BASE}/orders/{case5}/plan/respond", json={"approve": True}), "approve a plan")
 shipped = check(
     staff.post(
@@ -218,7 +247,7 @@ case6 = new_case("Sana Kapoor", "Mild crowding, aesthetic concern.")
 quote(case6, 40000, 16, 14)
 check(doctor.post(f"{BASE}/orders/{case6}/quote/accept"), "accept a quote")
 upload_scan(case6)
-share_plan(case6, 16, 14)
+share_plan(case6, 16, 14, final_price=46000)
 check(doctor.post(f"{BASE}/orders/{case6}/plan/respond", json={"approve": True}), "approve a plan")
 shipped = check(
     staff.post(
@@ -240,22 +269,42 @@ check(
     doctor.post(f"{BASE}/orders/{case6}/fit-review", json={"fits": True, "dispatch_mode": "PHASED"}),
     "confirm the fit",
 )
-for phase, (lo, hi) in enumerate([(1, 8), (9, 16)], start=1):
-    check(
-        staff.post(
-            f"{BASE}/staff/orders/{case6}/shipments",
-            json={
-                "shipment_type": "ALIGNER_PHASE",
-                "phase_number": phase,
-                "aligner_range_from": lo,
-                "aligner_range_to": hi,
-                "carrier": "Shree Tirupati",
-                "tracking_number": f"12560000{5000 + phase}",
-            },
-        ),
-        f"dispatch phase {phase}",
-    )
-print("  AL…  dispatching, 2 phases out")
+# Phases chain — each one has to be received and accepted before the next
+# can ship, so the seed walks it the way a real case does.
+first = check(
+    staff.post(
+        f"{BASE}/staff/orders/{case6}/shipments",
+        json={
+            "shipment_type": "ALIGNER_PHASE",
+            "aligner_range_to": 8,
+            "carrier": "Shree Tirupati",
+            "tracking_number": "125600005001",
+        },
+    ),
+    "dispatch phase 1",
+)
+phase1 = [s for s in first["shipments"] if s["shipment_type"] == "ALIGNER_PHASE"][-1]
+check(doctor.post(f"{BASE}/orders/{case6}/shipments/{phase1['id']}/delivered"), "receive phase 1")
+check(
+    doctor.post(
+        f"{BASE}/orders/{case6}/shipments/{phase1['id']}/phase-decision",
+        json={"decision": "CONTINUE"},
+    ),
+    "ask for the next phase",
+)
+check(
+    staff.post(
+        f"{BASE}/staff/orders/{case6}/shipments",
+        json={
+            "shipment_type": "ALIGNER_PHASE",
+            "aligner_range_to": 20,
+            "carrier": "Shree Tirupati",
+            "tracking_number": "125600005002",
+        },
+    ),
+    "dispatch phase 2",
+)
+print("  AL…  dispatching — phase 1 received, phase 2 out, 10 aligners still to come")
 
 print(f"""
 Done.

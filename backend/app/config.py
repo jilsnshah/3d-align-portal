@@ -49,6 +49,9 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 200
 
+    # How long a deleted file stays recoverable in the recycle bin.
+    trash_retention_days: int = 30
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

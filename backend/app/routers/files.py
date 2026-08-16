@@ -7,6 +7,8 @@ nothing is ever exposed by public link.
 
 from __future__ import annotations
 
+from datetime import timedelta, timezone
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -19,14 +21,20 @@ from ..enums import (
     AppointmentStatus,
     CATEGORY_FOLDER,
     FILE_GROUP,
+    FileGroup,
     STAFF_ONLY_CATEGORIES,
     STAFF_UPLOAD_WINDOWS,
+    SINGLE_FILE_CATEGORIES,
     STATUS_LABELS,
     FileCategory,
+    Slot,
+    slots_for,
     OrderStatus,
+    LAB_ROLES,
     UserRole,
 )
-from ..models import Doctor, Order, OrderFile, User
+from ..models import Doctor, Order, OrderFile, User, utcnow
+from ..serializers import binned_file_out, file_out
 from ..services.storage import get_storage, guess_mime
 from ..transitions import transition
 
@@ -46,6 +54,38 @@ DOCTOR_UPLOAD_WINDOWS: dict[FileCategory, set[OrderStatus]] = {
 STL_EXTENSIONS = (".stl",)
 
 
+def _destroy(db: Session, record: OrderFile) -> None:
+    """Remove the bytes and the row. Storage failures must not strand the row."""
+    try:
+        get_storage().delete(record.storage_ref)
+    except Exception:  # noqa: BLE001 — a missing object should still let the row go
+        pass
+    db.delete(record)
+
+
+def purge_expired(db: Session) -> int:
+    """Anything binned longer than the retention window goes for good. Called
+    whenever a bin is listed, and once at startup, which is enough at this
+    volume without introducing a scheduler."""
+    cutoff = utcnow() - timedelta(days=settings.trash_retention_days)
+    stale = (
+        db.query(OrderFile)
+        .filter(OrderFile.is_deleted.is_(True), OrderFile.deleted_at.isnot(None))
+        .all()
+    )
+    removed = 0
+    for record in stale:
+        deleted_at = record.deleted_at
+        if deleted_at and deleted_at.tzinfo is None:
+            deleted_at = deleted_at.replace(tzinfo=timezone.utc)
+        if deleted_at and deleted_at < cutoff:
+            _destroy(db, record)
+            removed += 1
+    if removed:
+        db.commit()
+    return removed
+
+
 def _visible_order(order_id: str, db: Session, user: User) -> Order:
     order = db.get(Order, order_id)
     if not order:
@@ -61,16 +101,18 @@ def _visible_order(order_id: str, db: Session, user: User) -> Order:
 async def upload_file(
     order_id: str,
     category: FileCategory = Form(...),
+    slot: str = Form(default=""),
     upload: UploadFile = File(...),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     order = _visible_order(order_id, db, user)
-    is_staff = user.role == UserRole.STAFF
+    is_staff = user.role in LAB_ROLES
 
     if is_staff:
         # A treatment plan or simulation only exists once there is a verified
-        # scan to plan from, so these are gated by status too.
+        # scan to plan from, so these are gated by status too. Records and scans
+        # are not gated for lab staff — a technician captures both on the visit.
         window = STAFF_UPLOAD_WINDOWS.get(category)
         if window is not None and order.status not in window:
             raise HTTPException(
@@ -89,11 +131,26 @@ async def upload_file(
                 f"{STATUS_LABELS[order.status].lower()}.",
             )
 
+    # A revision is a round the lab formally re-requested, not "someone touched
+    # a photo". A technician retaking one view replaces that view in the current
+    # round — see the slot replacement below — so the rest of a complete set is
+    # never invalidated by a single chairside retake.
+    group = FILE_GROUP[category]
+
     filename = (upload.filename or "upload").strip()
     if category == FileCategory.INTRAORAL_SCAN and not filename.lower().endswith(STL_EXTENSIONS):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Intraoral scans must be uploaded as .stl files."
         )
+
+    expected = [name for name, _ in slots_for(category)]
+    if expected and slot not in expected:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Say which view this is. Expected one of: {', '.join(expected)}.",
+        )
+    if not expected:
+        slot = Slot.OTHER if category not in SINGLE_FILE_CATEGORIES else ""
 
     mime_type = guess_mime(filename, upload.content_type)
     subfolder = CATEGORY_FOLDER[category]
@@ -120,17 +177,50 @@ async def upload_file(
         storage_ref=stored.ref,
         external_link=stored.external_link,
         uploaded_by_id=user.id,
-        revision=order.revision_for(FILE_GROUP[category]),
+        revision=order.revision_for(group),
+        slot=slot,
     )
+
+    # One live file per view, and one per single-document category. Uploading
+    # again replaces what is there rather than leaving two candidates for the
+    # same thing — which is also why a current file is never deletable.
+    replaces_current = (slot and slot != Slot.OTHER) or category in SINGLE_FILE_CATEGORIES
+    if replaces_current:
+        for existing in order.files:
+            same_place = (
+                existing.slot == slot
+                if slot and slot != Slot.OTHER
+                else category in SINGLE_FILE_CATEGORIES
+            )
+            if (
+                existing.category == category
+                and same_place
+                and existing.revision == record.revision
+                and not existing.is_deleted
+            ):
+                existing.is_deleted = True
+                existing.deleted_at = utcnow()
+                existing.deleted_by_id = user.id
+
+    # Append rather than only setting the foreign key, so the completeness check
+    # below sees this file without waiting for a refresh.
+    order.files.append(record)
     db.add(record)
+    db.flush()
 
     # The scan file arriving IS the event that hands the case to the lab, and it
     # is the only thing that does. Whoever uploads it — the clinic from its own
     # scanner, or staff after an appointment or digitising an impression — the
     # case moves to review. Without this there is nothing to verify or plan from.
-    if category == FileCategory.INTRAORAL_SCAN and order.status == OrderStatus.AWAITING_SCAN:
-        if order.appointment and order.appointment.status == AppointmentStatus.BOOKED:
-            order.appointment.status = AppointmentStatus.COMPLETED
+    if (
+        category == FileCategory.INTRAORAL_SCAN
+        and order.status == OrderStatus.AWAITING_SCAN
+        and order.has_intraoral_scan
+    ):
+        booking = order.appointment
+        if booking is not None and booking.is_live:
+            booking.status = AppointmentStatus.COMPLETED
+            booking.completed_at = utcnow()
         transition(
             db, order, OrderStatus.SCAN_SUBMITTED, user, note=f"Intraoral scan uploaded: {filename}"
         )
@@ -144,24 +234,78 @@ async def upload_file(
 def download_file(
     order_id: str,
     file_id: str,
+    inline: bool = False,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
+    """`inline=1` renders in the browser instead of downloading, which is how
+    the file explorer previews photographs without anyone saving them first.
+    Binned files stay readable so they can be checked before restoring."""
+    order = _visible_order(order_id, db, user)
+    record = db.get(OrderFile, file_id)
+    if not record or record.order_id != order.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+
+    disposition = "inline" if inline else "attachment"
+    stream = get_storage().open(record.storage_ref)
+    return StreamingResponse(
+        stream,
+        media_type=record.mime_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{record.filename}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def move_to_bin(
+    order_id: str,
+    file_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Deleting puts a file in the recycle bin. It keeps its bytes until the
+    retention window passes, so a mistaken delete is recoverable."""
     order = _visible_order(order_id, db, user)
     record = db.get(OrderFile, file_id)
     if not record or record.order_id != order.id or record.is_deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
 
-    stream = get_storage().open(record.storage_ref)
-    return StreamingResponse(
-        stream,
-        media_type=record.mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{record.filename}"'},
-    )
+    if user.role == UserRole.DOCTOR and record.uploaded_by_id != user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only 3D Align can remove a file the lab added."
+        )
+
+    # Only superseded files can be removed. Deleting something the case is
+    # currently relying on would silently break a complete records set — to
+    # change it, upload a replacement, which retires the old one automatically.
+    if record.revision == order.revision_for(FILE_GROUP[record.category]):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This is the current file for that view. Upload a replacement instead — "
+            "the one it replaces moves to the bin on its own.",
+        )
+
+    record.is_deleted = True
+    record.deleted_at = utcnow()
+    record.deleted_by_id = user.id
+    db.commit()
 
 
-@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(
+@router.get("/bin/list", response_model=list[schemas.BinnedFileOut])
+def list_bin(
+    order_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    order = _visible_order(order_id, db, user)
+    purge_expired(db)
+    return [binned_file_out(f) for f in order.files if f.is_deleted]
+
+
+@router.post("/{file_id}/restore", response_model=schemas.FileOut)
+def restore_file(
     order_id: str,
     file_id: str,
     user: User = Depends(current_user),
@@ -169,16 +313,43 @@ def delete_file(
 ):
     order = _visible_order(order_id, db, user)
     record = db.get(OrderFile, file_id)
-    if not record or record.order_id != order.id or record.is_deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    if not record or record.order_id != order.id or not record.is_deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found in the bin.")
 
-    if user.role == UserRole.DOCTOR:
-        if order.status not in (OrderStatus.DRAFT, OrderStatus.RECORDS_REQUESTED):
+    # Restoring into an occupied slot would leave two files claiming one view.
+    if record.slot and record.slot != Slot.OTHER:
+        clash = any(
+            f.category == record.category
+            and f.slot == record.slot
+            and f.revision == record.revision
+            and not f.is_deleted
+            for f in order.files
+        )
+        if clash:
             raise HTTPException(
-                status.HTTP_409_CONFLICT, "Files can only be removed before the case is reviewed."
+                status.HTTP_409_CONFLICT,
+                "Something already occupies that view. Remove it first, then restore this.",
             )
-        if record.uploaded_by_id != user.id:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "You did not upload this file.")
 
-    record.is_deleted = True
+    record.is_deleted = False
+    record.deleted_at = None
+    record.deleted_by_id = None
+    db.commit()
+    db.refresh(record)
+    return file_out(order, record)
+
+
+@router.delete("/{file_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+def purge_now(
+    order_id: str,
+    file_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete for good, before the retention window is up."""
+    order = _visible_order(order_id, db, user)
+    record = db.get(OrderFile, file_id)
+    if not record or record.order_id != order.id or not record.is_deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found in the bin.")
+    _destroy(db, record)
     db.commit()

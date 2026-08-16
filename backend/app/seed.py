@@ -24,7 +24,7 @@ def ensure_staff_account(db: Session) -> User:
     staff = User(
         email=email,
         password_hash=hash_password(settings.staff_password),
-        role=UserRole.STAFF,
+        role=UserRole.ADMIN,
     )
     db.add(staff)
     db.commit()

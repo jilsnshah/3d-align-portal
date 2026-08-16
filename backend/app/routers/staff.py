@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..db import get_db
-from ..deps import any_order, current_staff
+from ..deps import any_order, current_admin
 from ..enums import (
+    ALIGNER_CATEGORIES,
     AppointmentStatus,
     FileGroup,
     InvoiceStatus,
@@ -26,8 +27,11 @@ from ..enums import (
     ShipmentType,
     UserRole,
     VerificationStatus,
+    category_for_count,
+    category_label,
 )
 from ..models import (
+    AlignerPrice,
     Doctor,
     Invoice,
     Notification,
@@ -40,7 +44,7 @@ from ..models import (
     utcnow,
 )
 from ..serializers import order_detail, order_summary
-from ..services import billing
+from ..services import billing, pricing, shipments
 from ..transitions import assert_status, transition
 
 CENTS = Decimal("0.01")
@@ -62,7 +66,7 @@ READY_TO_INVOICE_STATUSES = (OrderStatus.DISPATCHING, OrderStatus.COMPLETED)
 
 
 @router.get("/queue", response_model=schemas.QueueOut)
-def queue(staff: User = Depends(current_staff), db: Session = Depends(get_db)):
+def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
     def count(*statuses: OrderStatus) -> int:
         return db.query(Order).filter(Order.status.in_(statuses)).count()
 
@@ -95,7 +99,7 @@ def queue(staff: User = Depends(current_staff), db: Session = Depends(get_db)):
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
     search: Optional[str] = Query(default=None),
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     query = db.query(Order)
@@ -117,8 +121,8 @@ def list_orders(
 
 
 @router.get("/orders/{order_id}", response_model=schemas.OrderDetail)
-def get_order(order_id: str, staff: User = Depends(current_staff), db: Session = Depends(get_db)):
-    return order_detail(any_order(order_id, db))
+def get_order(order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return order_detail(any_order(order_id, db), UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -127,20 +131,20 @@ def get_order(order_id: str, staff: User = Depends(current_staff), db: Session =
 
 
 @router.post("/orders/{order_id}/start-review", response_model=schemas.OrderDetail)
-def start_review(order_id: str, staff: User = Depends(current_staff), db: Session = Depends(get_db)):
+def start_review(order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)):
     order = any_order(order_id, db)
     assert_status(order, OrderStatus.SUBMITTED)
     transition(db, order, OrderStatus.UNDER_REVIEW, staff)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/request-records", response_model=schemas.OrderDetail)
 def request_records(
     order_id: str,
     payload: schemas.RecordsRequestIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
@@ -157,37 +161,91 @@ def request_records(
     )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
+@router.get("/pricing", response_model=list[schemas.AlignerPriceOut])
+def read_pricing(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return [_price_out(row) for row in pricing.ensure_prices(db)]
+
+
+@router.put("/pricing", response_model=list[schemas.AlignerPriceOut])
+def update_pricing(
+    payload: schemas.PricingIn,
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    pricing.ensure_prices(db)
+    for entry in payload.prices:
+        row = db.get(AlignerPrice, entry.category)
+        if row is None:
+            row = AlignerPrice(category=entry.category)
+            db.add(row)
+        if entry.price_max < entry.price_min:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{category_label(entry.category)}: the upper price cannot be below the lower one.",
+            )
+        row.price_min = pricing.money(entry.price_min)
+        row.price_max = pricing.money(entry.price_max)
+        row.is_active = entry.is_active
+    db.commit()
+    return [_price_out(row) for row in pricing.price_list(db)]
+
+
+def _price_out(row) -> schemas.AlignerPriceOut:
+    label, low, high = ALIGNER_CATEGORIES[row.category]
+    out = schemas.AlignerPriceOut.model_validate(row)
+    out.label, out.range_from, out.range_to = label, low, high
+    return out
 
 
 @router.post("/orders/{order_id}/quotes", response_model=schemas.OrderDetail)
 def send_quote(
     order_id: str,
     payload: schemas.QuoteIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
+    """The expected quote. The lab reads the clinical photographs, picks the
+    aligner band it thinks the case falls into, and that band's fixed price is
+    the estimate the clinic approves before any scan happens."""
     order = any_order(order_id, db)
     assert_status(order, OrderStatus.UNDER_REVIEW, OrderStatus.QUOTED)
+
+    pricing.ensure_prices(db)
+    band = pricing.range_for(db, payload.category)
+    if band is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{category_label(payload.category)} is not currently offered. Enable it in Settings.",
+        )
+    price_low, price_high = band
 
     for existing in order.quotes:
         if existing.status == QuoteStatus.SENT:
             existing.status = QuoteStatus.SUPERSEDED
 
-    subtotal = money(
-        sum((Decimal(item.unit_price) * item.quantity for item in payload.line_items), Decimal("0"))
+    extras_total = money(
+        sum((Decimal(i.unit_price) * i.quantity for i in payload.extras), Decimal("0"))
     )
+    subtotal = money(price_low + extras_total)
+    subtotal_max = money(price_high + extras_total)
     tax = money(payload.tax)
     total = money(subtotal + tax)
+    total_max = money(subtotal_max + tax)
 
     quote = Quote(
         order_id=order.id,
         version=len(order.quotes) + 1,
-        estimated_aligners_upper=payload.estimated_aligners_upper,
-        estimated_aligners_lower=payload.estimated_aligners_lower,
+        category=payload.category,
+        category_price=price_low,
+        category_price_max=price_high,
         subtotal=subtotal,
+        subtotal_max=subtotal_max,
         tax=tax,
         total=total,
+        total_max=total_max,
         currency=payload.currency,
         notes=payload.notes,
         status=QuoteStatus.SENT,
@@ -197,7 +255,17 @@ def send_quote(
     db.add(quote)
     db.flush()
 
-    for item in payload.line_items:
+    # The band itself is the first line; anything else the lab adds sits under it.
+    db.add(
+        QuoteLineItem(
+            quote_id=quote.id,
+            description=f"{category_label(payload.category)} — clear aligner treatment",
+            unit_price=price_low,
+            quantity=1,
+            amount=price_low,
+        )
+    )
+    for item in payload.extras:
         db.add(
             QuoteLineItem(
                 quote_id=quote.id,
@@ -213,11 +281,12 @@ def send_quote(
         order,
         OrderStatus.QUOTED,
         staff,
-        note=f"Quote v{quote.version} sent — {quote.currency} {total}.",
+        note=f"Expected quote v{quote.version} — {category_label(payload.category)}, "
+        f"{quote.currency} {total}–{total_max}.",
     )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -229,7 +298,7 @@ def send_quote(
 def accept_scan(
     order_id: str,
     payload: schemas.NoteIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
@@ -239,20 +308,24 @@ def accept_scan(
             status.HTTP_409_CONFLICT,
             "There is no intraoral scan on this case. Upload the STL before accepting it.",
         )
-    if order.appointment and order.appointment.status == AppointmentStatus.BOOKED:
-        order.appointment.status = AppointmentStatus.COMPLETED
+    # A visit is normally closed by the scan upload, but a scan can also arrive
+    # by another route while a booking is still open — close it either way.
+    booking = order.appointment
+    if booking is not None and booking.is_live:
+        booking.status = AppointmentStatus.COMPLETED
+        booking.completed_at = utcnow()
     order.records_request_note = ""
     transition(db, order, OrderStatus.IN_PLANNING, staff, note=payload.note or "Scan accepted.")
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/scan/reject", response_model=schemas.OrderDetail)
 def reject_scan(
     order_id: str,
     payload: schemas.RecordsRequestIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     """Sends the case back for another scan attempt."""
@@ -271,14 +344,14 @@ def reject_scan(
     )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/plans", response_model=schemas.OrderDetail)
 def share_plan(
     order_id: str,
     payload: schemas.PlanIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
@@ -288,11 +361,28 @@ def share_plan(
         if existing.status != PlanStatus.APPROVED:
             existing.status = PlanStatus.SUPERSEDED
 
+    # The plan gives an exact aligner count, so this is where the estimate
+    # becomes the real price. The lab types the figure; the band is recorded
+    # alongside it for reporting but never gates anything.
+    total_aligners = payload.aligners_upper + payload.aligners_lower
+    final_price = money(payload.final_price)
+    final_tax = money(payload.final_tax)
+    if final_price <= 0:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Enter the final price for this case before sharing the plan.",
+        )
+    final_category = category_for_count(total_aligners)
+
     plan = TreatmentPlan(
         order_id=order.id,
         version=len(order.plans) + 1,
         aligners_upper=payload.aligners_upper,
         aligners_lower=payload.aligners_lower,
+        final_category=final_category,
+        final_price=final_price,
+        final_tax=final_tax,
+        final_total=money(final_price + final_tax),
         ipr_required=payload.ipr_required,
         attachments_required=payload.attachments_required,
         summary=payload.summary,
@@ -301,17 +391,55 @@ def share_plan(
         shared_at=utcnow(),
     )
     db.add(plan)
-    transition(db, order, OrderStatus.PLAN_SHARED, staff, note=f"Treatment plan v{plan.version} shared.")
+
+    # The expected quote was a placeholder read off the photographs. Now that
+    # the plan gives a real figure, that figure *is* the quote — overwrite it
+    # rather than leaving two prices on the case. The estimate stays in the
+    # timeline for anyone who needs to see what changed.
+    live_quote = order.accepted_quote or order.current_quote
+    if live_quote is not None:
+        previous_total = live_quote.total
+        # Both ends of the range collapse onto the one real figure.
+        live_quote.category_price = final_price
+        live_quote.category_price_max = final_price
+        live_quote.subtotal = final_price
+        live_quote.subtotal_max = final_price
+        live_quote.tax = final_tax
+        live_quote.total = plan.final_total
+        live_quote.total_max = plan.final_total
+        live_quote.is_final = True
+        for index, item in enumerate(live_quote.line_items):
+            if index == 0:
+                item.description = (
+                    f"Clear aligner treatment — {total_aligners} aligners"
+                )
+                item.unit_price = final_price
+                item.quantity = 1
+                item.amount = final_price
+            else:
+                db.delete(item)
+    else:
+        previous_total = None
+
+    transition(
+        db,
+        order,
+        OrderStatus.PLAN_SHARED,
+        staff,
+        note=f"Treatment plan v{plan.version} shared — {total_aligners} aligners. "
+        f"Price set to {plan.final_total}"
+        + (f", replacing the estimated range from {previous_total}." if previous_total is not None else "."),
+    )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/fit-issue/resolve", response_model=schemas.OrderDetail)
 def resolve_fit_issue(
     order_id: str,
     resolution: str = Query(..., pattern="^(rescan|replan|refabricate)$"),
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     """Three ways out of a fit issue. All of them produce a fresh training
@@ -337,7 +465,7 @@ def resolve_fit_issue(
     transition(db, order, target, staff, note=note, metadata={"fit_round": fit_round})
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -349,10 +477,14 @@ def resolve_fit_issue(
 def create_shipment(
     order_id: str,
     payload: schemas.ShipmentIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
+
+    range_from = None
+    range_to = payload.aligner_range_to
+    phase_number = phase_round = None
 
     if payload.shipment_type == ShipmentType.TRAINING_ALIGNER:
         assert_status(order, OrderStatus.TRAINING_ALIGNER_PRODUCTION)
@@ -361,13 +493,43 @@ def create_shipment(
         assert_status(order, OrderStatus.ALIGNER_PRODUCTION, OrderStatus.DISPATCHING)
         next_status = OrderStatus.DISPATCHING
 
+        # A phase cannot go out until the clinic has received the previous one
+        # and said whether to carry on — same shape as the training aligner.
+        blocker = order.phase_blocker
+        if blocker:
+            raise HTTPException(status.HTTP_409_CONFLICT, blocker)
+
+        if payload.shipment_type == ShipmentType.ALIGNER_PHASE:
+            phase_number, phase_round = order.next_phase_label
+            range_from, ceiling = order.next_phase_range
+            if range_to is None:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Say which aligner this phase runs to. It starts at {range_from}.",
+                )
+            if range_to < range_from:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"This phase starts at aligner {range_from}, so it cannot end at {range_to}.",
+                )
+            if ceiling and range_to > ceiling:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"The plan has {order.total_aligners} aligners; this phase cannot run past that.",
+                )
+        else:
+            # A full-case dispatch covers everything in one go.
+            phase_number = phase_round = None
+            range_from, range_to = 1, order.total_aligners or None
+
     shipment = Shipment(
         order_id=order.id,
         shipment_type=payload.shipment_type,
         fit_round=order.fit_round if payload.shipment_type == ShipmentType.TRAINING_ALIGNER else None,
-        phase_number=payload.phase_number,
-        aligner_range_from=payload.aligner_range_from,
-        aligner_range_to=payload.aligner_range_to,
+        phase_number=phase_number,
+        phase_round=phase_round,
+        aligner_range_from=range_from,
+        aligner_range_to=range_to,
         carrier=payload.carrier,
         tracking_number=payload.tracking_number,
         tracking_url=payload.tracking_url,
@@ -380,6 +542,13 @@ def create_shipment(
         label = payload.shipment_type.replace("_", " ").lower()
         if payload.shipment_type == ShipmentType.TRAINING_ALIGNER and order.fit_round > 1:
             label = f"{label} (round {order.fit_round})"
+        elif phase_number:
+            label = f"phase {phase_number}"
+            if phase_round and phase_round > 1:
+                label += f" round {phase_round}"
+            label += f" (aligners {range_from}–{range_to})"
+        elif range_from and range_to:
+            label = f"{label} (aligners {range_from}–{range_to})"
         transition(
             db,
             order,
@@ -388,25 +557,26 @@ def create_shipment(
             note=f"{label} shipped — {payload.carrier} {payload.tracking_number}".strip(),
         )
     else:
+        span = f"aligners {range_from}–{range_to}" if range_from and range_to else ""
         db.add(
             Notification(
                 user_id=order.doctor.user_id,
                 order_id=order.id,
                 title="Another shipment is on its way",
-                body=f"{order.order_number} — {payload.carrier} {payload.tracking_number}".strip(),
+                body=f"{order.order_number} — {span} {payload.carrier} {payload.tracking_number}".strip(),
             )
         )
 
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.patch("/shipments/{shipment_id}", response_model=schemas.OrderDetail)
 def update_shipment(
     shipment_id: str,
     payload: schemas.ShipmentUpdateIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     shipment = db.get(Shipment, shipment_id)
@@ -420,29 +590,16 @@ def update_shipment(
             setattr(shipment, field, value)
 
     if payload.mark_delivered and shipment.status != ShipmentStatus.DELIVERED:
-        shipment.status = ShipmentStatus.DELIVERED
-        shipment.delivered_at = utcnow()
-
-        if (
-            shipment.shipment_type == ShipmentType.TRAINING_ALIGNER
-            and order.status == OrderStatus.TRAINING_ALIGNER_SHIPPED
-        ):
-            transition(
-                db,
-                order,
-                OrderStatus.FIT_REVIEW,
-                staff,
-                note="Training aligner delivered — fit confirmation requested.",
-            )
+        shipments.mark_delivered(db, shipment, staff)
 
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/complete", response_model=schemas.OrderDetail)
 def complete_order(
-    order_id: str, staff: User = Depends(current_staff), db: Session = Depends(get_db)
+    order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)
 ):
     order = any_order(order_id, db)
     assert_status(order, OrderStatus.DISPATCHING)
@@ -453,14 +610,14 @@ def complete_order(
     transition(db, order, OrderStatus.COMPLETED, staff)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 @router.post("/orders/{order_id}/cancel", response_model=schemas.OrderDetail)
 def cancel_order(
     order_id: str,
     payload: schemas.CancelIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
@@ -468,7 +625,7 @@ def cancel_order(
     transition(db, order, OrderStatus.CANCELLED, staff, note=payload.reason)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -478,7 +635,7 @@ def cancel_order(
 
 @router.post("/orders/{order_id}/invoice", response_model=schemas.OrderDetail)
 def generate_invoice(
-    order_id: str, staff: User = Depends(current_staff), db: Session = Depends(get_db)
+    order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)
 ):
     order = any_order(order_id, db)
     if order.invoice is not None:
@@ -492,7 +649,10 @@ def generate_invoice(
     if quote is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "No accepted quote to invoice from.")
 
-    payload = billing.build_invoice_payload(order, quote, order.doctor, order.shipping_address)
+    # Bill the treatment plan's confirmed price where there is one — the quote
+    # was only ever an estimate from the photographs.
+    plan = order.approved_plan
+    billed_total = plan.final_total if plan is not None and plan.final_total else quote.total
     try:
         result = billing.create_invoice(payload)
     except billing.BillingNotConfigured as exc:
@@ -504,7 +664,7 @@ def generate_invoice(
         order_id=order.id,
         invoice_number=order.order_number,
         provider_invoice_id=result["provider_invoice_id"],
-        amount=money(quote.total),
+        amount=money(billed_total),
         currency=quote.currency,
         pdf_url=result["pdf_url"],
         share_url=result["share_url"],
@@ -517,12 +677,12 @@ def generate_invoice(
             user_id=order.doctor.user_id,
             order_id=order.id,
             title="Invoice available",
-            body=f"{order.order_number} — {quote.currency} {quote.total}",
+            body=f"{order.order_number} — {quote.currency} {billed_total}",
         )
     )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -533,7 +693,7 @@ def generate_invoice(
 @router.get("/doctors", response_model=list[schemas.PendingDoctorOut])
 def list_doctors(
     pending_only: bool = Query(default=False),
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     query = db.query(Doctor)
@@ -552,7 +712,7 @@ def list_doctors(
 def verify_doctor(
     doctor_id: str,
     payload: schemas.VerifyDoctorIn,
-    staff: User = Depends(current_staff),
+    staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     doctor = db.get(Doctor, doctor_id)

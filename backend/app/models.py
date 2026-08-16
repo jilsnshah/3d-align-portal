@@ -9,12 +9,13 @@ from __future__ import annotations
 from typing import Optional
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, time as time_type, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -201,12 +203,20 @@ class Order(Base, TimestampMixin):
     fit_reviews: Mapped[list[FitReview]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
     )
-    appointment: Mapped[Optional[ScanAppointment]] = relationship(
-        back_populates="order", uselist=False, cascade="all, delete-orphan"
+    appointments: Mapped[list[Appointment]] = relationship(
+        back_populates="order", cascade="all, delete-orphan", order_by="Appointment.starts_at"
     )
     invoice: Mapped[Optional[Invoice]] = relationship(
         back_populates="order", uselist=False, cascade="all, delete-orphan"
     )
+
+    @property
+    def appointment(self) -> Optional["Appointment"]:
+        """The booking that currently matters — the live one, else the latest."""
+        live = [a for a in self.appointments if a.is_live]
+        if live:
+            return live[-1]
+        return self.appointments[-1] if self.appointments else None
 
     def revision_for(self, group: "enums.FileGroup") -> int:
         return {
@@ -227,17 +237,139 @@ class Order(Base, TimestampMixin):
             self.fit_round += 1
         return self.revision_for(group)
 
+    def filled_slots(self, category: str) -> set:
+        """Slots filled at the current revision, ignoring anything in the bin."""
+        revision = self.revision_for(enums.FILE_GROUP[category])
+        return {
+            f.slot
+            for f in self.files
+            if f.category == category and not f.is_deleted and f.revision == revision and f.slot
+        }
+
+    def missing_slots(self, category: str) -> list:
+        filled = self.filled_slots(category)
+        return [s for s in enums.required_slots(category) if s not in filled]
+
     @property
     def has_intraoral_scan(self) -> bool:
-        """A case cannot leave AWAITING_SCAN without one. Whatever route the scan
-        took — uploaded by the clinic, taken at an appointment, or digitised from
-        a couriered impression — it ends up as an STL on the order."""
-        return any(
-            f.category == enums.FileCategory.INTRAORAL_SCAN
-            and not f.is_deleted
-            and f.revision == self.scan_revision
-            for f in self.files
+        """A scan is a set, not a file. The case cannot leave AWAITING_SCAN until
+        the upper arch, lower arch and bite are all present at the current
+        revision — a lone upper arch is not something anyone can plan from."""
+        return not self.missing_slots(enums.FileCategory.INTRAORAL_SCAN)
+
+    @property
+    def has_photo_series(self) -> bool:
+        return not self.missing_slots(enums.FileCategory.RECORD_PHOTO)
+
+    @property
+    def submit_blockers(self) -> list:
+        """Everything still standing between this draft and the lab. Checked at
+        slot level: a single photograph is not a records set, and the lab cannot
+        quote from one view."""
+        blockers = []
+        for category in enums.REQUIRED_SUBMIT_CATEGORIES:
+            spec = enums.slots_for(category)
+            if spec:
+                missing = self.missing_slots(category)
+                if missing:
+                    views = ", ".join(enums.SLOT_LABELS[m] for m in missing)
+                    blockers.append(f"{enums.CATEGORY_TITLES[category]}: {views}")
+            else:
+                revision = self.revision_for(enums.FILE_GROUP[category])
+                present = any(
+                    f.category == category and not f.is_deleted and f.revision == revision
+                    for f in self.files
+                )
+                if not present:
+                    blockers.append(enums.CATEGORY_TITLES[category])
+        return blockers
+
+    @property
+    def aligner_phases(self) -> list:
+        """Phase shipments in the order they went out. SQLite hands back naive
+        datetimes while a row created this session is aware, so normalise before
+        sorting."""
+
+        def when(shipment):
+            value = shipment.created_at
+            if value is None:
+                return datetime.max.replace(tzinfo=timezone.utc)
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+        return sorted(
+            (s for s in self.shipments if s.shipment_type == enums.ShipmentType.ALIGNER_PHASE),
+            key=when,
         )
+
+    @property
+    def last_phase(self):
+        phases = self.aligner_phases
+        return phases[-1] if phases else None
+
+    @property
+    def next_phase_range(self) -> tuple:
+        """Where the next phase starts, and the furthest it may run to.
+
+        Phase one begins at aligner 1; every later phase begins where the last
+        accepted one ended, so the lab never picks a start. A remake repeats the
+        same span rather than advancing.
+        """
+        total = self.total_aligners
+        last = self.last_phase
+        if last is None:
+            return 1, total
+        if last.phase_decision == enums.PhaseDecision.REPEAT:
+            return (last.aligner_range_from or 1), (last.aligner_range_to or total)
+        return (last.aligner_range_to or 0) + 1, total
+
+    @property
+    def next_phase_label(self) -> tuple:
+        """(phase number, round) for the batch the lab would ship next."""
+        last = self.last_phase
+        if last is None:
+            return 1, 1
+        if last.phase_decision == enums.PhaseDecision.REPEAT:
+            return (last.phase_number or 1), (last.phase_round or 1) + 1
+        return (last.phase_number or 0) + 1, 1
+
+    @property
+    def phase_blocker(self) -> Optional[str]:
+        """Why the next phase cannot ship yet, or None when it can."""
+        if self.dispatch_mode != enums.DispatchMode.PHASED:
+            return None
+        last = self.last_phase
+        if last is None:
+            return None
+        if last.status != enums.ShipmentStatus.DELIVERED:
+            return f"Phase {last.phase_number} has not been received by the clinic yet."
+        if last.phase_decision is None:
+            return (
+                f"The clinic has not said whether to continue after phase {last.phase_number}."
+            )
+        start, _ = self.next_phase_range
+        if self.total_aligners and start > self.total_aligners:
+            return "Every aligner in the plan has already been dispatched."
+        return None
+
+    @property
+    def total_aligners(self) -> int:
+        plan = self.approved_plan or self.current_plan
+        return (plan.aligners_upper + plan.aligners_lower) if plan else 0
+
+    @property
+    def approved_plan(self) -> Optional["TreatmentPlan"]:
+        return next(
+            (p for p in self.plans if p.status == enums.PlanStatus.APPROVED), None
+        )
+
+    @property
+    def billable(self):
+        """What the case is actually invoiced at: the treatment plan's confirmed
+        price once it exists, falling back to the accepted expected quote."""
+        plan = self.approved_plan
+        if plan is not None and plan.final_total:
+            return plan
+        return self.accepted_quote
 
     @property
     def accepted_quote(self) -> Optional[Quote]:
@@ -266,15 +398,27 @@ class OrderFile(Base, TimestampMixin):
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
 
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    # Which view within its set — upper arch, buccal right, and so on.
+    slot: Mapped[str] = mapped_column(String(40), default="")
 
     storage_ref: Mapped[str] = mapped_column(String(512))
     external_link: Mapped[str] = mapped_column(String(512), default="")
 
     uploaded_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+
+    # Recycle bin. A deleted file keeps its bytes until it is purged, so a
+    # clinic that deletes the wrong thing can get it back.
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    deleted_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
 
     order: Mapped[Order] = relationship(back_populates="files")
-    uploaded_by: Mapped[User] = relationship()
+    uploaded_by: Mapped[User] = relationship(foreign_keys=[uploaded_by_id])
+    deleted_by: Mapped[Optional[User]] = relationship(foreign_keys=[deleted_by_id])
+
+    @property
+    def is_image(self) -> bool:
+        return self.mime_type.startswith("image/")
 
 
 class StatusEvent(Base):
@@ -309,18 +453,29 @@ class Quote(Base, TimestampMixin):
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
-    estimated_aligners_upper: Mapped[int] = mapped_column(Integer, default=0)
-    estimated_aligners_lower: Mapped[int] = mapped_column(Integer, default=0)
+    # The expected quote is a band picked from the photographs, not a count, and
+    # it carries the band's range. Once the plan lands, both ends collapse to
+    # the one real figure.
+    category: Mapped[Optional[str]] = mapped_column(String(40))
+    category_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    category_price_max: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
 
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    subtotal_max: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    # total is the low end of the range, total_max the high end. When the price
+    # is final the two are equal, so display code never needs a special case.
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    total_max: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     currency: Mapped[str] = mapped_column(String(8), default="INR")
     notes: Mapped[str] = mapped_column(Text, default="")
 
     status: Mapped[enums.QuoteStatus] = mapped_column(
         _enum(enums.QuoteStatus, "quote_status"), default=enums.QuoteStatus.SENT
     )
+    # Set once the treatment plan supplies the real price, which overwrites the
+    # estimate in place — the band was only ever a placeholder.
+    is_final: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -355,6 +510,14 @@ class TreatmentPlan(Base, TimestampMixin):
 
     aligners_upper: Mapped[int] = mapped_column(Integer, default=0)
     aligners_lower: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Confirmed once the plan gives an exact count. This, not the expected
+    # quote, is what the case is finally invoiced at.
+    final_category: Mapped[Optional[str]] = mapped_column(String(40))
+    final_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    final_tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    final_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
     ipr_required: Mapped[bool] = mapped_column(Boolean, default=False)
     attachments_required: Mapped[bool] = mapped_column(Boolean, default=False)
     summary: Mapped[str] = mapped_column(Text, default="")
@@ -370,20 +533,129 @@ class TreatmentPlan(Base, TimestampMixin):
     order: Mapped[Order] = relationship(back_populates="plans")
 
 
-class ScanAppointment(Base, TimestampMixin):
-    __tablename__ = "scan_appointments"
+class Technician(Base, TimestampMixin):
+    """A scan technician who travels to clinics. Lab staff, so they share the
+    case tools with admin — what they do not get is the admin furniture."""
+
+    __tablename__ = "technicians"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), unique=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
 
-    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    location: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[enums.AppointmentStatus] = mapped_column(
-        _enum(enums.AppointmentStatus, "appointment_status"), default=enums.AppointmentStatus.BOOKED
+    full_name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    employee_code: Mapped[str] = mapped_column(String(40), default="")
+    max_daily_jobs: Mapped[int] = mapped_column(Integer, default=4)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    user: Mapped[User] = relationship()
+    availability: Mapped[list[AvailabilityRule]] = relationship(
+        back_populates="technician", cascade="all, delete-orphan"
     )
-    notes: Mapped[str] = mapped_column(Text, default="")
+    time_off: Mapped[list[TimeOff]] = relationship(
+        back_populates="technician", cascade="all, delete-orphan"
+    )
+    appointments: Mapped[list[Appointment]] = relationship(back_populates="technician")
 
-    order: Mapped[Order] = relationship(back_populates="appointment")
+
+class AvailabilityRule(Base):
+    """Recurring weekly working window. Several rows per technician per day is
+    fine — a lunch break is simply two rows."""
+
+    __tablename__ = "availability_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    technician_id: Mapped[str] = mapped_column(ForeignKey("technicians.id"), index=True)
+
+    weekday: Mapped[int] = mapped_column(Integer)  # 0 = Monday
+    start_time: Mapped[time_type] = mapped_column(Time)
+    end_time: Mapped[time_type] = mapped_column(Time)
+
+    technician: Mapped[Technician] = relationship(back_populates="availability")
+
+
+class TimeOff(Base):
+    __tablename__ = "time_off"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    technician_id: Mapped[str] = mapped_column(ForeignKey("technicians.id"), index=True)
+
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str] = mapped_column(String(200), default="")
+
+    technician: Mapped[Technician] = relationship(back_populates="time_off")
+
+
+class BookingSettings(Base, TimestampMixin):
+    """Single row. Every scheduling knob, editable from the admin panel rather
+    than baked into the environment."""
+
+    __tablename__ = "booking_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+
+    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    travel_buffer_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    booking_horizon_days: Mapped[int] = mapped_column(Integer, default=30)
+    min_notice_hours: Mapped[int] = mapped_column(Integer, default=24)
+    max_daily_jobs: Mapped[int] = mapped_column(Integer, default=4)
+
+    # {"0": ["09:00", "18:00"], ..., "6": null}  — null means closed.
+    working_hours: Mapped[dict] = mapped_column(JSON, default=dict)
+    service_city: Mapped[str] = mapped_column(String(120), default="Ahmedabad")
+
+
+class AlignerPrice(Base, TimestampMixin):
+    """One row per aligner category. Kept in the database rather than the code
+    so the lab can reprice without a deploy."""
+
+    __tablename__ = "aligner_prices"
+
+    category: Mapped[str] = mapped_column(String(40), primary_key=True)
+    # A band quotes a range; the exact figure comes from the treatment plan.
+    price_min: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    price_max: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Appointment(Base, TimestampMixin):
+    __tablename__ = "appointments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # Not unique: a cancelled booking can be replaced by a new one.
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    technician_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("technicians.id"), index=True
+    )
+
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    status: Mapped[enums.AppointmentStatus] = mapped_column(
+        _enum(enums.AppointmentStatus, "appointment_status"),
+        default=enums.AppointmentStatus.ASSIGNED,
+    )
+
+    address_id: Mapped[Optional[str]] = mapped_column(ForeignKey("addresses.id"))
+    contact_name: Mapped[str] = mapped_column(String(200), default="")
+    contact_phone: Mapped[str] = mapped_column(String(40), default="")
+    access_notes: Mapped[str] = mapped_column(Text, default="")
+    assignment_reason: Mapped[str] = mapped_column(String(255), default="")
+
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancel_reason: Mapped[str] = mapped_column(Text, default="")
+    outcome_notes: Mapped[str] = mapped_column(Text, default="")
+
+    order: Mapped[Order] = relationship(back_populates="appointments")
+    technician: Mapped[Optional[Technician]] = relationship(back_populates="appointments")
+    address: Mapped[Optional[Address]] = relationship()
+
+    @property
+    def is_live(self) -> bool:
+        return self.status in enums.LIVE_APPOINTMENT_STATUSES
 
 
 class Shipment(Base, TimestampMixin):
@@ -399,6 +671,9 @@ class Shipment(Base, TimestampMixin):
     # second training aligner, and the two must not read as duplicates.
     fit_round: Mapped[Optional[int]] = mapped_column(Integer)
     phase_number: Mapped[Optional[int]] = mapped_column(Integer)
+    # A remade phase keeps its number and advances its round, so "phase 3
+    # round 2" is distinguishable from the batch that did not work.
+    phase_round: Mapped[Optional[int]] = mapped_column(Integer)
     aligner_range_from: Mapped[Optional[int]] = mapped_column(Integer)
     aligner_range_to: Mapped[Optional[int]] = mapped_column(Integer)
 
@@ -409,6 +684,11 @@ class Shipment(Base, TimestampMixin):
     status: Mapped[enums.ShipmentStatus] = mapped_column(
         _enum(enums.ShipmentStatus, "shipment_status"), default=enums.ShipmentStatus.SHIPPED
     )
+    # After receiving a phase the clinic says whether to carry on or remake it.
+    # Until that is answered, the next phase cannot ship.
+    phase_decision: Mapped[Optional[str]] = mapped_column(String(20))
+    decision_notes: Mapped[str] = mapped_column(Text, default="")
+
     shipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

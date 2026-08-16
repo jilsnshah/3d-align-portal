@@ -6,14 +6,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { CATEGORY_LABEL, api } from "../../api";
+import { api } from "../../api";
 import type { OrderDetail } from "../../api";
-import FileUploader from "../../components/FileUploader";
-import { FileList } from "../../components/OrderView";
+import FileExplorer from "../../components/FileExplorer";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
 const STEPS = ["Patient", "Clinical", "Records", "Shipping"];
-const RECORD_CATEGORIES = ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"] as const;
 
 export default function NewOrder() {
   const navigate = useNavigate();
@@ -74,7 +72,7 @@ export default function NewOrder() {
   if (patients.isLoading || addresses.isLoading) return <Loading />;
 
   const patientReady = patientId !== "" || newPatient.full_name.trim() !== "";
-  const missing = draft?.missing_categories ?? [];
+  const blockers = draft?.submit_blockers ?? [];
 
   return (
     <main className="page page-narrow">
@@ -238,19 +236,23 @@ export default function NewOrder() {
               Intraoral and extraoral photographs and an OPG are required. Add a lateral
               cephalogram or CBCT if your case needs one.
             </p>
-            {missing.length > 0 && (
+            {blockers.length > 0 && (
               <Banner tone="warn">
-                Still required: {missing.map((c) => CATEGORY_LABEL[c]).join(", ")}
+                <div>
+                  <b>Still needed</b>
+                  <ul style={{ margin: "6px 0 0", paddingLeft: "1.1em" }}>
+                    {blockers.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
               </Banner>
             )}
-            <FileUploader
-              orderId={draft.id}
-              categories={[...RECORD_CATEGORIES]}
-              onUploaded={refreshDraft}
-            />
           </div>
 
-          <FileList order={draft} canDelete onDeleted={refreshDraft} title="Uploaded" />
+          <div className="card">
+            <FileExplorer order={draft} onChanged={refreshDraft} />
+          </div>
 
           <div className="row">
             <button type="button" className="btn-ghost" onClick={() => setStep(1)}>
@@ -259,7 +261,7 @@ export default function NewOrder() {
             <button
               type="button"
               className="btn-primary"
-              disabled={missing.length > 0}
+              disabled={blockers.length > 0}
               onClick={() => setStep(3)}
             >
               Continue

@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { CATEGORY_LABEL, api, formatDate, formatMoney } from "../../api";
-import type { OrderDetail as Order } from "../../api";
+import { api, formatDate, formatMoney } from "../../api";
+import type { OrderDetail as Order, Slot } from "../../api";
 import FileUploader from "../../components/FileUploader";
+import FileExplorer from "../../components/FileExplorer";
+import SlotCalendar from "../../components/SlotCalendar";
 import {
   ActionPanel,
   CaseSummary,
-  FileList,
   InvoiceCard,
   OrderHeader,
   PlanCard,
@@ -38,6 +39,16 @@ export default function DoctorOrderDetail() {
     void queryClient.invalidateQueries({ queryKey: ["unread"] });
   };
 
+  const confirmDelivery = useMutation({
+    mutationFn: (shipmentId: string) => api.confirmDelivery(orderId, shipmentId),
+    onSuccess: invalidate,
+  });
+  const decidePhase = useMutation({
+    mutationFn: (v: { id: string; decision: "CONTINUE" | "REPEAT"; notes: string }) =>
+      api.decidePhase(orderId, v.id, v.decision, v.notes),
+    onSuccess: invalidate,
+  });
+
   if (order.isLoading) return <Loading what="case" />;
   if (order.isError || !order.data) return <div className="page">Case not found.</div>;
 
@@ -51,18 +62,27 @@ export default function DoctorOrderDetail() {
       case "plan":
         return <PlanCard key={key} order={data} open={isLive} />;
       case "shipments":
-        return <ShipmentsCard key={key} order={data} open={isLive} />;
+        return (
+          <ShipmentsCard
+            key={key}
+            order={data}
+            open={isLive}
+            // The clinic receives the parcel, so it confirms arrival.
+            onMarkDelivered={
+              data.status === "COMPLETED" || data.status === "CANCELLED"
+                ? undefined
+                : (id) => confirmDelivery.mutate(id)
+            }
+            deliverLabel="Mark received"
+          />
+        );
       case "invoice":
         return <InvoiceCard key={key} order={data} />;
       case "files":
         return (
-          <FileList
-            key={key}
-            order={data}
-            open={isLive}
-            canDelete={data.status === "DRAFT" || data.status === "RECORDS_REQUESTED"}
-            onDeleted={invalidate}
-          />
+          <div className="card" key={key}>
+            <FileExplorer order={data} onChanged={invalidate} />
+          </div>
         );
     }
   };
@@ -75,6 +95,17 @@ export default function DoctorOrderDetail() {
       <div className="split">
         <div className="stack">
           <DoctorActions order={data} onDone={invalidate} onCancelled={() => navigate("/orders")} />
+          {data.awaiting_phase_decision && (
+            <PhaseDecisionPanel
+              order={data}
+              shipmentId={data.awaiting_phase_decision}
+              pending={decidePhase.isPending}
+              error={decidePhase.error}
+              onDecide={(decision, notes) =>
+                decidePhase.mutate({ id: data.awaiting_phase_decision!, decision, notes })
+              }
+            />
+          )}
           {sections.map((key, index) => render(key, index === 0))}
         </div>
         <div className="stack">
@@ -83,6 +114,76 @@ export default function DoctorOrderDetail() {
         </div>
       </div>
     </main>
+  );
+}
+
+function PhaseDecisionPanel({
+  order,
+  shipmentId,
+  pending,
+  error,
+  onDecide,
+}: {
+  order: Order;
+  shipmentId: string;
+  pending: boolean;
+  error: unknown;
+  onDecide: (decision: "CONTINUE" | "REPEAT", notes: string) => void;
+}) {
+  const [notes, setNotes] = useState("");
+  const phase = order.shipments.find((s) => s.id === shipmentId);
+  const span =
+    phase?.aligner_range_from && phase?.aligner_range_to
+      ? `aligners ${phase.aligner_range_from}–${phase.aligner_range_to}`
+      : "this phase";
+  const isFinal = phase?.is_final_phase ?? false;
+
+  return (
+    <ActionPanel
+      title={
+        isFinal
+          ? `Final phase received — does it fit?`
+          : `Phase ${phase?.phase_number ?? ""} received — what next?`
+      }
+      why={
+        isFinal
+          ? `You have confirmed ${span}, the last in the plan. Accepting closes the case.`
+          : `You have confirmed ${span}. The lab cannot send the next batch until you answer.`
+      }
+    >
+      <ErrorText error={error} />
+      <div className="row">
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={pending}
+          onClick={() => onDecide("CONTINUE", notes)}
+        >
+          {isFinal
+            ? "All fitting — complete the case"
+            : `Start the next phase (from aligner ${order.next_phase_from})`}
+        </button>
+      </div>
+      <Field label={`Or ask for phase ${phase?.phase_number ?? ""} again`}>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="What was wrong with this batch?"
+        />
+      </Field>
+      <p className="dim">
+        The lab remakes it and ships it back as phase {phase?.phase_number ?? ""} round{" "}
+        {(phase?.phase_round ?? 1) + 1}, covering the same aligners.
+      </p>
+      <button
+        type="button"
+        className="btn-ghost"
+        disabled={pending || !notes.trim()}
+        onClick={() => onDecide("REPEAT", notes)}
+      >
+        Remake phase {phase?.phase_number ?? ""}
+      </button>
+    </ActionPanel>
   );
 }
 
@@ -102,8 +203,8 @@ function DoctorActions({
     order.scan_route ?? "UPLOAD",
   );
   const [courierTracking, setCourierTracking] = useState(order.scan_courier_tracking);
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [location, setLocation] = useState("");
+  const [slot, setSlot] = useState<Slot | null>(null);
+  const [accessNotes, setAccessNotes] = useState("");
 
   const submit = useMutation({ mutationFn: () => api.submitOrder(order.id), onSuccess: onDone });
   const resubmit = useMutation({
@@ -132,9 +233,22 @@ function DoctorActions({
       api.chooseScanRoute(order.id, {
         route: scanRoute,
         courier_tracking: courierTracking,
-        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-        location,
       }),
+    onSuccess: onDone,
+  });
+  const book = useMutation({
+    mutationFn: () =>
+      api.bookAppointment(order.id, {
+        starts_at: slot!.starts_at,
+        access_notes: accessNotes,
+      }),
+    onSuccess: () => {
+      setSlot(null);
+      onDone();
+    },
+  });
+  const cancelVisit = useMutation({
+    mutationFn: () => api.cancelAppointment(order.appointment!.id, "Cancelled by the clinic."),
     onSuccess: onDone,
   });
   const cancelDraft = useMutation({
@@ -149,23 +263,25 @@ function DoctorActions({
           title="Finish and submit"
           why="This case has not reached the lab yet."
         >
-          {order.missing_categories.length > 0 && (
+          {order.submit_blockers.length > 0 && (
             <Banner tone="warn">
-              Still required:{" "}
-              {order.missing_categories.map((c) => CATEGORY_LABEL[c]).join(", ")}
+              <div>
+                <b>Still needed before you can submit</b>
+                <ul style={{ margin: "6px 0 0", paddingLeft: "1.1em" }}>
+                  {order.submit_blockers.map((b) => (
+                    <li key={b}>{b}</li>
+                  ))}
+                </ul>
+              </div>
             </Banner>
           )}
-          <FileUploader
-            orderId={order.id}
-            categories={["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"]}
-            onUploaded={onDone}
-          />
+          <p className="dim">Upload each view from the Records section below.</p>
           <ErrorText error={submit.error} />
           <div className="row">
             <button
               type="button"
               className="btn-primary"
-              disabled={order.missing_categories.length > 0 || submit.isPending}
+              disabled={order.submit_blockers.length > 0 || submit.isPending}
               onClick={() => submit.mutate()}
             >
               Submit to 3D Align
@@ -235,12 +351,25 @@ function DoctorActions({
             <Banner tone="warn">{order.records_request_note}</Banner>
           )}
 
-          {order.appointment && order.appointment.status === "BOOKED" && (
-            <Banner tone="ok">
-              Scan appointment booked for {formatDate(order.appointment.scheduled_at)}
-              {order.appointment.location ? ` at ${order.appointment.location}` : ""}. 3D Align will
-              confirm once the scan has been taken. Pick a new slot below to change it.
-            </Banner>
+          {order.appointment && (order.appointment.status === "ASSIGNED" || order.appointment.status === "EN_ROUTE") && (
+            <div className="stack-sm">
+              <Banner tone="ok">
+                <div>
+                  <b>{order.appointment.status_label}</b> — {formatDate(order.appointment.starts_at)}
+                  <br />
+                  {order.appointment.technician_name} will attend
+                  {order.appointment.location ? ` at ${order.appointment.location}` : ""}.
+                </div>
+              </Banner>
+              <ErrorText error={cancelVisit.error} />
+              <div>
+                <ConfirmButton
+                  label="Cancel this visit"
+                  confirmLabel="Yes, cancel it"
+                  onConfirm={() => cancelVisit.mutate()}
+                />
+              </div>
+            </div>
           )}
           {order.scan_route === "COURIER" && order.scan_courier_tracking && (
             <Banner tone="ok">
@@ -266,23 +395,36 @@ function DoctorActions({
             />
           )}
 
-          {scanRoute === "APPOINTMENT" && (
-            <>
-              <Field label="Preferred date and time">
-                <input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                />
-              </Field>
-              <Field label="Where">
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Clinic address or landmark"
-                />
-              </Field>
-            </>
+          {scanRoute === "APPOINTMENT" && !order.appointment?.status.match(/ASSIGNED|EN_ROUTE/) && (
+            <div className="stack-sm">
+              <p className="dim">
+                Pick a free slot. A 3D Align technician will be assigned automatically and travel to
+                your clinic.
+              </p>
+              <SlotCalendar selected={slot} onPick={setSlot} />
+              {slot && (
+                <>
+                  <Field label="Anything the technician should know">
+                    <input
+                      value={accessNotes}
+                      onChange={(e) => setAccessNotes(e.target.value)}
+                      placeholder="Parking, floor, who to ask for"
+                    />
+                  </Field>
+                  <ErrorText error={book.error} />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={book.isPending}
+                    onClick={() => book.mutate()}
+                  >
+                    {book.isPending
+                      ? "Booking…"
+                      : `Book ${new Date(slot.starts_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           {scanRoute === "COURIER" && (
@@ -292,22 +434,14 @@ function DoctorActions({
           )}
 
           <ErrorText error={saveScanRoute.error} />
-          {scanRoute !== "UPLOAD" && (
+          {scanRoute === "COURIER" && (
             <button
               type="button"
               className="btn-primary"
-              disabled={
-                saveScanRoute.isPending ||
-                (scanRoute === "APPOINTMENT" && !scheduledAt) ||
-                (scanRoute === "COURIER" && !courierTracking.trim())
-              }
+              disabled={saveScanRoute.isPending || !courierTracking.trim()}
               onClick={() => saveScanRoute.mutate()}
             >
-              {saveScanRoute.isPending
-                ? "Saving…"
-                : scanRoute === "APPOINTMENT"
-                  ? "Book this slot"
-                  : "Save tracking number"}
+              {saveScanRoute.isPending ? "Saving…" : "Save tracking number"}
             </button>
           )}
         </ActionPanel>

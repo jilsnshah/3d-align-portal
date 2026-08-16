@@ -14,10 +14,21 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..db import get_db
 from ..deps import current_user, owned_order, verified_doctor
-from ..enums import DOCTOR_ACTION_STATUSES, OrderStatus, PlanStatus, QuoteStatus, ScanRoute
-from ..models import Address, Doctor, FitReview, Order, Patient, ScanAppointment, User, utcnow
+from ..enums import (
+    DOCTOR_ACTION_STATUSES,
+    PhaseDecision,
+    ShipmentStatus,
+    ShipmentType,
+    OrderStatus,
+    PlanStatus,
+    QuoteStatus,
+    ScanRoute,
+    UserRole,
+)
+from ..models import Address, Doctor, FitReview, Notification, Order, Patient, User, utcnow
 from ..serializers import missing_categories, order_detail, order_summary
 from ..services.numbering import next_order_number
+from ..services import shipments
 from ..services.storage import get_storage
 from ..transitions import assert_status, transition
 
@@ -61,7 +72,7 @@ def create_order(
     db.add(order)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.get("/{order_id}", response_model=schemas.OrderDetail)
@@ -93,7 +104,7 @@ def update_order(
 
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/submit", response_model=schemas.OrderDetail)
@@ -106,11 +117,11 @@ def submit_order(
     order = owned_order(order_id, db, doctor)
     assert_status(order, OrderStatus.DRAFT)
 
-    missing = missing_categories(order)
-    if missing:
-        readable = ", ".join(m.replace("_", " ").lower() for m in missing)
+    blockers = order.submit_blockers
+    if blockers:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Add the required records before submitting: {readable}."
+            status.HTTP_400_BAD_REQUEST,
+            "Still needed before this can be submitted — " + "; ".join(blockers) + ".",
         )
     if not order.shipping_address_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a shipping address before submitting.")
@@ -121,7 +132,7 @@ def submit_order(
     transition(db, order, OrderStatus.SUBMITTED, user)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/resubmit", response_model=schemas.OrderDetail)
@@ -137,7 +148,7 @@ def resubmit_records(
     order.records_request_note = ""
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/quote/accept", response_model=schemas.OrderDetail)
@@ -165,7 +176,7 @@ def accept_quote(
     )
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/scan-route", response_model=schemas.OrderDetail)
@@ -175,31 +186,24 @@ def choose_scan_route(
     doctor: Doctor = Depends(verified_doctor),
     db: Session = Depends(get_db),
 ):
-    """Records how the scan will arrive. The order stays in AWAITING_SCAN until
-    staff accept the scan itself."""
+    """Records how the scan will arrive. Booking a technician visit goes through
+    POST /orders/{id}/appointment instead, because it has to allocate a person."""
     order = owned_order(order_id, db, doctor)
     assert_status(order, OrderStatus.AWAITING_SCAN)
+
+    if payload.route == ScanRoute.APPOINTMENT:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Pick a slot from the calendar to book a technician visit.",
+        )
 
     order.scan_route = payload.route
     if payload.route == ScanRoute.COURIER:
         order.scan_courier_tracking = payload.courier_tracking
-    elif payload.route == ScanRoute.APPOINTMENT:
-        if payload.scheduled_at is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a date and time for the scan.")
-        if order.appointment:
-            order.appointment.scheduled_at = payload.scheduled_at
-            order.appointment.location = payload.location
-        else:
-            db.add(
-                ScanAppointment(
-                    order_id=order.id,
-                    scheduled_at=payload.scheduled_at,
-                    location=payload.location,
-                )
-            )
+
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/plan/respond", response_model=schemas.OrderDetail)
@@ -238,7 +242,102 @@ def respond_to_plan(
 
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
+
+
+@router.post(
+    "/{order_id}/shipments/{shipment_id}/delivered", response_model=schemas.OrderDetail
+)
+def confirm_delivery(
+    order_id: str,
+    shipment_id: str,
+    doctor: Doctor = Depends(verified_doctor),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """The clinic confirms a parcel arrived. It cannot edit carrier or tracking —
+    only say that what the lab sent has landed."""
+    order = owned_order(order_id, db, doctor)
+    shipment = next((s for s in order.shipments if s.id == shipment_id), None)
+    if shipment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Shipment not found.")
+
+    shipments.mark_delivered(db, shipment, user)
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.DOCTOR)
+
+
+def _is_final_phase(order, shipment) -> bool:
+    total = order.total_aligners
+    return bool(total and shipment.aligner_range_to and shipment.aligner_range_to >= total)
+
+
+@router.post(
+    "/{order_id}/shipments/{shipment_id}/phase-decision", response_model=schemas.OrderDetail
+)
+def decide_phase(
+    order_id: str,
+    shipment_id: str,
+    payload: schemas.PhaseDecisionIn,
+    doctor: Doctor = Depends(verified_doctor),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """After receiving a phase the clinic either moves on or asks for it again —
+    the same choice as the training aligner, one step down. Until this is
+    answered the lab cannot ship the next batch."""
+    order = owned_order(order_id, db, doctor)
+    shipment = next((s for s in order.shipments if s.id == shipment_id), None)
+    if shipment is None or shipment.shipment_type != ShipmentType.ALIGNER_PHASE:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Phase not found.")
+    if shipment.status != ShipmentStatus.DELIVERED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Confirm you have received this phase first."
+        )
+    if shipment.phase_decision is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You have already answered for this phase.")
+
+    shipment.phase_decision = payload.decision
+    shipment.decision_notes = payload.notes
+
+    if payload.decision == PhaseDecision.REPEAT:
+        # Same shape as a fit issue: the batch goes back to the bench, and the
+        # replacement ships as the next round of the same phase.
+        number, next_round = order.next_phase_label
+        transition(
+            db,
+            order,
+            OrderStatus.ALIGNER_PRODUCTION,
+            user,
+            note=f"Phase {shipment.phase_number} to be remade as round {next_round}. "
+            + (payload.notes or ""),
+        )
+    elif _is_final_phase(order, shipment):
+        # Accepting the batch that carries the last aligner is what finishes the
+        # case — the clinic confirms the fit rather than it completing silently.
+        transition(
+            db,
+            order,
+            OrderStatus.COMPLETED,
+            user,
+            note=f"Final phase accepted — all {order.total_aligners} aligners delivered and fitting.",
+        )
+    else:
+        start, _ = order.next_phase_range
+        for member in db.query(User).filter(User.role == UserRole.ADMIN, User.is_active.is_(True)):
+            db.add(
+                Notification(
+                    user_id=member.id,
+                    order_id=order.id,
+                    title="Ready for the next phase",
+                    body=f"{order.order_number} — continue from aligner {start}.",
+                )
+            )
+
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/fit-review", response_model=schemas.OrderDetail)
@@ -302,7 +401,7 @@ def submit_fit_review(
 
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 @router.post("/{order_id}/cancel", response_model=schemas.OrderDetail)
@@ -320,7 +419,7 @@ def cancel_draft(
     transition(db, order, OrderStatus.CANCELLED, user, note=payload.reason)
     db.commit()
     db.refresh(order)
-    return order_detail(order)
+    return order_detail(order, UserRole.DOCTOR)
 
 
 # --------------------------------------------------------------------------

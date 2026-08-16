@@ -15,6 +15,10 @@ import StaffQueue from "./pages/staff/Queue";
 import StaffOrders from "./pages/staff/Orders";
 import StaffOrderDetail from "./pages/staff/OrderDetail";
 import StaffDoctors from "./pages/staff/Doctors";
+import AdminBookings from "./pages/admin/Bookings";
+import AdminTechnicians from "./pages/admin/Technicians";
+import AdminSettings from "./pages/admin/Settings";
+import TechSchedule from "./pages/tech/Schedule";
 
 export default function App() {
   const { me, loading } = useAuth();
@@ -31,7 +35,19 @@ export default function App() {
     );
   }
 
-  if (me.role === "STAFF") {
+  if (me.role === "TECHNICIAN") {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/tech" element={<TechSchedule />} />
+          <Route path="/tech/jobs/:orderId" element={<StaffOrderDetail />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/tech" replace />} />
+      </Routes>
+    );
+  }
+
+  if (me.role === "ADMIN") {
     return (
       <Routes>
         <Route element={<Layout />}>
@@ -39,6 +55,9 @@ export default function App() {
           <Route path="/staff/orders" element={<StaffOrders />} />
           <Route path="/staff/orders/:orderId" element={<StaffOrderDetail />} />
           <Route path="/staff/doctors" element={<StaffDoctors />} />
+          <Route path="/staff/bookings" element={<AdminBookings />} />
+          <Route path="/staff/technicians" element={<AdminTechnicians />} />
+          <Route path="/staff/settings" element={<AdminSettings />} />
         </Route>
         <Route path="*" element={<Navigate to="/staff" replace />} />
       </Routes>

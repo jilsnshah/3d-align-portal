@@ -79,17 +79,36 @@ def _access_token() -> str:
     return token
 
 
-def build_invoice_payload(order, quote, doctor, address) -> dict:
+def build_invoice_payload(order, quote, doctor, address, plan=None) -> dict:
     """Line items come from the accepted quote — nothing is hardcoded here except
     the model print fee, which is a configurable setting."""
-    items = [
-        {
-            "name": item.description,
-            "rate": float(item.unit_price),
-            "quantity": int(item.quantity),
-        }
-        for item in quote.line_items
-    ]
+    if plan is not None and plan.final_total:
+        # The plan knows the real aligner count, so bill that band.
+        from ..enums import category_label
+
+        items = [
+            {
+                "name": (
+                    f"{category_label(plan.final_category)} — clear aligner treatment "
+                    f"({plan.aligners_upper + plan.aligners_lower} aligners)"
+                ),
+                "rate": float(plan.final_price),
+                "quantity": 1,
+            }
+        ]
+        items += [
+            {"name": i.description, "rate": float(i.unit_price), "quantity": int(i.quantity)}
+            for i in quote.line_items[1:]
+        ]
+    else:
+        items = [
+            {
+                "name": item.description,
+                "rate": float(item.unit_price),
+                "quantity": int(item.quantity),
+            }
+            for item in quote.line_items
+        ]
     if settings.invoice_model_print_fee:
         items.append(
             {

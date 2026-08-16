@@ -631,3 +631,306 @@ tbody tr.clickable:hover { background: var(--gold-soft); }
 
 .file-row.superseded { opacity: 0.5; }
 .file-row.superseded .name { text-decoration: line-through; }
+
+/* ---------------- booking calendar ---------------- */
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cal-dow {
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  padding-bottom: 4px;
+}
+.cal-day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--surface, var(--white));
+  padding: 2px;
+  min-height: 52px;
+}
+.cal-day .n { font-size: 0.92rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cal-day .s { font-size: 0.62rem; color: var(--ink-3); }
+.cal-day:disabled { background: var(--paper); color: var(--ink-3); cursor: not-allowed; opacity: 1; }
+.cal-day.has-slots { border-color: var(--gold-line); background: var(--gold-soft); }
+.cal-day.has-slots .s { color: var(--warn); font-weight: 600; }
+.cal-day.has-slots:hover { border-color: var(--gold); }
+.cal-day.open { border-color: var(--black); border-width: 2px; }
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--ink-3);
+}
+.cal-legend .swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--rule-strong);
+  display: inline-block;
+}
+.cal-legend .swatch.free { background: var(--gold-soft); border-color: var(--gold-line); }
+.cal-legend .swatch.full { background: var(--paper); margin-left: 10px; }
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 7px;
+}
+.slot {
+  border: 1px solid var(--gold-line);
+  background: var(--gold-soft);
+  color: var(--warn);
+  border-radius: var(--r);
+  padding: 9px 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.slot:hover:not(:disabled) { background: var(--gold-bright); color: var(--black); border-color: var(--gold); }
+.slot:disabled {
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--ink-3);
+  text-decoration: line-through;
+  cursor: not-allowed;
+  opacity: 1;
+}
+.slot.picked { background: var(--black); border-color: var(--black); color: var(--white); }
+
+/* ---------------- technician job cards ---------------- */
+
+.job {
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--gold-bright);
+  border-radius: var(--r);
+  padding: 15px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.job.done { border-left-color: var(--rule-strong); opacity: 0.72; }
+.job .when { font-size: 1.15rem; font-weight: 680; font-variant-numeric: tabular-nums; }
+.job .who { font-weight: 600; }
+.job .where { color: var(--ink-2); font-size: 0.88rem; }
+
+/* ---------------- admin week grid ---------------- */
+
+.week {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.week-col {
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.week-col h5 {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.week-slot {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--gold-bright);
+  border-radius: 4px;
+  padding: 7px 9px;
+  font-size: 0.8rem;
+  background: var(--paper);
+}
+.week-slot.cancelled { border-left-color: var(--danger); opacity: 0.6; }
+.week-slot.done { border-left-color: var(--ok); }
+.week-slot b { display: block; font-variant-numeric: tabular-nums; }
+
+/* ---------------- file explorer ---------------- */
+
+.slot-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+}
+
+.tile-file,
+.tile-empty {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tile-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--paper);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+.tile-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile-thumb:hover { border-color: var(--gold); }
+.tile-ext {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+}
+
+.tile-thumb.placeholder {
+  border-style: dashed;
+  border-color: var(--rule-strong);
+  color: var(--ink-3);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: default;
+}
+.tile-empty.required .tile-thumb.placeholder {
+  border-color: var(--gold-line);
+  background: var(--gold-soft);
+  color: var(--warn);
+}
+
+.tile-file figcaption,
+.tile-empty > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+.tile-file figcaption b,
+.tile-empty b { font-size: 0.8rem; font-weight: 600; }
+.tile-actions { display: flex; gap: 10px; margin-top: 2px; }
+.tile-actions a, .tile-actions button { font-size: 0.75rem; }
+
+.row-thumb {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  overflow: hidden;
+  padding: 0;
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.row-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.row-thumb.placeholder { cursor: default; }
+
+/* ---------------- lightbox ---------------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 11, 12, 0.86);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.lightbox-inner {
+  background: var(--white);
+  border-radius: var(--r);
+  max-width: min(1000px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.lightbox-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+}
+.lightbox-inner img {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  object-fit: contain;
+  display: block;
+  background: var(--black);
+}
+
+.tile-thumb { position: relative; }
+.tile-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+/* ---------------- aligner category bands ---------------- */
+
+.band-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
+  background: var(--white);
+  padding: 11px 13px;
+  text-align: left;
+}
+.band:hover { border-color: var(--gold); }
+.band.picked { background: var(--black); border-color: var(--black); color: var(--white); }
+.band-name { font-weight: 650; font-size: 0.9rem; }
+.band-price { font-size: 0.82rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.band.picked .band-price { color: var(--gold-bright); }

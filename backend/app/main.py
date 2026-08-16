@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import auth, directory, files, notifications, orders, staff
+from .routers import auth, bookings, directory, files, notifications, orders, staff
 from .seed import ensure_staff_account
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -20,6 +20,11 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         ensure_staff_account(db)
+        from .routers.files import purge_expired
+
+        removed = purge_expired(db)
+        if removed:
+            log.info("Purged %s file(s) past the recycle-bin retention window.", removed)
     log.info("Storage backend: %s", settings.storage_backend)
     yield
 
@@ -40,6 +45,7 @@ app.include_router(orders.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(staff.router, prefix="/api")
+app.include_router(bookings.router, prefix="/api")
 
 
 @app.get("/api/health")

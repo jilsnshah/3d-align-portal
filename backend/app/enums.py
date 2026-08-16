@@ -3,7 +3,12 @@ from enum import Enum
 
 class UserRole(str, Enum):
     DOCTOR = "DOCTOR"
-    STAFF = "STAFF"
+    ADMIN = "ADMIN"
+    TECHNICIAN = "TECHNICIAN"
+
+
+# Both lab roles share the case tools; only ADMIN gets the admin furniture.
+LAB_ROLES = {UserRole.ADMIN, UserRole.TECHNICIAN}
 
 
 class VerificationStatus(str, Enum):
@@ -96,6 +101,102 @@ class FileCategory(str, Enum):
 # Enforced by /orders/{id}/submit.
 REQUIRED_SUBMIT_CATEGORIES = [FileCategory.RECORD_PHOTO, FileCategory.OPG]
 
+
+class Slot(str, Enum):
+    """A named place in a records set.
+
+    A scan is not one file — it is an upper arch, a lower arch and a bite. A
+    photo set is the standard orthodontic series. Modelling each as a slot means
+    the portal can say *which* view is missing instead of counting files.
+    """
+
+    # Intraoral scan (STL)
+    UPPER_ARCH = "UPPER_ARCH"
+    LOWER_ARCH = "LOWER_ARCH"
+    BITE = "BITE"
+
+    # Intraoral photographs
+    INTRAORAL_FRONTAL = "INTRAORAL_FRONTAL"
+    BUCCAL_RIGHT = "BUCCAL_RIGHT"
+    BUCCAL_LEFT = "BUCCAL_LEFT"
+    OCCLUSAL_UPPER = "OCCLUSAL_UPPER"
+    OCCLUSAL_LOWER = "OCCLUSAL_LOWER"
+
+    # Extraoral photographs
+    FACE_REST = "FACE_REST"
+    FACE_SMILE = "FACE_SMILE"
+    PROFILE = "PROFILE"
+
+    OTHER = "OTHER"
+
+
+SLOT_LABELS: dict[str, str] = {
+    Slot.UPPER_ARCH: "Upper arch",
+    Slot.LOWER_ARCH: "Lower arch",
+    Slot.BITE: "Bite registration",
+    Slot.INTRAORAL_FRONTAL: "Frontal, in occlusion",
+    Slot.BUCCAL_RIGHT: "Buccal right",
+    Slot.BUCCAL_LEFT: "Buccal left",
+    Slot.OCCLUSAL_UPPER: "Occlusal upper",
+    Slot.OCCLUSAL_LOWER: "Occlusal lower",
+    Slot.FACE_REST: "Face at rest",
+    Slot.FACE_SMILE: "Face smiling",
+    Slot.PROFILE: "Profile",
+    Slot.OTHER: "Other",
+}
+
+# Which slots each category expects, and whether the set is incomplete without
+# them. Ordered as a clinician would shoot them.
+SLOT_SPEC: dict[str, list[tuple]] = {
+    FileCategory.INTRAORAL_SCAN: [
+        (Slot.UPPER_ARCH, True),
+        (Slot.LOWER_ARCH, True),
+        (Slot.BITE, True),
+    ],
+    FileCategory.RECORD_PHOTO: [
+        (Slot.INTRAORAL_FRONTAL, True),
+        (Slot.BUCCAL_RIGHT, True),
+        (Slot.BUCCAL_LEFT, True),
+        (Slot.OCCLUSAL_UPPER, True),
+        (Slot.OCCLUSAL_LOWER, True),
+        (Slot.FACE_REST, False),
+        (Slot.FACE_SMILE, False),
+        (Slot.PROFILE, False),
+    ],
+}
+
+# Categories that are a single document rather than a set.
+SINGLE_FILE_CATEGORIES = {
+    FileCategory.OPG,
+    FileCategory.LATERAL_CEPH,
+    FileCategory.CBCT,
+    FileCategory.TREATMENT_PLAN,
+    FileCategory.SIMULATION_VIDEO,
+    FileCategory.FIT_ISSUE_PHOTO,
+    FileCategory.OTHER,
+}
+
+
+CATEGORY_TITLES: dict[str, str] = {
+    FileCategory.RECORD_PHOTO: "Clinical photographs",
+    FileCategory.OPG: "OPG",
+    FileCategory.LATERAL_CEPH: "Lateral cephalogram",
+    FileCategory.CBCT: "CBCT",
+    FileCategory.INTRAORAL_SCAN: "Intraoral scan",
+    FileCategory.TREATMENT_PLAN: "Treatment plan",
+    FileCategory.SIMULATION_VIDEO: "Simulation video",
+    FileCategory.FIT_ISSUE_PHOTO: "Fit issue photographs",
+    FileCategory.OTHER: "Other",
+}
+
+
+def slots_for(category: str) -> list[tuple]:
+    return SLOT_SPEC.get(category, [])
+
+
+def required_slots(category: str) -> list:
+    return [slot for slot, needed in slots_for(category) if needed]
+
 # Which Drive/local subfolder each category lands in.
 CATEGORY_FOLDER: dict[str, str] = {
     FileCategory.RECORD_PHOTO: "records",
@@ -142,6 +243,59 @@ STAFF_UPLOAD_WINDOWS: dict[str, set] = {
 }
 
 
+class AlignerCategory(str, Enum):
+    """3D Align prices by total aligner count, not per arch. The lab picks a
+    band from the clinical photographs for the expected quote, then confirms the
+    real band once the treatment plan gives an exact count."""
+
+    ALIGN_6_12 = "ALIGN_6_12"
+    ALIGN_12_16 = "ALIGN_12_16"
+    ALIGN_16_20 = "ALIGN_16_20"
+    ALIGN_20_30 = "ALIGN_20_30"
+    ALIGN_30_40 = "ALIGN_30_40"
+    ALIGN_70_PLUS = "ALIGN_70_PLUS"
+
+
+# (label, lower bound, upper bound or None for open-ended)
+ALIGNER_CATEGORIES: dict[str, tuple] = {
+    AlignerCategory.ALIGN_6_12: ("Align 6–12", 6, 12),
+    AlignerCategory.ALIGN_12_16: ("Align 12–16", 12, 16),
+    AlignerCategory.ALIGN_16_20: ("Align 16–20", 16, 20),
+    AlignerCategory.ALIGN_20_30: ("Align 20–30", 20, 30),
+    AlignerCategory.ALIGN_30_40: ("Align 30–40", 30, 40),
+    AlignerCategory.ALIGN_70_PLUS: ("Align 70+", 70, None),
+}
+
+# Placeholder pricing, seeded into the editable price list on first boot.
+# Each band quotes a range — the exact figure is only known once the treatment
+# plan gives a real aligner count. Replace from Admin → Settings.
+DEFAULT_CATEGORY_PRICES: dict[str, tuple] = {
+    AlignerCategory.ALIGN_6_12: (20000, 30000),
+    AlignerCategory.ALIGN_12_16: (30000, 40000),
+    AlignerCategory.ALIGN_16_20: (40000, 50000),
+    AlignerCategory.ALIGN_20_30: (50000, 70000),
+    AlignerCategory.ALIGN_30_40: (70000, 90000),
+    AlignerCategory.ALIGN_70_PLUS: (110000, 140000),
+}
+
+
+def category_label(category: str) -> str:
+    entry = ALIGNER_CATEGORIES.get(category)
+    return entry[0] if entry else category
+
+
+def category_for_count(total: int):
+    """Suggests the band an actual aligner count falls into. Advisory — the lab
+    confirms it, because a count can sit on a boundary."""
+    for name, (_, low, high) in ALIGNER_CATEGORIES.items():
+        if high is None:
+            if total >= low:
+                return name
+        elif low <= total <= high:
+            return name
+    return None
+
+
 class QuoteStatus(str, Enum):
     SENT = "SENT"
     ACCEPTED = "ACCEPTED"
@@ -162,10 +316,23 @@ class ScanRoute(str, Enum):
 
 
 class AppointmentStatus(str, Enum):
-    BOOKED = "BOOKED"
+    ASSIGNED = "ASSIGNED"
+    EN_ROUTE = "EN_ROUTE"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
     NO_SHOW = "NO_SHOW"
+
+
+# Statuses that still occupy a technician's calendar.
+LIVE_APPOINTMENT_STATUSES = {AppointmentStatus.ASSIGNED, AppointmentStatus.EN_ROUTE}
+
+APPOINTMENT_LABELS: dict[str, str] = {
+    AppointmentStatus.ASSIGNED: "Scheduled",
+    AppointmentStatus.EN_ROUTE: "Technician on the way",
+    AppointmentStatus.COMPLETED: "Scan taken",
+    AppointmentStatus.CANCELLED: "Cancelled",
+    AppointmentStatus.NO_SHOW: "Could not scan",
+}
 
 
 class ShipmentType(str, Enum):
@@ -178,6 +345,20 @@ class ShipmentStatus(str, Enum):
     PENDING = "PENDING"
     SHIPPED = "SHIPPED"
     DELIVERED = "DELIVERED"
+
+
+class PhaseDecision(str, Enum):
+    """What the clinic wants after receiving a phase — the same shape as the
+    training-aligner fit review, one step down."""
+
+    CONTINUE = "CONTINUE"
+    REPEAT = "REPEAT"
+
+
+PHASE_DECISION_LABELS: dict[str, str] = {
+    PhaseDecision.CONTINUE: "Move on to the next phase",
+    PhaseDecision.REPEAT: "Remake this phase",
+}
 
 
 class FitOutcome(str, Enum):

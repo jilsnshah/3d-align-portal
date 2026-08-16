@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { api, formatDate, formatMoney } from "../../api";
+import { api, formatDate, formatMoney, formatRange } from "../../api";
 import type { OrderDetail as Order } from "../../api";
 import FileUploader from "../../components/FileUploader";
+import FileExplorer from "../../components/FileExplorer";
 import {
   ActionPanel,
   CaseSummary,
-  FileList,
   InvoiceCard,
   OrderHeader,
   PlanCard,
@@ -21,14 +21,17 @@ import {
 } from "../../components/OrderView";
 import type { SectionKey } from "../../components/OrderView";
 import { Banner, Checklist, ConfirmButton, ErrorText, Field, Loading } from "../../components/ui";
+import { useAuth } from "../../auth";
 
 export default function StaffOrderDetail() {
   const { orderId = "" } = useParams();
   const queryClient = useQueryClient();
+  const { me } = useAuth();
+  const isTechnician = me?.role === "TECHNICIAN";
 
   const order = useQuery({
     queryKey: ["staff-order", orderId],
-    queryFn: () => api.staffOrder(orderId),
+    queryFn: () => (isTechnician ? api.technicianCase(orderId) : api.staffOrder(orderId)),
   });
 
   const invalidate = () => {
@@ -58,6 +61,7 @@ export default function StaffOrderDetail() {
   const data = order.data;
   const closed = data.status === "COMPLETED" || data.status === "CANCELLED";
   const acceptedQuote = data.quotes.find((q) => q.status === "ACCEPTED");
+  const billedTotal = acceptedQuote?.total;
   const planningOpen = data.status === "IN_PLANNING" || data.status === "PLAN_SHARED";
   const canInvoice =
     !data.invoice && (data.status === "DISPATCHING" || data.status === "COMPLETED");
@@ -81,7 +85,11 @@ export default function StaffOrderDetail() {
       case "invoice":
         return <InvoiceCard key={key} order={data} />;
       case "files":
-        return <FileList key={key} order={data} open={isLive} />;
+        return (
+          <div className="card" key={key}>
+            <FileExplorer order={data} onChanged={invalidate} />
+          </div>
+        );
     }
   };
 
@@ -92,18 +100,21 @@ export default function StaffOrderDetail() {
 
       <div className="split">
         <div className="stack">
-          <StaffActions order={data} onDone={invalidate} />
+          {isTechnician ? (
+            <TechnicianPanel order={data} onDone={invalidate} />
+          ) : (
+            <StaffActions order={data} onDone={invalidate} />
+          )}
 
           {sections.map((key, index) => render(key, index === 0))}
 
-          {canInvoice && (
+          {!isTechnician && canInvoice && (
             <div className="card">
               <div className="card-head">
                 <h4>Invoice</h4>
               </div>
               <p className="muted" style={{ fontSize: "0.9rem", marginBottom: 12 }}>
-                Generated from the accepted quote
-                {acceptedQuote ? ` — ${formatMoney(acceptedQuote.total, acceptedQuote.currency)}` : ""}.
+                Billed at the agreed price{billedTotal ? ` — ${formatMoney(billedTotal)}` : ""}.
               </p>
               <ErrorText error={invoice.error} />
               <button
@@ -135,7 +146,7 @@ export default function StaffOrderDetail() {
             />
           </div>
 
-          {!closed && (
+          {!isTechnician && !closed && (
             <div className="card">
               <h4 style={{ marginBottom: 10 }}>Cancel this case</h4>
               <ErrorText error={cancel.error} />
@@ -157,24 +168,69 @@ export default function StaffOrderDetail() {
   );
 }
 
+function TechnicianPanel({ order, onDone }: { order: Order; onDone: () => void }) {
+  const visit = order.appointment;
+  const scanDone = order.status !== "AWAITING_SCAN";
+
+  if (scanDone) {
+    return (
+      <Banner tone="ok">
+        Scan uploaded — this visit is complete. The lab has taken it from here.
+      </Banner>
+    );
+  }
+
+  return (
+    <ActionPanel
+      title="Capture the scan"
+      why={
+        visit
+          ? `${visit.status_label} · ${formatDate(visit.starts_at)}${visit.location ? ` · ${visit.location}` : ""}`
+          : "Upload the intraoral scan for this case."
+      }
+    >
+      <Checklist
+        items={[
+          { done: true, label: "Visit assigned to you" },
+          {
+            done: order.files.some((f) => f.category === "RECORD_PHOTO" && f.is_current),
+            label: "Clinical photographs on file",
+          },
+          {
+            done: order.files.some((f) => f.category === "INTRAORAL_SCAN" && f.is_current),
+            label: "Intraoral scan (.stl) uploaded",
+          },
+        ]}
+      />
+      <p className="dim">
+        Retaking the photographs replaces the clinic's set as the current revision. Uploading the
+        scan closes this visit and hands the case back to the lab.
+      </p>
+      <FileUploader
+        orderId={order.id}
+        categories={["INTRAORAL_SCAN", "RECORD_PHOTO", "OPG", "OTHER"]}
+        onUploaded={onDone}
+      />
+    </ActionPanel>
+  );
+}
+
 function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
   const [note, setNote] = useState("");
-  const [lineItems, setLineItems] = useState([
-    { description: "Clear aligner treatment", unit_price: "", quantity: 1 },
-  ]);
+  const [category, setCategory] = useState("");
+  const [extras, setExtras] = useState<{ description: string; unit_price: string; quantity: number }[]>([]);
   const [tax, setTax] = useState("");
-  const [upper, setUpper] = useState("");
-  const [lower, setLower] = useState("");
+  const prices = useQuery({ queryKey: ["pricing"], queryFn: api.pricing });
   const [plan, setPlan] = useState({
     aligners_upper: "",
     aligners_lower: "",
+    final_price: "",
+    final_tax: "",
     ipr_required: false,
     attachments_required: false,
     summary: "",
   });
   const [shipment, setShipment] = useState({
-    phase_number: "1",
-    aligner_range_from: "",
     aligner_range_to: "",
     carrier: "",
     tracking_number: "",
@@ -195,9 +251,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
   const sendQuote = useMutation({
     mutationFn: () =>
       api.sendQuote(order.id, {
-        estimated_aligners_upper: Number(upper || 0),
-        estimated_aligners_lower: Number(lower || 0),
-        line_items: lineItems
+        category,
+        extras: extras
           .filter((item) => item.description.trim() && item.unit_price !== "")
           .map((item) => ({
             description: item.description,
@@ -227,6 +282,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       api.sharePlan(order.id, {
         aligners_upper: Number(plan.aligners_upper || 0),
         aligners_lower: Number(plan.aligners_lower || 0),
+        final_price: plan.final_price || "0",
+        final_tax: plan.final_tax || "0",
         ipr_required: plan.ipr_required,
         attachments_required: plan.attachments_required,
         summary: plan.summary,
@@ -252,23 +309,13 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     mutationFn: () =>
       api.createShipment(order.id, {
         shipment_type: order.dispatch_mode === "FULL" ? "FULL_CASE" : "ALIGNER_PHASE",
-        phase_number: order.dispatch_mode === "FULL" ? null : Number(shipment.phase_number || 1),
-        aligner_range_from: shipment.aligner_range_from
-          ? Number(shipment.aligner_range_from)
-          : null,
         aligner_range_to: shipment.aligner_range_to ? Number(shipment.aligner_range_to) : null,
         carrier: shipment.carrier,
         tracking_number: shipment.tracking_number,
         tracking_url: shipment.tracking_url,
       }),
     onSuccess: () => {
-      setShipment({
-        ...shipment,
-        phase_number: String(Number(shipment.phase_number || 1) + 1),
-        aligner_range_from: "",
-        aligner_range_to: "",
-        tracking_number: "",
-      });
+      setShipment({ ...shipment, aligner_range_to: "", tracking_number: "" });
       onDone();
     },
   });
@@ -277,11 +324,24 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     onSuccess: onDone,
   });
 
-  const subtotal = lineItems.reduce(
+  const chosen = prices.data?.find((p) => p.category === category);
+  const extrasTotal = extras.reduce(
     (sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0),
     0,
   );
-  const total = subtotal + (Number(tax) || 0);
+  const totalLow = (Number(chosen?.price_min) || 0) + extrasTotal + (Number(tax) || 0);
+  const totalHigh = (Number(chosen?.price_max) || 0) + extrasTotal + (Number(tax) || 0);
+
+  const planTotalAligners =
+    Number(plan.aligners_upper || 0) + Number(plan.aligners_lower || 0);
+  const suggested = prices.data?.find(
+    (p) =>
+      planTotalAligners >= p.range_from &&
+      (p.range_to === null ? true : planTotalAligners <= p.range_to),
+  );
+  const planTotal = (Number(plan.final_price) || 0) + (Number(plan.final_tax) || 0);
+  const acceptedQuote = order.quotes.find((q) => q.status === "ACCEPTED");
+  const quotedTotal = acceptedQuote ? Number(acceptedQuote.total) : null;
 
   switch (order.status) {
     case "SUBMITTED":
@@ -310,71 +370,67 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               : "Production cannot start until the doctor accepts a priced quote."
           }
         >
-          <div className="grid-2">
-            <Field label="Estimated upper aligners">
-              <input type="number" min={0} value={upper} onChange={(e) => setUpper(e.target.value)} />
-            </Field>
-            <Field label="Estimated lower aligners">
-              <input type="number" min={0} value={lower} onChange={(e) => setLower(e.target.value)} />
-            </Field>
+          <p className="why">
+            Pick the aligner band this case looks like from the photographs. Each band has a fixed
+            price; the exact figure is confirmed later with the treatment plan.
+          </p>
+
+          <div className="band-grid">
+            {prices.data
+              ?.filter((p) => p.is_active)
+              .map((p) => (
+                <button
+                  key={p.category}
+                  type="button"
+                  className={`band${category === p.category ? " picked" : ""}`}
+                  onClick={() => setCategory(p.category)}
+                >
+                  <span className="band-name">{p.label}</span>
+                  <span className="band-price">{formatRange(p.price_min, p.price_max)}</span>
+                </button>
+              ))}
           </div>
 
           <div className="stack-sm">
-            <h4>Line items</h4>
-            {lineItems.map((item, index) => (
+            <h4>Extra charges (optional)</h4>
+            {extras.map((item, index) => (
               <div className="row" key={index}>
                 <input
                   placeholder="Description"
                   value={item.description}
-                  style={{ flex: 2, minWidth: 160 }}
+                  style={{ flex: 2, minWidth: 150 }}
                   onChange={(e) => {
-                    const next = [...lineItems];
+                    const next = [...extras];
                     next[index] = { ...item, description: e.target.value };
-                    setLineItems(next);
+                    setExtras(next);
                   }}
                 />
                 <input
                   type="number"
-                  placeholder="Rate"
+                  placeholder="Amount"
                   value={item.unit_price}
                   style={{ flex: 1, minWidth: 100 }}
                   onChange={(e) => {
-                    const next = [...lineItems];
+                    const next = [...extras];
                     next[index] = { ...item, unit_price: e.target.value };
-                    setLineItems(next);
+                    setExtras(next);
                   }}
                 />
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="Qty"
-                  value={item.quantity}
-                  style={{ width: 76 }}
-                  onChange={(e) => {
-                    const next = [...lineItems];
-                    next[index] = { ...item, quantity: Number(e.target.value) };
-                    setLineItems(next);
-                  }}
-                />
-                {lineItems.length > 1 && (
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => setLineItems(lineItems.filter((_, i) => i !== index))}
-                  >
-                    Remove
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setExtras(extras.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </button>
               </div>
             ))}
             <button
               type="button"
               className="btn-link"
-              onClick={() =>
-                setLineItems([...lineItems, { description: "", unit_price: "", quantity: 1 }])
-              }
+              onClick={() => setExtras([...extras, { description: "", unit_price: "", quantity: 1 }])}
             >
-              Add line item
+              Add a charge
             </button>
           </div>
 
@@ -383,9 +439,9 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               <input type="number" value={tax} onChange={(e) => setTax(e.target.value)} />
             </Field>
             <div>
-              <h4>Total</h4>
-              <p className="num" style={{ fontSize: "1.25rem", fontWeight: 680 }}>
-                {formatMoney(total)}
+              <h4>Expected range</h4>
+              <p className="num" style={{ fontSize: "1.2rem", fontWeight: 680 }}>
+                {chosen ? formatRange(totalLow, totalHigh) : "—"}
               </p>
             </div>
           </div>
@@ -395,10 +451,10 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             <button
               type="button"
               className="btn-primary"
-              disabled={sendQuote.isPending || subtotal <= 0}
+              disabled={sendQuote.isPending || !category}
               onClick={() => sendQuote.mutate()}
             >
-              {order.status === "QUOTED" ? "Send revised quote" : "Send quote"}
+              {order.status === "QUOTED" ? "Send revised quote" : "Send expected quote"}
             </button>
           </div>
 
@@ -430,7 +486,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         order.scan_route === "COURIER"
           ? `The clinic couriered a PVS impression — tracking ${order.scan_courier_tracking || "not given"}. Digitise it, then upload the STL here.`
           : order.scan_route === "APPOINTMENT"
-            ? `Scan appointment booked${order.appointment ? ` for ${formatDate(order.appointment.scheduled_at)}` : ""}${order.appointment?.location ? ` at ${order.appointment.location}` : ""}. Upload the STL once the scan has been taken.`
+            ? `${order.appointment ? `${order.appointment.technician_name} attends ${formatDate(order.appointment.starts_at)}` : "A technician visit is booked"}. Upload the STL once the scan has been taken.`
             : "The clinic is uploading an STL from its own scanner. Nothing to do until it lands.";
 
       return (
@@ -555,6 +611,66 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               />
             </Field>
           </div>
+
+          <div className="card" style={{ background: "var(--paper)" }}>
+            <h4 style={{ marginBottom: 8 }}>Final price</h4>
+            <p className="dim" style={{ marginBottom: 10 }}>
+              {planTotalAligners > 0
+                ? `${planTotalAligners} aligner(s) in total.`
+                : "Enter the aligner counts above."}
+              {suggested && ` ${suggested.label} quotes ${formatRange(suggested.price_min, suggested.price_max)}.`}
+              {" "}This replaces the expected quote once the plan is shared.
+            </p>
+            <div className="grid-2">
+              <Field label="Final price">
+                <input
+                  type="number"
+                  min={0}
+                  value={plan.final_price}
+                  placeholder={suggested ? String(Number(suggested.price_min)) : ""}
+                  onChange={(e) => setPlan({ ...plan, final_price: e.target.value })}
+                />
+              </Field>
+              <Field label="Tax">
+                <input
+                  type="number"
+                  min={0}
+                  value={plan.final_tax}
+                  onChange={(e) => setPlan({ ...plan, final_tax: e.target.value })}
+                />
+              </Field>
+            </div>
+            {suggested && !plan.final_price && (
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setPlan({ ...plan, final_price: String(Number(suggested.price_min)) })}
+                >
+                  Use {formatMoney(suggested.price_min)}
+                </button>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setPlan({ ...plan, final_price: String(Number(suggested.price_max)) })}
+                >
+                  Use {formatMoney(suggested.price_max)}
+                </button>
+              </div>
+            )}
+            <p className="num" style={{ fontSize: "1.2rem", fontWeight: 680, marginTop: 10 }}>
+              {formatMoney(planTotal)}
+              {quotedTotal !== null && (
+                <span className="dim" style={{ fontSize: "0.82rem", fontWeight: 400 }}>
+                  {"  "}
+                  vs {formatMoney(quotedTotal)} estimated
+                  {planTotal !== quotedTotal &&
+                    ` (${planTotal > quotedTotal ? "+" : ""}${formatMoney(planTotal - quotedTotal)})`}
+                </span>
+              )}
+            </p>
+          </div>
+
           <label className="check">
             <input
               type="checkbox"
@@ -581,7 +697,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
           <button
             type="button"
             className="btn-primary"
-            disabled={sharePlan.isPending}
+            disabled={sharePlan.isPending || planTotalAligners === 0 || !Number(plan.final_price)}
             onClick={() => sharePlan.mutate()}
           >
             Share plan with the doctor
@@ -676,36 +792,34 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               : "The doctor chose phase-wise dispatch. Add one shipment per batch."
           }
         >
-          {order.dispatch_mode !== "FULL" && (
-            <div className="grid-2">
-              <Field label="Phase number">
-                <input
-                  type="number"
-                  min={1}
-                  value={shipment.phase_number}
-                  onChange={(e) => setShipment({ ...shipment, phase_number: e.target.value })}
-                />
-              </Field>
-              <Field label="Aligners from">
-                <input
-                  type="number"
-                  min={1}
-                  value={shipment.aligner_range_from}
-                  onChange={(e) =>
-                    setShipment({ ...shipment, aligner_range_from: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Aligners to">
-                <input
-                  type="number"
-                  min={1}
-                  value={shipment.aligner_range_to}
-                  onChange={(e) => setShipment({ ...shipment, aligner_range_to: e.target.value })}
-                />
-              </Field>
-            </div>
+          {order.phase_blocker ? (
+            <Banner tone="warn">{order.phase_blocker}</Banner>
+          ) : (
+            order.dispatch_mode !== "FULL" && (
+              <>
+                <p className="dim">
+                  <b>
+                    Phase {order.next_phase_number}
+                    {order.next_phase_round > 1 ? ` · round ${order.next_phase_round}` : ""}
+                  </b>{" "}
+                  starts at aligner <b>{order.next_phase_from}</b> — the plan has{" "}
+                  {order.total_aligners} in total. You only say how far it runs.
+                  {order.next_phase_round > 1 &&
+                    " This is a remake, so it covers the same aligners as before."}
+                </p>
+                <Field label={`Runs to aligner (max ${order.next_phase_max})`}>
+                  <input
+                    type="number"
+                    min={order.next_phase_from}
+                    max={order.next_phase_max}
+                    value={shipment.aligner_range_to}
+                    onChange={(e) => setShipment({ ...shipment, aligner_range_to: e.target.value })}
+                  />
+                </Field>
+              </>
+            )
           )}
+
           <div className="grid-2">
             <Field label="Carrier">
               <input
@@ -725,10 +839,18 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             <button
               type="button"
               className="btn-primary"
-              disabled={shipAligners.isPending}
+              disabled={
+                shipAligners.isPending ||
+                !!order.phase_blocker ||
+                (order.dispatch_mode !== "FULL" && !shipment.aligner_range_to)
+              }
               onClick={() => shipAligners.mutate()}
             >
-              Add shipment
+              {order.dispatch_mode === "FULL"
+                ? "Dispatch the case"
+                : `Ship phase ${order.next_phase_number}${
+                    order.next_phase_round > 1 ? ` round ${order.next_phase_round}` : ""
+                  }`}
             </button>
             {order.status === "DISPATCHING" && (
               <button

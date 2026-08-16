@@ -18,7 +18,7 @@ export default function Login() {
     setError(null);
     try {
       const me = await signIn(email, password);
-      navigate(me.role === "STAFF" ? "/staff" : "/orders");
+      navigate(me.role === "ADMIN" ? "/staff" : me.role === "TECHNICIAN" ? "/tech" : "/orders");
     } catch (err) {
       setError(err);
     } finally {

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .enums import UserRole, VerificationStatus
+from .enums import LAB_ROLES, UserRole, VerificationStatus
 from .models import Doctor, Order, User
 from .security import read_session_token
 
@@ -23,10 +23,29 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def current_staff(user: User = Depends(current_user)) -> User:
-    if user.role != UserRole.STAFF:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Staff access only.")
+def current_admin(user: User = Depends(current_user)) -> User:
+    """The lab's own account. Bookings, technicians, settings, verification."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access only.")
     return user
+
+
+def current_lab(user: User = Depends(current_user)) -> User:
+    """Admin or technician. Case tools both roles share."""
+    if user.role not in LAB_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Lab access only.")
+    return user
+
+
+def current_technician(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .models import Technician
+
+    if user.role != UserRole.TECHNICIAN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Technician access only.")
+    tech = db.query(Technician).filter(Technician.user_id == user.id).one_or_none()
+    if not tech:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No technician profile on this account.")
+    return tech
 
 
 def current_doctor(

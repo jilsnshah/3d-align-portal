@@ -12,11 +12,16 @@ const DOCTOR_NAV = [
   { to: "/profile", label: "Profile" },
 ];
 
-const STAFF_NAV = [
+const ADMIN_NAV = [
   { to: "/staff", label: "Queue" },
   { to: "/staff/orders", label: "All cases" },
   { to: "/staff/doctors", label: "Doctors" },
+  { to: "/staff/bookings", label: "Bookings" },
+  { to: "/staff/technicians", label: "Technicians" },
+  { to: "/staff/settings", label: "Settings" },
 ];
+
+const TECH_NAV = [{ to: "/tech", label: "My schedule" }];
 
 export default function Layout() {
   const { me, signOut } = useAuth();
@@ -24,8 +29,9 @@ export default function Layout() {
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const isStaff = me?.role === "STAFF";
-  const nav = isStaff ? STAFF_NAV : DOCTOR_NAV;
+  const isAdmin = me?.role === "ADMIN";
+  const isTech = me?.role === "TECHNICIAN";
+  const nav = isAdmin ? ADMIN_NAV : isTech ? TECH_NAV : DOCTOR_NAV;
 
   const unread = useQuery({
     queryKey: ["unread"],
@@ -57,11 +63,12 @@ export default function Layout() {
   return (
     <div className="shell">
       <header className="topbar">
-        <NavLink to={isStaff ? "/staff" : "/orders"} className="brand">
+        <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/orders"} className="brand">
           <span className="brand-mark" aria-hidden="true" />
           <span>
             3D Align
-            {isStaff && <span className="brand-sub"> · Lab</span>}
+            {isAdmin && <span className="brand-sub"> · Lab</span>}
+            {isTech && <span className="brand-sub"> · Scan team</span>}
           </span>
         </NavLink>
 
@@ -70,7 +77,7 @@ export default function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/staff" || item.to === "/orders"}
+              end={item.to === "/staff" || item.to === "/orders" || item.to === "/tech"}
               className={({ isActive }) => (isActive ? "active" : "")}
             >
               {item.label}
@@ -86,7 +93,7 @@ export default function Layout() {
             )}
           </button>
           <div className="who">
-            <b>{me?.doctor?.full_name ?? "3D Align Lab"}</b>
+            <b>{me?.doctor?.full_name ?? (isTech ? "Scan technician" : "3D Align Lab")}</b>
             {me?.email}
           </div>
           <button type="button" className="bell" onClick={handleSignOut}>
