@@ -283,6 +283,23 @@ with TestClient(app) as client:
               "ipr_required": True, "summary": "IPR at 13-23."},
     )
     check("plan shared", r.json()["status"] == "PLAN_SHARED", r.text)
+    # Every aligner count the plan can produce must fall in a priced band —
+    # a gap here used to reject a perfectly ordinary 46-aligner case.
+    bands = staff.get("/api/staff/pricing").json()
+
+    def band_for(count):
+        return next(
+            (
+                b
+                for b in bands
+                if count >= b["range_from"] and (b["range_to"] is None or count <= b["range_to"])
+            ),
+            None,
+        )
+
+    unbanded = [n for n in range(6, 101) if band_for(n) is None]
+    check("every aligner count from 6 to 100 has a band", not unbanded, str(unbanded[:12]))
+    check("the 40–70 band covers the old gap", band_for(46)["category"] == "ALIGN_40_70", str(band_for(46)))
     shared_plan = r.json()["plans"][-1]
     check(
         "the plan records the real aligner count",

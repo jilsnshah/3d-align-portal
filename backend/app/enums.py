@@ -253,6 +253,7 @@ class AlignerCategory(str, Enum):
     ALIGN_16_20 = "ALIGN_16_20"
     ALIGN_20_30 = "ALIGN_20_30"
     ALIGN_30_40 = "ALIGN_30_40"
+    ALIGN_40_70 = "ALIGN_40_70"
     ALIGN_70_PLUS = "ALIGN_70_PLUS"
 
 
@@ -263,6 +264,7 @@ ALIGNER_CATEGORIES: dict[str, tuple] = {
     AlignerCategory.ALIGN_16_20: ("Align 16–20", 16, 20),
     AlignerCategory.ALIGN_20_30: ("Align 20–30", 20, 30),
     AlignerCategory.ALIGN_30_40: ("Align 30–40", 30, 40),
+    AlignerCategory.ALIGN_40_70: ("Align 40–70", 40, 70),
     AlignerCategory.ALIGN_70_PLUS: ("Align 70+", 70, None),
 }
 
@@ -275,6 +277,7 @@ DEFAULT_CATEGORY_PRICES: dict[str, tuple] = {
     AlignerCategory.ALIGN_16_20: (40000, 50000),
     AlignerCategory.ALIGN_20_30: (50000, 70000),
     AlignerCategory.ALIGN_30_40: (70000, 90000),
+    AlignerCategory.ALIGN_40_70: (90000, 110000),
     AlignerCategory.ALIGN_70_PLUS: (110000, 140000),
 }
 

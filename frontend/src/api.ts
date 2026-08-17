@@ -128,6 +128,7 @@ export type AlignerCategory =
   | "ALIGN_16_20"
   | "ALIGN_20_30"
   | "ALIGN_30_40"
+  | "ALIGN_40_70"
   | "ALIGN_70_PLUS";
 
 export interface AlignerPrice {
