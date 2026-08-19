@@ -7,11 +7,14 @@ from .config import settings
 from .db import get_db
 from .enums import LAB_ROLES, UserRole, VerificationStatus
 from .models import Doctor, Order, User
-from .security import read_session_token
+from .security import SLOT_HEADER, cookie_name_for, read_session_token
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    token = request.cookies.get(settings.session_cookie_name)
+    # Headers cover fetch(); the query parameter covers <img src> and download
+    # links, which cannot carry one.
+    slot = request.headers.get(SLOT_HEADER) or request.query_params.get("slot")
+    token = request.cookies.get(cookie_name_for(slot))
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in to continue.")
     user_id = read_session_token(token)

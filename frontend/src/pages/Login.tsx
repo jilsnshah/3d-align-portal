@@ -27,11 +27,14 @@ export default function Login() {
   }
 
   return (
-    <div className="page page-narrow">
-      <div className="center-narrow">
-        <div className="row" style={{ marginBottom: 22, gap: 10 }}>
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
           <span className="brand-mark" aria-hidden="true" />
-          <h1>3D Align</h1>
+          <div>
+            <h1>3D Align</h1>
+            <span className="brand-sub">Clear aligner lab</span>
+          </div>
         </div>
         <div className="card">
           <h2 style={{ marginBottom: 4 }}>Sign in</h2>
@@ -63,7 +66,7 @@ export default function Login() {
             </button>
           </form>
         </div>
-        <p className="dim" style={{ textAlign: "center", marginTop: 16 }}>
+        <p className="auth-foot">
           New to 3D Align? <Link to="/register">Register your clinic</Link>
         </p>
       </div>

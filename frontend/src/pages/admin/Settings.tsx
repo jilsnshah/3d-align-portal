@@ -5,12 +5,23 @@ import { WEEKDAYS, api } from "../../api";
 import type { AlignerPrice, BookingSettings } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
-const NUMBERS: { key: keyof BookingSettings; label: string; hint: string; min: number; max: number }[] = [
-  { key: "slot_minutes", label: "Slot length (minutes)", hint: "How long one scan visit occupies.", min: 15, max: 240 },
-  { key: "travel_buffer_minutes", label: "Travel buffer (minutes)", hint: "Dead time held either side of a visit.", min: 0, max: 180 },
+type Knob = { key: keyof BookingSettings; label: string; hint: string; min: number; max: number; step?: number };
+
+const NUMBERS: Knob[] = [
+  { key: "visit_duration_minutes", label: "Visit length (minutes)", hint: "How long a scan visit takes at the clinic.", min: 15, max: 240 },
+  { key: "booking_granularity_minutes", label: "Booking granularity (minutes)", hint: "How finely a clinic may pick a start time inside a free window.", min: 5, max: 60 },
+  { key: "travel_buffer_minutes", label: "Safety margin (minutes)", hint: "Held either side of a visit, on top of the calculated travel time.", min: 0, max: 180 },
   { key: "booking_horizon_days", label: "Booking horizon (days)", hint: "How far ahead a clinic may book.", min: 1, max: 180 },
   { key: "min_notice_hours", label: "Minimum notice (hours)", hint: "Nothing may be booked or cancelled inside this.", min: 0, max: 336 },
   { key: "max_daily_jobs", label: "Visits per technician per day", hint: "Default cap; can be overridden per person.", min: 1, max: 20 },
+];
+
+const ROUTING: Knob[] = [
+  { key: "max_travel_minutes", label: "Maximum travel (minutes)", hint: "Never send a technician further than this for one visit.", min: 5, max: 240 },
+  { key: "travel_weight", label: "Travel weight", hint: "How much the detour a visit adds to the route counts.", min: 0, max: 10, step: 0.1 },
+  { key: "fairness_weight", label: "Fairness weight", hint: "Raise this to spread work more evenly, at the cost of longer drives.", min: 0, max: 10, step: 0.1 },
+  { key: "idle_weight", label: "Idle weight", hint: "Penalty for stranding a gap too small to hold another visit.", min: 0, max: 10, step: 0.1 },
+  { key: "fallback_speed_kmph", label: "Fallback speed (km/h)", hint: "Average city speed used when no routing provider is configured.", min: 5, max: 120, step: 0.5 },
 ];
 
 export default function AdminSettings() {
@@ -170,6 +181,7 @@ export default function AdminSettings() {
                   type="number"
                   min={field.min}
                   max={field.max}
+                  step={field.step ?? 1}
                   value={draft[field.key] as number}
                   onChange={(e) => {
                     setSaved(false);
@@ -180,14 +192,68 @@ export default function AdminSettings() {
               </Field>
             ))}
           </div>
-          <Field label="Service city">
+          <div className="grid-2">
+            <Field label="Service city">
+              <input
+                value={draft.service_city}
+                onChange={(e) => {
+                  setSaved(false);
+                  setDraft({ ...draft, service_city: e.target.value });
+                }}
+              />
+            </Field>
+            <Field label="Time zone">
+              <input
+                value={draft.timezone_name}
+                onChange={(e) => {
+                  setSaved(false);
+                  setDraft({ ...draft, timezone_name: e.target.value });
+                }}
+              />
+              <span className="dim">
+                Working hours and rosters are wall-clock times in this zone, e.g. Asia/Kolkata.
+              </span>
+            </Field>
+          </div>
+        </div>
+
+        <div className="card stack-sm">
+          <h4>Routing</h4>
+          <p className="dim">
+            A visit is assigned to whoever it costs the least to add to an existing round, not to
+            whoever is nearest in a straight line. Raise the fairness weight to spread work more
+            evenly at the cost of longer drives.
+          </p>
+          <div className="grid-2">
+            {ROUTING.map((field) => (
+              <Field key={field.key} label={field.label}>
+                <input
+                  type="number"
+                  min={field.min}
+                  max={field.max}
+                  step={field.step ?? 1}
+                  value={draft[field.key] as number}
+                  onChange={(e) => {
+                    setSaved(false);
+                    setDraft({ ...draft, [field.key]: Number(e.target.value) });
+                  }}
+                />
+                <span className="dim">{field.hint}</span>
+              </Field>
+            ))}
+          </div>
+          <Field label="Lab address">
             <input
-              value={draft.service_city}
+              value={draft.lab_address}
               onChange={(e) => {
                 setSaved(false);
-                setDraft({ ...draft, service_city: e.target.value });
+                setDraft({ ...draft, lab_address: e.target.value });
               }}
             />
+            <span className="dim">
+              Every technician's day starts and ends here, so the first and last visit are costed
+              against a real origin.
+            </span>
           </Field>
         </div>
 

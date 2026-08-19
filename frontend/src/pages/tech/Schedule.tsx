@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 
 import { api, formatDay, formatTime } from "../../api";
 import type { Job } from "../../api";
+import RouteSheet from "../../components/RouteSheet";
 import { Empty, ErrorText, Loading } from "../../components/ui";
 
 const TABS = [
@@ -21,6 +22,15 @@ type Scope = (typeof TABS)[number]["key"];
 export default function TechSchedule() {
   const [scope, setScope] = useState<Scope | null>(null);
   const queryClient = useQueryClient();
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [routeDay, setRouteDay] = useState(todayISO);
+  // Recomputed against current traffic, so a route that no longer holds shows
+  // up before the technician sets off rather than on the road.
+  const myRoute = useQuery({
+    queryKey: ["my-route", routeDay],
+    queryFn: () => api.myRoute(routeDay),
+    refetchInterval: 10 * 60 * 1000,
+  });
 
   // All three at once so the tabs can carry counts — an empty day should read
   // as empty, not as a page that failed to load.
@@ -75,6 +85,68 @@ export default function TechSchedule() {
         ))}
       </div>
 
+      <details className="fold" style={{ marginBottom: 18 }} open={myRoute.data?.at_risk}>
+        <summary>
+          <span className="fold-chevron">▶</span>
+          <h4>My run</h4>
+          <span className="fold-sub">
+            {myRoute.data && myRoute.data.stops.length > 0
+              ? `${myRoute.data.total_km.toFixed(0)} km · ${Math.round(
+                  myRoute.data.drive_minutes,
+                )} min driving${myRoute.data.at_risk ? " · running late" : ""}`
+              : "nothing scheduled"}
+          </span>
+        </summary>
+        <div className="fold-body stack-sm">
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              onClick={() => setRouteDay(shiftDay(routeDay, -1))}
+            >
+              ‹ Previous
+            </button>
+            <input
+              type="date"
+              value={routeDay}
+              style={{ width: "auto" }}
+              onChange={(e) => setRouteDay(e.target.value || todayISO)}
+            />
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              onClick={() => setRouteDay(shiftDay(routeDay, 1))}
+            >
+              Next ›
+            </button>
+            {routeDay !== todayISO && (
+              <button type="button" className="btn-link" onClick={() => setRouteDay(todayISO)}>
+                Today
+              </button>
+            )}
+          </div>
+
+          {myRoute.isLoading ? (
+            <Loading what="route" />
+          ) : (
+            <>
+              <RouteSheet route={myRoute.data!} navigable />
+              {myRoute.data?.maps_url && (
+                <a
+                  className="btn-primary"
+                  href={myRoute.data.maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ display: "inline-block", textDecoration: "none", padding: "10px 16px" }}
+                >
+                  Navigate the whole day ↗
+                </a>
+              )}
+            </>
+          )}
+        </div>
+      </details>
+
       {jobs.isLoading ? (
         <Loading what="schedule" />
       ) : jobs.data?.length === 0 ? (
@@ -101,11 +173,23 @@ export default function TechSchedule() {
 function JobCard({ job, onDone }: { job: Job; onDone: () => void }) {
   const [noShowNote, setNoShowNote] = useState("");
   const [showNoShow, setShowNoShow] = useState(false);
+  const [handoverReason, setHandoverReason] = useState("");
+  const [showHandover, setShowHandover] = useState(false);
+  const [asked, setAsked] = useState(false);
 
   const enRoute = useMutation({ mutationFn: () => api.markEnRoute(job.id), onSuccess: onDone });
   const noShow = useMutation({
     mutationFn: () => api.markNoShow(job.id, noShowNote),
     onSuccess: onDone,
+  });
+  // The lab decides who picks it up; this only puts the ask in their queue.
+  const handover = useMutation({
+    mutationFn: () => api.requestReassignment(job.id, handoverReason),
+    onSuccess: () => {
+      setAsked(true);
+      setShowHandover(false);
+      onDone();
+    },
   });
 
   const live = job.status === "ASSIGNED" || job.status === "EN_ROUTE";
@@ -115,7 +199,10 @@ function JobCard({ job, onDone }: { job: Job; onDone: () => void }) {
     <div className={`job${live ? "" : " done"}`}>
       <div className="row-between">
         <span className="when">{formatTime(job.starts_at)}</span>
-        <span className={live ? "pill pill-gold" : "pill"}>{job.status_label}</span>
+        <span className="row" style={{ gap: 6 }}>
+          {job.is_day_visit && <span className="pill pill-dark">Full day</span>}
+          <span className={live ? "pill pill-gold" : "pill"}>{job.status_label}</span>
+        </span>
       </div>
       <div className="dim">{formatDay(job.starts_at)}</div>
 
@@ -161,7 +248,39 @@ function JobCard({ job, onDone }: { job: Job; onDone: () => void }) {
             <button type="button" className="btn-link" onClick={() => setShowNoShow((v) => !v)}>
               Could not scan
             </button>
+            <button
+              type="button"
+              className="btn-link"
+              disabled={asked}
+              onClick={() => setShowHandover((v) => !v)}
+            >
+              {asked ? "Handover requested" : "Ask lab to reassign"}
+            </button>
           </div>
+
+          {showHandover && (
+            <div className="stack-sm">
+              <ErrorText error={handover.error} />
+              <input
+                placeholder="Why can you not take this visit?"
+                value={handoverReason}
+                onChange={(e) => setHandoverReason(e.target.value)}
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={handoverReason.trim().length < 3 || handover.isPending}
+                  onClick={() => handover.mutate()}
+                >
+                  Send request to the lab
+                </button>
+                <button type="button" className="btn-link" onClick={() => setShowHandover(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {showNoShow && (
             <div className="stack-sm">
@@ -186,4 +305,12 @@ function JobCard({ job, onDone }: { job: Job; onDone: () => void }) {
       )}
     </div>
   );
+}
+
+
+/** Steps a yyyy-mm-dd string without dragging in a date library. */
+function shiftDay(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }

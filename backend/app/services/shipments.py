@@ -56,7 +56,7 @@ def mark_delivered(db: Session, shipment: Shipment, actor: User) -> None:
                 user_id=recipient,
                 order_id=order.id,
                 title="Shipment delivered",
-                body=f"{order.order_number} — {label} marked delivered.",
+                body=f"{order.reference} — {label} marked delivered.",
             )
         )
     else:
@@ -67,6 +67,6 @@ def mark_delivered(db: Session, shipment: Shipment, actor: User) -> None:
                     user_id=member.id,
                     order_id=order.id,
                     title="Delivery confirmed by the clinic",
-                    body=f"{order.order_number} — {label} received.",
+                    body=f"{order.reference} — {label} received.",
                 )
             )

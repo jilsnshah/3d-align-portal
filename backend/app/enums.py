@@ -93,7 +93,9 @@ class FileCategory(str, Enum):
     CBCT = "CBCT"
     INTRAORAL_SCAN = "INTRAORAL_SCAN"
     TREATMENT_PLAN = "TREATMENT_PLAN"
-    SIMULATION_VIDEO = "SIMULATION_VIDEO"
+    # Staged arch models exported by the planning software, one pair per step.
+    # These are the simulation: the clinic steps through them in the 3D viewer.
+    SIMULATION_MODEL = "SIMULATION_MODEL"
     FIT_ISSUE_PHOTO = "FIT_ISSUE_PHOTO"
     OTHER = "OTHER"
 
@@ -165,13 +167,13 @@ SLOT_SPEC: dict[str, list[tuple]] = {
     ],
 }
 
-# Categories that are a single document rather than a set.
+# Categories that are a single document rather than a set: uploading again
+# replaces what is there. A treatment plan is deliberately not one of these —
+# a plan is a folder of exports, not one PDF.
 SINGLE_FILE_CATEGORIES = {
     FileCategory.OPG,
     FileCategory.LATERAL_CEPH,
     FileCategory.CBCT,
-    FileCategory.TREATMENT_PLAN,
-    FileCategory.SIMULATION_VIDEO,
     FileCategory.FIT_ISSUE_PHOTO,
     FileCategory.OTHER,
 }
@@ -184,7 +186,6 @@ CATEGORY_TITLES: dict[str, str] = {
     FileCategory.CBCT: "CBCT",
     FileCategory.INTRAORAL_SCAN: "Intraoral scan",
     FileCategory.TREATMENT_PLAN: "Treatment plan",
-    FileCategory.SIMULATION_VIDEO: "Simulation video",
     FileCategory.FIT_ISSUE_PHOTO: "Fit issue photographs",
     FileCategory.OTHER: "Other",
 }
@@ -205,12 +206,14 @@ CATEGORY_FOLDER: dict[str, str] = {
     FileCategory.CBCT: "records",
     FileCategory.INTRAORAL_SCAN: "scans",
     FileCategory.TREATMENT_PLAN: "planning",
-    FileCategory.SIMULATION_VIDEO: "planning",
+    FileCategory.SIMULATION_MODEL: "planning",
     FileCategory.FIT_ISSUE_PHOTO: "records",
     FileCategory.OTHER: "records",
 }
 
-STAFF_ONLY_CATEGORIES = {FileCategory.TREATMENT_PLAN, FileCategory.SIMULATION_VIDEO}
+# The plan document is the lab's working paper; the staged models it produces
+# are shared, because the clinic is asked to approve what they show.
+STAFF_ONLY_CATEGORIES = {FileCategory.TREATMENT_PLAN}
 
 
 class FileGroup(str, Enum):
@@ -231,7 +234,9 @@ FILE_GROUP: dict[str, FileGroup] = {
     FileCategory.OTHER: FileGroup.RECORDS,
     FileCategory.INTRAORAL_SCAN: FileGroup.SCAN,
     FileCategory.TREATMENT_PLAN: FileGroup.PLANNING,
-    FileCategory.SIMULATION_VIDEO: FileGroup.PLANNING,
+    # Staged arch models are planning output: they are revisioned with the plan
+    # and superseded together when it is replanned.
+    FileCategory.SIMULATION_MODEL: FileGroup.PLANNING,
     FileCategory.FIT_ISSUE_PHOTO: FileGroup.FIT,
 }
 
@@ -239,7 +244,8 @@ FILE_GROUP: dict[str, FileGroup] = {
 # accepted quote and a verified scan to plan from.
 STAFF_UPLOAD_WINDOWS: dict[str, set] = {
     FileCategory.TREATMENT_PLAN: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
-    FileCategory.SIMULATION_VIDEO: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
+    # The staged models the 3D viewer runs on, uploaded alongside the plan.
+    FileCategory.SIMULATION_MODEL: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
 }
 
 
@@ -328,6 +334,12 @@ class AppointmentStatus(str, Enum):
 
 # Statuses that still occupy a technician's calendar.
 LIVE_APPOINTMENT_STATUSES = {AppointmentStatus.ASSIGNED, AppointmentStatus.EN_ROUTE}
+
+class ReassignmentStatus(str, Enum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+    DECLINED = "DECLINED"
+
 
 APPOINTMENT_LABELS: dict[str, str] = {
     AppointmentStatus.ASSIGNED: "Scheduled",

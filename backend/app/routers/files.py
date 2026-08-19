@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from datetime import timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..config import settings
+from pathlib import Path
+from ..services import meshes, simulation
 from ..db import get_db
 from ..deps import current_user
 from ..enums import (
@@ -137,7 +139,10 @@ async def upload_file(
     # never invalidated by a single chairside retake.
     group = FILE_GROUP[category]
 
-    filename = (upload.filename or "upload").strip()
+    # A folder upload arrives with its relative path in the name
+    # ("3D_ALIGN/7-S-3D_ALIGN.stl"), and a path in a filename field breaks
+    # anything that reads the name — the simulation timeline included.
+    filename = (upload.filename or "upload").strip().replace("\\", "/").rsplit("/", 1)[-1]
     if category == FileCategory.INTRAORAL_SCAN and not filename.lower().endswith(STL_EXTENSIONS):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Intraoral scans must be uploaded as .stl files."
@@ -156,9 +161,9 @@ async def upload_file(
     subfolder = CATEGORY_FOLDER[category]
 
     if not order.storage_folder_ref:
-        order.storage_folder_ref = get_storage().ensure_order_folder(order.order_number)
+        order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
 
-    stored = get_storage().save(order.order_number, subfolder, filename, upload.file, mime_type)
+    stored = get_storage().save(order.reference, subfolder, filename, upload.file, mime_type)
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if stored.size_bytes > max_bytes:
@@ -353,3 +358,99 @@ def purge_now(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found in the bin.")
     _destroy(db, record)
     db.commit()
+
+
+# --------------------------------------------------------------------------
+# The 3D viewer
+# --------------------------------------------------------------------------
+
+
+@router.get("/simulation", response_model=schemas.SimulationOut)
+def simulation_manifest(
+    order_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """The timeline the viewer draws: which steps exist and which meshes to fetch."""
+    order = _visible_order(order_id, db, user)
+    stages = simulation.stages_for(order)
+    return schemas.SimulationOut(
+        order_reference=order.reference,
+        patient_name=order.patient.full_name if order.patient else "",
+        total_aligners=order.total_aligners or 0,
+        stages=[
+            schemas.StageOut(
+                step=stage.step,
+                is_passive=stage.is_passive,
+                upper=schemas.StageModelOut(**vars(stage.upper)) if stage.upper else None,
+                lower=schemas.StageModelOut(**vars(stage.lower)) if stage.lower else None,
+            )
+            for stage in stages
+        ],
+    )
+
+
+@router.get("/simulation/{file_id}/mesh")
+def simulation_mesh(
+    order_id: str,
+    file_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """One arch at one step, converted for the browser.
+
+    The lab's STL is ~8 MB of loose triangles; this hands back an indexed mesh
+    about a third of that, cached so the conversion happens once per file.
+    """
+    order = _visible_order(order_id, db, user)
+    record = next((f for f in order.files if f.id == file_id and not f.is_deleted), None)
+    if record is None or record.category != FileCategory.SIMULATION_MODEL:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Model not found.")
+
+    storage = get_storage()
+
+    def starting_arch():
+        """Step 0 of the same arch, so the mesh can carry how far it has moved."""
+        parsed = simulation.parse_name(record.filename)
+        if parsed is None:
+            return None
+        _, arch, _ = parsed
+        first = next(
+            (
+                s.upper if arch == "upper" else s.lower
+                for s in simulation.stages_for(order)
+                if (s.upper if arch == "upper" else s.lower)
+            ),
+            None,
+        )
+        if first is None or first.file_id == record.id:
+            return None
+        origin = next((f for f in order.files if f.id == first.file_id), None)
+        if origin is None:
+            return None
+        base = meshes.converted(
+            Path(settings.storage_local_root),
+            origin.storage_ref,
+            lambda: storage.open(origin.storage_ref).read(),
+        )
+        return meshes.vertices_of(base)
+
+    try:
+        payload = meshes.converted(
+            Path(settings.storage_local_root),
+            record.storage_ref,
+            lambda: storage.open(record.storage_ref).read(),
+            reference=starting_arch,
+        )
+    except meshes.MeshError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
+        headers={
+            # Meshes never change once uploaded, so let the browser keep them.
+            "Cache-Control": "private, max-age=86400, immutable",
+            "Content-Disposition": f'inline; filename="{record.filename}.a3dm"',
+        },
+    )

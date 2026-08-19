@@ -2,6 +2,8 @@
    Everything that differs between doctor and staff lives in the `actions` slot,
    passed in by the caller. */
 
+import { Link } from "react-router-dom";
+
 import { CATEGORY_LABEL, formatBytes, formatDate, formatMoney, formatRange } from "../api";
 import type { FileCategory, OrderDetail } from "../api";
 import { api } from "../api";
@@ -147,6 +149,12 @@ export function CaseSummary({ order }: { order: OrderDetail }) {
       <dl className="kv">
         <dt>Patient</dt>
         <dd>{order.patient_name}</dd>
+        {order.enquiry_number !== order.order_number && (
+          <>
+            <dt>Enquiry ref</dt>
+            <dd className="mono">{order.enquiry_number}</dd>
+          </>
+        )}
         <dt>Arches</dt>
         <dd>{archLabel(order.arch)}</dd>
         <dt>Priority</dt>
@@ -632,4 +640,29 @@ export function ActionPanel({
 
 export function Waiting({ children }: { children: ReactNode }) {
   return <div className="waiting">{children}</div>;
+}
+
+
+/** The way into the 3D viewer.
+
+    Kept out of the treatment plan card on purpose: the lab uploads staged
+    models while planning, often before a plan record exists, and a button that
+    only appears once the paperwork catches up is a button nobody finds. */
+export function SimulationCard({ order }: { order: OrderDetail }) {
+  if (!order.has_simulation) return null;
+  return (
+    <div className="card row-between">
+      <div>
+        <h4 style={{ marginBottom: 4 }}>3D simulation</h4>
+        <p className="dim">
+          Step through the planned movement, arch by arch.
+        </p>
+      </div>
+      <Link to={`/viewer/${order.id}`} style={{ textDecoration: "none" }}>
+        <button type="button" className="btn-primary">
+          Open the 3D simulation ↗
+        </button>
+      </Link>
+    </div>
+  );
 }

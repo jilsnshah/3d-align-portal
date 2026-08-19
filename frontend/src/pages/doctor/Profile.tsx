@@ -3,6 +3,8 @@ import { useState } from "react";
 
 import { api } from "../../api";
 import { useAuth } from "../../auth";
+import LocationPicker from "../../components/LocationPicker";
+import type { PickedLocation } from "../../components/LocationPicker";
 import { Banner, ConfirmButton, ErrorText, Field, Loading } from "../../components/ui";
 
 const BLANK_ADDRESS = {
@@ -27,6 +29,7 @@ export default function Profile() {
     clinic_name: me?.doctor?.clinic_name ?? "",
   });
   const [address, setAddress] = useState(BLANK_ADDRESS);
+  const [pin, setPin] = useState<PickedLocation | null>(null);
   const [passwords, setPasswords] = useState({ current_password: "", new_password: "" });
   const [saved, setSaved] = useState("");
 
@@ -39,9 +42,11 @@ export default function Profile() {
   });
 
   const addAddress = useMutation({
-    mutationFn: () => api.createAddress(address),
+    mutationFn: () =>
+      api.createAddress({ ...address, latitude: pin?.lat, longitude: pin?.lng }),
     onSuccess: () => {
       setAddress(BLANK_ADDRESS);
+      setPin(null);
       void queryClient.invalidateQueries({ queryKey: ["addresses"] });
     },
   });
@@ -130,6 +135,13 @@ export default function Profile() {
                 <b>{item.label}</b> — {item.line1}
                 {item.line2 ? `, ${item.line2}` : ""}, {item.city}, {item.state} {item.pincode}
               </span>
+              {item.geocode_source === "picked" ? (
+                <span className="pill pill-ok">Pinned</span>
+              ) : item.latitude == null ? (
+                <span className="pill pill-danger">Not located</span>
+              ) : item.geocode_source === "google-approximate" ? (
+                <span className="pill pill-warn">Approximate</span>
+              ) : null}
               {item.is_default_shipping ? (
                 <span className="pill pill-gold">Default</span>
               ) : (
@@ -166,6 +178,27 @@ export default function Profile() {
                   value={address.label}
                   onChange={(e) => setAddress({ ...address, label: e.target.value })}
                 />
+            <div className="stack-sm" style={{ marginBottom: 12 }}>
+              <h4>Mark it on the map</h4>
+              <p className="dim">
+                Search or drop the pin on the clinic entrance — the fields below fill themselves in.
+              </p>
+              <LocationPicker
+                value={pin}
+                onChange={setPin}
+                onResolved={(a) =>
+                  setAddress((prev) => ({
+                    ...prev,
+                    line1: a.line1 || prev.line1,
+                    line2: a.line2 || prev.line2,
+                    city: a.city || prev.city,
+                    state: a.state || prev.state,
+                    pincode: a.pincode || prev.pincode,
+                  }))
+                }
+                query={[address.line1, address.line2, address.city, address.pincode].filter(Boolean).join(", ")}
+              />
+            </div>
               </Field>
               <Field label="Address line 1">
                 <input

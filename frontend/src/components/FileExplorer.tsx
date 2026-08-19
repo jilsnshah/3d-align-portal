@@ -157,8 +157,15 @@ function PlainUploader({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState<unknown>(null);
   const inputId = `plain-${set.category}`;
+  // Planning output arrives as folders — thirty-odd meshes for the simulation,
+  // and a plan is rarely one PDF — so these are chosen as a folder rather than
+  // shift-selected.
+  const isFolderImport =
+    set.category === "SIMULATION_MODEL" || set.category === "TREATMENT_PLAN";
+  const meshesOnly = set.category === "SIMULATION_MODEL";
 
   if (!set.editable) return null;
 
@@ -167,12 +174,28 @@ function PlainUploader({
     setBusy(true);
     setError(null);
     try {
-      for (const file of Array.from(files)) {
+      const list = Array.from(files).filter(
+        (f) =>
+          // A folder always drags in .DS_Store and the exporter's log.
+          !f.name.startsWith(".") &&
+          f.name !== "Thumbs.db" &&
+          (!meshesOnly || f.name.toLowerCase().endsWith(".stl")),
+      );
+      if (list.length === 0) {
+        setError(
+          new Error(meshesOnly ? "That folder has no .stl files in it." : "That folder is empty."),
+        );
+        return;
+      }
+      for (const [index, file] of list.entries()) {
+        if (list.length > 1) setProgress(`${index + 1} of ${list.length} — ${file.name}`);
         await api.uploadFile(order.id, set.category, file);
       }
+      setProgress("");
       onChanged();
     } catch (err) {
       setError(err);
+      setProgress("");
     } finally {
       setBusy(false);
     }
@@ -188,8 +211,27 @@ function PlainUploader({
           disabled={busy}
           onChange={(e) => void upload(e.target.files)}
         />
+        {isFolderImport && (
+          <>
+            <span className="dim">or pick the folder</span>
+            <input
+              type="file"
+              multiple
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+              disabled={busy}
+              onChange={(e) => void upload(e.target.files)}
+            />
+          </>
+        )}
       </div>
-      {busy && <p className="dim">Uploading…</p>}
+      {isFolderImport && !busy && (
+        <p className="dim">
+          {meshesOnly
+            ? "Choose the case's BioModels folder — step numbers are read from the filenames and anything that is not an .stl is skipped."
+            : "Pick files, or choose a folder to bring in everything inside it."}
+        </p>
+      )}
+      {busy && <p className="dim">Uploading {progress || "…"}</p>}
       <ErrorText error={error} />
     </div>
   );

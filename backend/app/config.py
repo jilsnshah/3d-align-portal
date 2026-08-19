@@ -15,6 +15,21 @@ class Settings(BaseSettings):
 
     app_name: str = "3D Align Order Portal"
 
+    # Server-side Google key, used for Distance Matrix (travel times) and
+    # Geocoding (clinic coordinates). Leave empty and the scheduler falls back
+    # to straight-line estimates and pincode centroids — it never blocks on it.
+    # Restrict the key by IP and to those two APIs; it is not a browser key.
+    google_maps_api_key: str = ""
+    google_maps_timeout_seconds: float = 6.0
+
+    # PESSIMISTIC schedules against a bad traffic day, so a technician is early
+    # rather than late. BEST_GUESS packs more visits in and occasionally slips.
+    google_traffic_model: str = "PESSIMISTIC"
+
+    # Referrer-restricted key for the interactive route map. Embedded in the
+    # page by design; the referrer restriction is what protects it.
+    google_maps_browser_key: str = ""
+
     # Postgres in production. SQLite default so the portal runs with no setup.
     database_url: str = f"sqlite:///{BACKEND_ROOT / 'dev.db'}"
 
@@ -47,6 +62,12 @@ class Settings(BaseSettings):
     # slow scraped endpoint and staff verify manually regardless.
     dci_check_enabled: bool = False
 
+    # Where the built frontend lives, so one process serves the app and the API.
+    frontend_dist: str = ""
+
+    # Refuses to start with development defaults when this is not "development".
+    environment: str = "development"
+
     max_upload_mb: int = 200
 
     # How long a deleted file stays recoverable in the recycle bin.
@@ -63,3 +84,30 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+UNSAFE_DEFAULTS = {
+    "secret_key": "dev-secret-change-me",
+    "staff_password": "changeme",
+}
+
+
+def check_deployment(settings: "Settings") -> list:
+    """Reasons this configuration must not face the internet.
+
+    Development defaults are convenient precisely because they are guessable:
+    the signing key forges any session, and the staff account can read every
+    clinic's cases. Refusing to start is the only reliable reminder.
+    """
+    if settings.environment.lower().startswith("dev"):
+        return []
+
+    problems = []
+    for field, default in UNSAFE_DEFAULTS.items():
+        if getattr(settings, field) == default:
+            problems.append(f"{field.upper()} is still the development default")
+    if not settings.cookie_secure:
+        problems.append("COOKIE_SECURE is false, so the session cookie can travel in clear")
+    if settings.database_url.startswith("sqlite") and "/tmp" in settings.database_url:
+        problems.append("DATABASE_URL points at temporary storage")
+    return problems

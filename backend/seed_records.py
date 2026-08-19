@@ -16,7 +16,26 @@ import sys
 import zlib
 from typing import Optional
 
+import pathlib
+from itertools import cycle
+
 import requests
+
+DEMO = pathlib.Path(__file__).resolve().parent.parent / "demo-data"
+
+FRONTALS = cycle([
+    "photos/Class_II.jpg", "photos/Class1type2.jpg", "photos/Deep_bite.jpg",
+    "photos/Sever_Crowding_of_teeth.jpg", "photos/Class_2_div_2_malocclusion.jpg",
+    "photos/Clas2div2_atypical.jpg", "photos/Class2division1malocclusion.jpg",
+    "photos/110216ek01.jpg", "photos/110216ek03.jpg", "photos/110216ek05.jpg",
+])
+UPPERS = cycle(["photos/110216ek07.jpg", "photos/110216ek08.jpg"])
+LOWERS = cycle(["photos/110216ek09.jpg", "photos/110216ek10.jpg"])
+OPGS = cycle(["radiographs/Basic_panoramic_radiograph.jpg", "radiographs/Mixed_dentition_pan.jpg"])
+
+
+def asset(relative: str) -> bytes:
+    return (DEMO / relative).read_bytes()
 
 BASE = "http://127.0.0.1:8000/api"
 ADMIN = {"email": "staff@3dalign.com", "password": "changeme"}
@@ -75,16 +94,20 @@ def put(session, order_id, category, slot, name, payload, mime):
     )
 
 
-photo = lambda s, o, slot, name, rgb: put(s, o, "RECORD_PHOTO", slot, name, png(*rgb), "image/png")
-stl = lambda s, o, slot, name: put(s, o, "INTRAORAL_SCAN", slot, name, b"solid demo" * 700, "model/stl")
+photo = lambda s, o, slot, name, src: put(s, o, "RECORD_PHOTO", slot, name, asset(src), "image/jpeg")
+STL_FILES = {
+    "UPPER_ARCH": "scans/upper-arch.stl",
+    "LOWER_ARCH": "scans/lower-arch.stl",
+    "BITE": "scans/bite-registration.stl",
+}
+stl = lambda s, o, slot, name: put(s, o, "INTRAORAL_SCAN", slot, name, asset(STL_FILES[slot]), "model/stl")
 
 VIEWS = [
-    ("INTRAORAL_FRONTAL", (198, 122, 118)),
-    ("BUCCAL_RIGHT", (178, 134, 110)),
-    ("BUCCAL_LEFT", (178, 110, 134)),
-    ("OCCLUSAL_UPPER", (148, 150, 182)),
-    ("OCCLUSAL_LOWER", (148, 182, 150)),
-    ("FACE_SMILE", (216, 200, 172)),
+    ("INTRAORAL_FRONTAL", "photos/Sever_Crowding_of_teeth.jpg"),
+    ("BUCCAL_RIGHT", "photos/Class1type2.jpg"),
+    ("BUCCAL_LEFT", "photos/Class_II.jpg"),
+    ("OCCLUSAL_UPPER", "photos/110216ek07.jpg"),
+    ("OCCLUSAL_LOWER", "photos/110216ek09.jpg"),
 ]
 
 print("Creating the case…")
@@ -105,14 +128,14 @@ print(f"  {order['order_number']} — {PATIENT}")
 
 # --- round 1 of records, shot at the clinic ---------------------------------
 print("\nRound 1 — clinic shoots the photo series")
-for slot, rgb in VIEWS:
-    photo(doctor, oid, slot, f"v1-{slot.lower()}.png", rgb)
-put(doctor, oid, "OPG", "", "v1-opg.png", png(58, 58, 68, 780, 390), "image/png")
+for slot, src in VIEWS:
+    photo(doctor, oid, slot, f"v1-{slot.lower()}.jpg", src)
+put(doctor, oid, "OPG", "", "v1-opg.jpg", asset("radiographs/Basic_panoramic_radiograph.jpg"), "image/jpeg")
 print(f"  {len(VIEWS)} photo views + OPG at v1")
 
 # One view retaken immediately — the first frontal was blurred. Same revision,
 # so the earlier shot goes to the bin rather than becoming a v2.
-photo(doctor, oid, "INTRAORAL_FRONTAL", "v1-frontal-retake.png", (206, 128, 124))
+photo(doctor, oid, "INTRAORAL_FRONTAL", "v1-frontal-retake.jpg", "photos/Deep_bite.jpg")
 print("  frontal retaken within v1 — the blurred one goes to the bin")
 
 check(doctor.post(f"{BASE}/orders/{oid}/submit"), "submit")
@@ -127,15 +150,15 @@ check(
     ),
     "request records",
 )
-for slot, rgb in [
-    ("OCCLUSAL_UPPER", (140, 144, 190)),
-    ("OCCLUSAL_LOWER", (140, 190, 144)),
-    ("INTRAORAL_FRONTAL", (202, 126, 120)),
-    ("BUCCAL_RIGHT", (172, 130, 106)),
-    ("BUCCAL_LEFT", (172, 106, 130)),
+for slot, src in [
+    ("OCCLUSAL_UPPER", "photos/110216ek08.jpg"),
+    ("OCCLUSAL_LOWER", "photos/110216ek10.jpg"),
+    ("INTRAORAL_FRONTAL", "photos/Class_2_div_2_malocclusion.jpg"),
+    ("BUCCAL_RIGHT", "photos/Clas2div2_atypical.jpg"),
+    ("BUCCAL_LEFT", "photos/Class2division1malocclusion.jpg"),
 ]:
-    photo(doctor, oid, slot, f"v2-{slot.lower()}.png", rgb)
-put(doctor, oid, "OPG", "", "v2-opg.png", png(52, 52, 62, 800, 400), "image/png")
+    photo(doctor, oid, slot, f"v2-{slot.lower()}.jpg", src)
+put(doctor, oid, "OPG", "", "v2-opg.jpg", asset("radiographs/Mixed_dentition_pan.jpg"), "image/jpeg")
 print("  5 views re-shot at v2 — the v1 round stays on file, superseded")
 print("  (face smiling deliberately not re-shot, so v2 is missing an optional view)")
 

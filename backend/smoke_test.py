@@ -15,6 +15,10 @@ os.environ["STORAGE_LOCAL_ROOT"] = f"{TMP}/storage"
 os.environ["STAFF_EMAIL"] = "staff@3dalign.example.com"
 os.environ["STAFF_PASSWORD"] = "staffpassword"
 os.environ["DCI_CHECK_ENABLED"] = "false"
+# Never let a test bill the live Maps account or depend on a network round trip.
+# Routing behaviour is exercised against stub providers instead.
+os.environ["GOOGLE_MAPS_API_KEY"] = ""
+os.environ["GOOGLE_MAPS_BROWSER_KEY"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -23,6 +27,20 @@ from app.main import app  # noqa: E402
 BASE_URL = "/api"
 
 REQUIRED_VIEWS = ("INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER")
+
+
+def binary_stl(triangles=1):
+    """The smallest thing the mesh converter will accept."""
+    import struct
+
+    out = bytearray(b"smoke test" + b"\0" * 70)
+    out += struct.pack("<I", triangles)
+    for _ in range(triangles):
+        out += struct.pack("<3f", 0.0, 0.0, 1.0)
+        for point in ((0, 0, 0), (1, 0, 0), (0, 1, 0)):
+            out += struct.pack("<3f", *point)
+        out += b"\0\0"
+    return io.BytesIO(bytes(out))
 
 
 def upload_records(session, order_id, base="/api"):
@@ -119,7 +137,11 @@ with TestClient(app) as client:
     check("order draft created", r.status_code == 201, r.text)
     order = r.json()
     oid = order["id"]
-    check("order number is human readable", order["order_number"].startswith("AL-"), order["order_number"])
+    check(
+        "a new case carries an enquiry reference, not a production number",
+        order["order_number"].startswith("EN-"),
+        order["order_number"],
+    )
     check("shipping address defaulted", order["shipping_address"] is not None)
 
     r = doctor.post(f"/api/orders/{oid}/submit")
@@ -273,15 +295,73 @@ with TestClient(app) as client:
     )
 
     upload_scan_set(doctor, oid, prefix="v2-")
+    enquiry_ref = doctor.get(f"/api/orders/{oid}").json()["order_number"]
+    check(
+        "reference is still the enquiry ref right up to planning",
+        enquiry_ref.startswith("EN-"),
+        enquiry_ref,
+    )
+
     r = staff.post(f"/api/staff/orders/{oid}/scan/accept", json={"note": "Scan is clean."})
     check("staff accepts the scan", r.json()["status"] == "IN_PLANNING", r.text)
+    check(
+        "reaching planning spends an AL number",
+        r.json()["order_number"].startswith("AL-"),
+        r.json()["order_number"],
+    )
+    al_number = r.json()["order_number"]
+    check(
+        "the doctor sees the same AL number",
+        doctor.get(f"/api/orders/{oid}").json()["order_number"] == al_number,
+    )
+    check(
+        "records uploaded before the number existed are still downloadable",
+        doctor.get(
+            f"/api/orders/{oid}/files/"
+            f"{doctor.get(f'/api/orders/{oid}').json()['files'][0]['id']}/download"
+        ).status_code
+        == 200,
+    )
 
     # -- planning ---------------------------------------------------------
+    # The clinic approves movement it can see, so the plan cannot be published
+    # until the staged models and the plan document are attached.
+    r_nofiles = staff.post(
+        f"/api/staff/orders/{oid}/plans",
+        json={"aligners_upper": 18, "aligners_lower": 16, "final_price": "72000", "final_tax": "3000"},
+    )
+    check(
+        "a plan cannot be shared without the simulation files",
+        r_nofiles.status_code == 409 and "simulation files" in r_nofiles.text,
+        r_nofiles.text[:120],
+    )
+
+    staff.post(
+        f"/api/orders/{oid}/files",
+        data={"category": "SIMULATION_MODEL"},
+        files={"upload": ("0-S-3D_ALIGN_PA.stl", binary_stl(), "model/stl")},
+    )
+    r_noplan = staff.post(
+        f"/api/staff/orders/{oid}/plans",
+        json={"aligners_upper": 18, "aligners_lower": 16, "final_price": "72000", "final_tax": "3000"},
+    )
+    check(
+        "nor without the plan document",
+        r_noplan.status_code == 409 and "plan document" in r_noplan.text,
+        r_noplan.text[:120],
+    )
+    staff.post(
+        f"/api/orders/{oid}/files",
+        data={"category": "TREATMENT_PLAN"},
+        files={"upload": ("plan.pdf", io.BytesIO(b"%PDF-1.4 plan"), "application/pdf")},
+    )
+
     r = staff.post(
         f"/api/staff/orders/{oid}/plans",
         json={"aligners_upper": 18, "aligners_lower": 16, "final_price": "72000", "final_tax": "3000",
               "ipr_required": True, "summary": "IPR at 13-23."},
     )
+    check("the plan publishes once both are attached", r.status_code == 200, r.text[:120])
     check("plan shared", r.json()["status"] == "PLAN_SHARED", r.text)
     # Every aligner count the plan can produce must fall in a priced band —
     # a gap here used to reject a perfectly ordinary 46-aligner case.
@@ -489,6 +569,165 @@ with TestClient(app) as client:
     check("another doctor cannot read the order", r.status_code == 404, r.text)
     r = other.get("/api/staff/queue")
     check("doctors cannot reach staff endpoints", r.status_code == 403, r.text)
+
+    # -- searching, and delivering somewhere else --------------------------
+    hit = doctor.get(f"/api/orders?search={order['order_number']}").json()
+    check(
+        "a doctor can find a case by its reference",
+        any(o["id"] == oid for o in hit),
+        str([o["order_number"] for o in hit]),
+    )
+    patient_id = doctor.get("/api/patients").json()[0]["id"]
+    by_patient = doctor.get(f"/api/orders?patient_id={patient_id}").json()
+    check(
+        "cases can be listed for one patient",
+        len(by_patient) > 0 and all(o["patient_name"] for o in by_patient),
+        str(len(by_patient)),
+    )
+    check(
+        "nonsense search finds nothing rather than everything",
+        doctor.get("/api/orders?search=zzzznotathing").json() == [],
+    )
+
+    # A practice with several clinics picks where a batch goes, and cannot pick
+    # somebody else's address.
+    second = doctor.post(
+        "/api/addresses",
+        json={
+            "label": "Second branch",
+            "line1": "12 Other Road",
+            "city": "Ahmedabad",
+            "state": "Gujarat",
+            "pincode": "380015",
+            "country": "India",
+            "is_default_shipping": False,
+        },
+    )
+    check("a doctor can add another clinic address", second.status_code == 201, second.text[:120])
+    r = other.post(
+        "/api/addresses",
+        json={
+            "label": "Not yours",
+            "line1": "9 Elsewhere",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "pincode": "411001",
+            "country": "India",
+            "is_default_shipping": False,
+        },
+    )
+    if r.status_code == 201:
+        stolen = doctor.post(
+            f"/api/orders/{oid}/fit-review",
+            json={"fits": True, "shipping_address_id": r.json()["id"]},
+        )
+        check(
+            "another practice's address is refused",
+            stolen.status_code in (404, 409),
+            stolen.text[:100],
+        )
+
+    # -- long lists are paged ----------------------------------------------
+    # A practice with hundreds of cases must not ship them all in one response,
+    # and a search must reach past the first page.
+    page = staff.get("/api/staff/orders?limit=3").json()
+    check("a page never exceeds the size asked for", len(page) <= 3, str(len(page)))
+    second = staff.get("/api/staff/orders?limit=3&offset=3").json()
+    check(
+        "the next page never repeats the first",
+        not ({o["id"] for o in page} & {o["id"] for o in second}),
+        "pages overlap",
+    )
+    check(
+        "the page size is capped server-side",
+        staff.get("/api/staff/orders?limit=5000").status_code == 422,
+    )
+    everything = staff.get("/api/staff/orders?limit=200").json()
+    if len(everything) > 3:
+        # Search runs in the database, so a case beyond the first page is found.
+        last = everything[-1]
+        found = staff.get(f"/api/staff/orders?search={last['patient_name']}&limit=200").json()
+        check(
+            "search reaches cases beyond the first page",
+            any(o["id"] == last["id"] for o in found),
+            f"{last['patient_name']} not found",
+        )
+    check(
+        "the doctor's own list is paged too",
+        len(doctor.get("/api/orders?limit=2").json()) <= 2,
+    )
+    check("patients are paged", len(doctor.get("/api/patients?limit=2").json()) <= 2)
+
+    # -- the AL series is only spent on cases that reach planning -----------
+    # The lab's complaint: quotes that are never accepted used to burn numbers.
+    def fresh_case(name):
+        r = doctor.post(
+            "/api/orders",
+            json={
+                "new_patient": {"full_name": name, "sex": "F"},
+                "arch": "BOTH",
+                "priority": "STANDARD",
+                "chief_complaint": "Spacing.",
+            },
+        )
+        return r.json()["id"]
+
+    abandoned = fresh_case("Abandoned Draft")
+    declined = fresh_case("Declined Quote")
+    proceeds = fresh_case("Goes To Planning")
+
+    check(
+        "none of the three has taken a production number",
+        all(
+            doctor.get(f"/api/orders/{o}").json()["order_number"].startswith("EN-")
+            for o in (abandoned, declined, proceeds)
+        ),
+    )
+
+    # The declined one is quoted but never accepted; the third goes all the way.
+    for oid_ in (declined, proceeds):
+        upload_records(doctor, oid_)
+        doctor.post(f"/api/orders/{oid_}/submit")
+        staff.post(f"/api/staff/orders/{oid_}/start-review")
+        staff.post(
+            f"/api/staff/orders/{oid_}/quotes",
+            json={"category": "ALIGN_16_20", "tax": "0"},
+        )
+
+    doctor.post(f"/api/orders/{proceeds}/quote/accept")
+    doctor.post(f"/api/orders/{proceeds}/scan-route", json={"scan_route": "UPLOAD"})
+    upload_scan_set(doctor, proceeds, prefix="v1")
+    r = staff.post(f"/api/staff/orders/{proceeds}/scan/accept", json={"note": "clean"})
+
+    check(
+        "the case that reached planning takes the next AL number",
+        r.json()["order_number"] == f"AL-{al_number.split('-')[1]}-0002",
+        f"{r.json()['order_number']} after {al_number}",
+    )
+    check(
+        "the abandoned draft never took one",
+        doctor.get(f"/api/orders/{abandoned}").json()["order_number"].startswith("EN-"),
+    )
+    check(
+        "the unaccepted quote never took one",
+        doctor.get(f"/api/orders/{declined}").json()["order_number"].startswith("EN-"),
+    )
+
+    # A case that loops back through planning must not take a second number.
+    staff.post(
+        f"/api/staff/orders/{proceeds}/plans",
+        json={"aligners_upper": 8, "aligners_lower": 8, "final_price": "45000", "final_tax": "0"},
+    )
+    doctor.post(
+        f"/api/orders/{proceeds}/plan/respond",
+        json={"approve": False, "revision_notes": "Reduce IPR."},
+    )
+    check(
+        "re-entering planning does not spend another number",
+        doctor.get(f"/api/orders/{proceeds}").json()["order_number"]
+        == f"AL-{al_number.split('-')[1]}-0002",
+    )
+
 
 print()
 if failures:

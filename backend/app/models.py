@@ -13,11 +13,13 @@ from datetime import date as date_type, datetime, time as time_type, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
+    TypeDecorator,
     JSON,
     Boolean,
     Date,
     DateTime,
     Enum as SAEnum,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -44,10 +46,36 @@ def _enum(python_enum, name: str):
     return SAEnum(python_enum, name=name, native_enum=False, length=40, validate_strings=True)
 
 
+class UTCDateTime(TypeDecorator):
+    """Timestamps that keep their zone.
+
+    SQLite stores no offset, so a naive value read back is ambiguous — and
+    serialised without one it reaches the browser as ``2026-08-24T04:58:26``,
+    which JavaScript reads as *local* time. Everything is stored as UTC and
+    handed back tz-aware, so the API always says which instant it means.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+        UTCDateTime(), default=utcnow, onupdate=utcnow
     )
 
 
@@ -64,7 +92,7 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[enums.UserRole] = mapped_column(_enum(enums.UserRole, "user_role"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     doctor: Mapped[Optional[Doctor]] = relationship(
         back_populates="user", uselist=False, foreign_keys="Doctor.user_id"
@@ -88,7 +116,7 @@ class Doctor(Base, TimestampMixin):
         default=enums.VerificationStatus.PENDING,
     )
     registry_check_result: Mapped[Optional[dict]] = mapped_column(JSON)
-    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     verified_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
     rejection_reason: Mapped[str] = mapped_column(Text, default="")
 
@@ -115,6 +143,14 @@ class Address(Base, TimestampMixin):
     pincode: Mapped[str] = mapped_column(String(20))
     country: Mapped[str] = mapped_column(String(80), default="India")
     is_default_shipping: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Where this clinic actually is. Scheduling needs it to work out travel time
+    # between visits; None means the address was never resolved, and scheduling
+    # falls back to a flat buffer for it.
+    latitude: Mapped[Optional[float]] = mapped_column(Float)
+    longitude: Mapped[Optional[float]] = mapped_column(Float)
+    geocode_source: Mapped[str] = mapped_column(String(20), default="")
+    geocoded_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     doctor: Mapped[Doctor] = relationship(back_populates="addresses")
 
@@ -143,7 +179,11 @@ class Order(Base, TimestampMixin):
     __tablename__ = "orders"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    order_number: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    # Every case gets an enquiry ref the moment it is created. The AL number is
+    # the lab's production series and is only spent once a case actually reaches
+    # planning, so quotes that are never accepted do not consume one.
+    enquiry_number: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    order_number: Mapped[Optional[str]] = mapped_column(String(30), unique=True, index=True)
 
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), index=True)
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"))
@@ -177,10 +217,10 @@ class Order(Base, TimestampMixin):
     planning_revision: Mapped[int] = mapped_column(Integer, default=1)
     fit_round: Mapped[int] = mapped_column(Integer, default=1)
 
-    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    approved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     doctor: Mapped[Doctor] = relationship()
     patient: Mapped[Patient] = relationship(back_populates="orders")
@@ -209,6 +249,17 @@ class Order(Base, TimestampMixin):
     invoice: Mapped[Optional[Invoice]] = relationship(
         back_populates="order", uselist=False, cascade="all, delete-orphan"
     )
+
+    @property
+    def reference(self) -> str:
+        """What a human calls this case. An enquiry ref until the case reaches
+        planning, the AL number from then on."""
+        return self.order_number or self.enquiry_number
+
+    @property
+    def in_production(self) -> bool:
+        """True once the case has been given an AL number."""
+        return self.order_number is not None
 
     @property
     def appointment(self) -> Optional["Appointment"]:
@@ -409,7 +460,7 @@ class OrderFile(Base, TimestampMixin):
     # Recycle bin. A deleted file keeps its bytes until it is purged, so a
     # clinic that deletes the wrong thing can get it back.
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     deleted_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
 
     order: Mapped[Order] = relationship(back_populates="files")
@@ -434,7 +485,7 @@ class StatusEvent(Base):
     actor_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
     note: Mapped[str] = mapped_column(Text, default="")
     event_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     order: Mapped[Order] = relationship(back_populates="events")
     actor: Mapped[Optional[User]] = relationship()
@@ -477,8 +528,8 @@ class Quote(Base, TimestampMixin):
     # estimate in place — the band was only ever a placeholder.
     is_final: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    responded_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     order: Mapped[Order] = relationship(back_populates="quotes")
     line_items: Mapped[list[QuoteLineItem]] = relationship(
@@ -527,8 +578,8 @@ class TreatmentPlan(Base, TimestampMixin):
     )
     revision_notes: Mapped[str] = mapped_column(Text, default="")
     created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    shared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    shared_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    responded_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     order: Mapped[Order] = relationship(back_populates="plans")
 
@@ -580,8 +631,8 @@ class TimeOff(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     technician_id: Mapped[str] = mapped_column(ForeignKey("technicians.id"), index=True)
 
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    ends_at: Mapped[datetime] = mapped_column(UTCDateTime())
     reason: Mapped[str] = mapped_column(String(200), default="")
 
     technician: Mapped[Technician] = relationship(back_populates="time_off")
@@ -604,6 +655,100 @@ class BookingSettings(Base, TimestampMixin):
     # {"0": ["09:00", "18:00"], ..., "6": null}  — null means closed.
     working_hours: Mapped[dict] = mapped_column(JSON, default=dict)
     service_city: Mapped[str] = mapped_column(String(120), default="Ahmedabad")
+    # Working hours and rosters are wall-clock times in the city the lab serves.
+    # Storing them without a zone made 09:00 mean 09:00 UTC — 14:30 in Ahmedabad.
+    timezone_name: Mapped[str] = mapped_column(String(60), default="Asia/Kolkata")
+
+    # Everyone starts and ends the day at the lab, so the first and last visit
+    # of a day are costed against a real origin instead of being unconstrained.
+    lab_address: Mapped[str] = mapped_column(String(255), default="")
+    lab_latitude: Mapped[Optional[float]] = mapped_column(Float)
+    lab_longitude: Mapped[Optional[float]] = mapped_column(Float)
+
+    # How long a scan visit actually takes, and how finely the doctor may pick a
+    # start time inside a feasible window.
+    visit_duration_minutes: Mapped[int] = mapped_column(Integer, default=45)
+    booking_granularity_minutes: Mapped[int] = mapped_column(Integer, default=15)
+
+    # Assignment scoring. Efficiency-first: the detour dominates, fairness only
+    # breaks near-ties, and max_daily_jobs remains the hard backstop.
+    travel_weight: Mapped[float] = mapped_column(Float, default=1.0)
+    fairness_weight: Mapped[float] = mapped_column(Float, default=0.5)
+    idle_weight: Mapped[float] = mapped_column(Float, default=0.5)
+    max_travel_minutes: Mapped[int] = mapped_column(Integer, default=75)
+
+    # Used when no routing provider is configured: straight-line distance times
+    # a road factor, divided by this speed.
+    fallback_speed_kmph: Mapped[float] = mapped_column(Float, default=22.0)
+
+    # A clinic further than this from the lab cannot be served, so a geocode
+    # that lands outside it is treated as a bad address rather than a long drive.
+    service_radius_km: Mapped[float] = mapped_column(Float, default=120.0)
+
+    # Beyond this, a visit is not a slot in somebody's day — it is the day. The
+    # technician drives out, does the scan and drives back, and nothing else
+    # fits around it.
+    day_visit_over_km: Mapped[float] = mapped_column(Float, default=45.0)
+
+
+class ReassignmentRequest(Base, TimestampMixin):
+    """A technician asking the lab to hand one of their visits to someone else.
+
+    The handover itself reuses the ordinary reassignment path — this only
+    records the ask, so the lab has a queue rather than a phone call.
+    """
+
+    __tablename__ = "reassignment_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    appointment_id: Mapped[str] = mapped_column(ForeignKey("appointments.id"), index=True)
+    technician_id: Mapped[str] = mapped_column(ForeignKey("technicians.id"), index=True)
+
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[enums.ReassignmentStatus] = mapped_column(
+        _enum(enums.ReassignmentStatus, "reassignment_status"),
+        default=enums.ReassignmentStatus.PENDING,
+        index=True,
+    )
+    resolution: Mapped[str] = mapped_column(Text, default="")
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+    appointment: Mapped["Appointment"] = relationship()
+    technician: Mapped["Technician"] = relationship()
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == enums.ReassignmentStatus.PENDING
+
+
+class TravelEstimate(Base, TimestampMixin):
+    """Cached travel time between two points.
+
+    The same clinic pairs recur constantly in one service city, so this is what
+    keeps a calendar render from turning into hundreds of routing calls. Keyed
+    on rounded coordinates rather than raw addresses so it never stores where a
+    named person lives.
+    """
+
+    __tablename__ = "travel_estimates"
+    __table_args__ = (
+        UniqueConstraint("origin_key", "destination_key", "bucket", name="uq_travel_pair"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    origin_key: Mapped[str] = mapped_column(String(40), index=True)
+    destination_key: Mapped[str] = mapped_column(String(40), index=True)
+
+    # A 09:00 Monday run and a 17:00 Friday run are different journeys, so the
+    # departure time is part of the key: "1@09" is Tuesday 9am. Live lookups
+    # for imminent visits are never cached at all.
+    bucket: Mapped[str] = mapped_column(String(10), default="", index=True)
+
+    minutes: Mapped[float] = mapped_column(Float)
+    distance_km: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[str] = mapped_column(String(20), default="estimate")
+    # Traffic patterns drift; an entry is refreshed once it is older than this.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
 
 class AlignerPrice(Base, TimestampMixin):
@@ -629,8 +774,13 @@ class Appointment(Base, TimestampMixin):
         ForeignKey("technicians.id"), index=True
     )
 
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    ends_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    # A clinic outside the service city takes the technician for the whole day:
+    # the drive there and back leaves no room for anything else, so the visit
+    # spans the shift rather than a slot inside it.
+    is_day_visit: Mapped[bool] = mapped_column(Boolean, default=False)
 
     status: Mapped[enums.AppointmentStatus] = mapped_column(
         _enum(enums.AppointmentStatus, "appointment_status"),
@@ -643,9 +793,9 @@ class Appointment(Base, TimestampMixin):
     access_notes: Mapped[str] = mapped_column(Text, default="")
     assignment_reason: Mapped[str] = mapped_column(String(255), default="")
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     cancel_reason: Mapped[str] = mapped_column(Text, default="")
     outcome_notes: Mapped[str] = mapped_column(Text, default="")
 
@@ -689,8 +839,8 @@ class Shipment(Base, TimestampMixin):
     phase_decision: Mapped[Optional[str]] = mapped_column(String(20))
     decision_notes: Mapped[str] = mapped_column(Text, default="")
 
-    shipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    shipped_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     order: Mapped[Order] = relationship(back_populates="shipments")
 
@@ -706,7 +856,7 @@ class FitReview(Base):
     outcome: Mapped[enums.FitOutcome] = mapped_column(_enum(enums.FitOutcome, "fit_outcome"))
     issue_notes: Mapped[str] = mapped_column(Text, default="")
     reported_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     order: Mapped[Order] = relationship(back_populates="fit_reviews")
 
@@ -727,8 +877,8 @@ class Invoice(Base, TimestampMixin):
     status: Mapped[enums.InvoiceStatus] = mapped_column(
         _enum(enums.InvoiceStatus, "invoice_status"), default=enums.InvoiceStatus.ISSUED
     )
-    issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    issued_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    paid_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     order: Mapped[Order] = relationship(back_populates="invoice")
 
@@ -742,8 +892,8 @@ class Notification(Base):
 
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text, default="")
-    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    read_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     order: Mapped[Optional[Order]] = relationship()
 

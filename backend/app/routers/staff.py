@@ -10,12 +10,14 @@ from typing import Optional
 
 from decimal import ROUND_HALF_UP, Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..db import get_db
 from ..deps import any_order, current_admin
 from ..enums import (
+    FileCategory,
     ALIGNER_CATEGORIES,
     AppointmentStatus,
     FileGroup,
@@ -36,6 +38,7 @@ from ..models import (
     Invoice,
     Notification,
     Order,
+    Patient,
     Quote,
     QuoteLineItem,
     Shipment,
@@ -99,24 +102,40 @@ def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
     search: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
+    """A page of cases, newest first.
+
+    The search runs in the database rather than over an already-truncated page:
+    filtering in Python after a cap means a lab with 500 cases can search for a
+    case and be told it does not exist.
+    """
     query = db.query(Order)
     if order_status:
         query = query.filter(Order.status == order_status)
-    orders = query.order_by(Order.created_at.desc()).limit(400).all()
 
-    if search:
-        needle = search.strip().lower()
-        orders = [
-            o
-            for o in orders
-            if needle in o.order_number.lower()
-            or needle in o.patient.full_name.lower()
-            or needle in o.doctor.full_name.lower()
-            or needle in (o.doctor.clinic_name or "").lower()
-        ]
+    if search and search.strip():
+        needle = f"%{search.strip().lower()}%"
+        query = (
+            query.join(Order.patient)
+            .join(Order.doctor)
+            .filter(
+                or_(
+                    func.lower(Order.enquiry_number).like(needle),
+                    func.lower(func.coalesce(Order.order_number, "")).like(needle),
+                    func.lower(Patient.full_name).like(needle),
+                    func.lower(Doctor.full_name).like(needle),
+                    func.lower(func.coalesce(Doctor.clinic_name, "")).like(needle),
+                )
+            )
+        )
+
+    orders = (
+        query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
+    )
     return [order_summary(o) for o in orders]
 
 
@@ -372,6 +391,24 @@ def share_plan(
             status.HTTP_400_BAD_REQUEST,
             "Enter the final price for this case before sharing the plan.",
         )
+    # The clinic is being asked to approve movement it can only judge by seeing
+    # it, so the staged models are a prerequisite rather than a nicety.
+    if not any(
+        f.category == FileCategory.SIMULATION_MODEL and not f.is_deleted for f in order.files
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Attach the simulation files before sharing the plan — the clinic reviews the "
+            "movement in 3D, not the aligner count alone.",
+        )
+    if not any(
+        f.category == FileCategory.TREATMENT_PLAN and not f.is_deleted for f in order.files
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Attach the treatment plan document before sharing the plan.",
+        )
+
     final_category = category_for_count(total_aligners)
 
     plan = TreatmentPlan(
@@ -563,7 +600,7 @@ def create_shipment(
                 user_id=order.doctor.user_id,
                 order_id=order.id,
                 title="Another shipment is on its way",
-                body=f"{order.order_number} — {span} {payload.carrier} {payload.tracking_number}".strip(),
+                body=f"{order.reference} — {span} {payload.carrier} {payload.tracking_number}".strip(),
             )
         )
 
@@ -677,7 +714,7 @@ def generate_invoice(
             user_id=order.doctor.user_id,
             order_id=order.id,
             title="Invoice available",
-            body=f"{order.order_number} — {quote.currency} {billed_total}",
+            body=f"{order.reference} — {quote.currency} {billed_total}",
         )
     )
     db.commit()
@@ -693,15 +730,28 @@ def generate_invoice(
 @router.get("/doctors", response_model=list[schemas.PendingDoctorOut])
 def list_doctors(
     pending_only: bool = Query(default=False),
+    search: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     query = db.query(Doctor)
     if pending_only:
         query = query.filter(Doctor.verification_status == VerificationStatus.PENDING)
+    if search and search.strip():
+        needle = f"%{search.strip().lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(Doctor.full_name).like(needle),
+                func.lower(func.coalesce(Doctor.clinic_name, "")).like(needle),
+            )
+        )
 
     result = []
-    for doctor in query.order_by(Doctor.created_at.desc()).all():
+    for doctor in (
+        query.order_by(Doctor.created_at.desc()).offset(offset).limit(limit).all()
+    ):
         out = schemas.PendingDoctorOut.model_validate(doctor)
         out.email = doctor.user.email
         result.append(out)

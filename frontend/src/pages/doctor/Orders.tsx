@@ -1,17 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { api, formatDate } from "../../api";
+import { PAGE_SIZE, api, formatDate } from "../../api";
+import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { Empty, Loading, StatusPill } from "../../components/ui";
 
 export default function DoctorOrders() {
   const navigate = useNavigate();
-  const orders = useQuery({ queryKey: ["orders"], queryFn: () => api.orders() });
+  const [search, setSearch] = useState("");
+  const orders = useInfiniteQuery({
+    queryKey: ["orders", search],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.orders(false, { limit: PAGE_SIZE + 1, offset: pageParam as number }, { search }),
+    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
+  });
 
   if (orders.isLoading) return <Loading what="cases" />;
 
-  const all = orders.data ?? [];
+  const all = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
   const actionable = all.filter((o) => o.needs_doctor_action && o.status !== "CANCELLED");
   const inProgress = all.filter(
     (o) => !o.needs_doctor_action && o.status !== "COMPLETED" && o.status !== "CANCELLED",
@@ -25,17 +34,29 @@ export default function DoctorOrders() {
           <h1>Your cases</h1>
           <p className="sub">Clear aligner cases submitted to 3D Align.</p>
         </div>
-        <Link to="/orders/new">
-          <button type="button" className="btn-primary">
-            New case
-          </button>
-        </Link>
+        <div className="row">
+          <input
+            placeholder="Case number, patient, chart no."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ minWidth: 260 }}
+          />
+          <Link to="/orders/new">
+            <button type="button" className="btn-primary">
+              New case
+            </button>
+          </Link>
+        </div>
       </div>
 
       {all.length === 0 ? (
-        <Empty>
-          No cases yet. <Link to="/orders/new">Start your first one.</Link>
-        </Empty>
+        search ? (
+          <Empty>No cases match “{search}”.</Empty>
+        ) : (
+          <Empty>
+            No cases yet. <Link to="/orders/new">Start your first one.</Link>
+          </Empty>
+        )
       ) : (
         <div className="stack">
           <Section
@@ -53,6 +74,7 @@ export default function DoctorOrders() {
           {closed.length > 0 && (
             <Section title="Closed" orders={closed} onOpen={(id) => navigate(`/orders/${id}`)} />
           )}
+          <LoadMore query={orders} noun="cases" shown={all.length} />
         </div>
       )}
     </main>

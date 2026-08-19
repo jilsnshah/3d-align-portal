@@ -9,6 +9,7 @@ import FileExplorer from "../../components/FileExplorer";
 import {
   ActionPanel,
   CaseSummary,
+  SimulationCard,
   InvoiceCard,
   OrderHeader,
   PlanCard,
@@ -62,7 +63,6 @@ export default function StaffOrderDetail() {
   const closed = data.status === "COMPLETED" || data.status === "CANCELLED";
   const acceptedQuote = data.quotes.find((q) => q.status === "ACCEPTED");
   const billedTotal = acceptedQuote?.total;
-  const planningOpen = data.status === "IN_PLANNING" || data.status === "PLAN_SHARED";
   const canInvoice =
     !data.invoice && (data.status === "DISPATCHING" || data.status === "COMPLETED");
 
@@ -128,23 +128,6 @@ export default function StaffOrderDetail() {
             </div>
           )}
 
-          <div className="card">
-            <h4 style={{ marginBottom: 10 }}>Add a file</h4>
-            <FileUploader
-              orderId={data.id}
-              categories={
-                planningOpen
-                  ? ["TREATMENT_PLAN", "SIMULATION_VIDEO", "RECORD_PHOTO", "INTRAORAL_SCAN", "OTHER"]
-                  : ["RECORD_PHOTO", "INTRAORAL_SCAN", "OTHER"]
-              }
-              onUploaded={invalidate}
-              hint={
-                planningOpen
-                  ? undefined
-                  : "Treatment plans and simulations can only be added once the case is in planning."
-              }
-            />
-          </div>
 
           {!isTechnician && !closed && (
             <div className="card">
@@ -160,6 +143,7 @@ export default function StaffOrderDetail() {
         </div>
 
         <div className="stack">
+          <SimulationCard order={data} />
           <CaseSummary order={data} />
           <Timeline order={data} />
         </div>
@@ -568,7 +552,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       return (
         <ActionPanel
           title="Publish the treatment plan"
-          why="Upload the plan document and simulation below first, then publish."
+          why="Attach the plan document and the simulation files below, then publish."
         >
           <Checklist
             items={[
@@ -581,8 +565,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
                 label: "Treatment plan document attached (add it below)",
               },
               {
-                done: order.files.some((f) => f.category === "SIMULATION_VIDEO"),
-                label: "Simulation video attached (optional)",
+                done: order.files.some((f) => f.category === "SIMULATION_MODEL"),
+                label: "Simulation files attached — the clinic reviews these in 3D",
               },
             ]}
           />

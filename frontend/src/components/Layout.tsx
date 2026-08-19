@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
-import { api, formatDate } from "../api";
+import { api, formatDate, openFreshTab } from "../api";
 import { useAuth } from "../auth";
 
 const DOCTOR_NAV = [
@@ -96,6 +96,14 @@ export default function Layout() {
             <b>{me?.doctor?.full_name ?? (isTech ? "Scan technician" : "3D Align Lab")}</b>
             {me?.email}
           </div>
+          <button
+            type="button"
+            className="bell"
+            title="Opens a new tab signed out, so you can use another account alongside this one"
+            onClick={openFreshTab}
+          >
+            + Account
+          </button>
           <button type="button" className="bell" onClick={handleSignOut}>
             Sign out
           </button>
@@ -103,7 +111,16 @@ export default function Layout() {
       </header>
 
       {drawerOpen && (
-        <aside className="drawer">
+        <button
+          type="button"
+          className="drawer-scrim"
+          aria-label="Close alerts"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {drawerOpen && (
+        <aside className="drawer" aria-label="Alerts">
           <div className="row-between" style={{ marginBottom: 12 }}>
             <h2>Alerts</h2>
             <button type="button" className="btn-link" onClick={() => setDrawerOpen(false)}>

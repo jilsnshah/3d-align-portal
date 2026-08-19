@@ -19,7 +19,11 @@ export default function NewOrder() {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<OrderDetail | null>(null);
 
-  const patients = useQuery({ queryKey: ["patients"], queryFn: api.patients });
+  // A picker, not a browse list — take a generous slice rather than paging.
+  const patients = useQuery({
+    queryKey: ["patients", "picker"],
+    queryFn: () => api.patients({ limit: 200 }),
+  });
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
 
   const [patientId, setPatientId] = useState("");

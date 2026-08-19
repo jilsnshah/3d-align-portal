@@ -78,26 +78,58 @@ check(
 print("  Verified.")
 
 
-import struct
-import zlib
+import pathlib
+from itertools import cycle
+
+DEMO = pathlib.Path(__file__).resolve().parent.parent / "demo-data"
+
+if not DEMO.exists():
+    die(f"demo-data not found at {DEMO}. It ships with the repo.")
 
 
-def _png(seed: str, w: int = 520, h: int = 390) -> bytes:
-    """A solid-colour PNG so previews show something, tinted per view."""
-    tone = sum(ord(c) for c in seed)
-    r, g, b = 150 + tone % 70, 120 + tone % 90, 120 + tone % 60
-    raw = b"".join(b"\x00" + bytes([r, g, b]) * w for _ in range(h))
+def _read(relative: str) -> bytes:
+    path = DEMO / relative
+    if not path.exists():
+        die(f"Missing demo asset: {relative}")
+    return path.read_bytes()
 
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        body = tag + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
 
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(raw))
-        + chunk(b"IEND", b"")
-    )
+# Real clinical photographs, openly licensed — see demo-data/ATTRIBUTION.md.
+# There are no true buccal views in the set, so each patient is dealt a
+# different mix; the point is that the portal looks like real cases on a
+# screen share, not that the anatomy is exact.
+FRONTALS = [
+    "photos/Sever_Crowding_of_teeth.jpg",
+    "photos/Class_2_div_2_malocclusion.jpg",
+    "photos/Deep_bite.jpg",
+    "photos/Clas2div2_atypical.jpg",
+    "photos/Class_II.jpg",
+    "photos/Class1type2.jpg",
+    "photos/Class2division1malocclusion.jpg",
+    "photos/110216ek01.jpg",
+    "photos/110216ek03.jpg",
+    "photos/110216ek05.jpg",
+]
+OCCLUSAL_UPPER = ["photos/110216ek07.jpg", "photos/110216ek08.jpg"]
+OCCLUSAL_LOWER = ["photos/110216ek09.jpg", "photos/110216ek10.jpg"]
+OPGS = ["radiographs/Basic_panoramic_radiograph.jpg", "radiographs/Mixed_dentition_pan.jpg"]
+
+_frontals = cycle(FRONTALS)
+_uppers = cycle(OCCLUSAL_UPPER)
+_lowers = cycle(OCCLUSAL_LOWER)
+_opgs = cycle(OPGS)
+
+
+def photo_set() -> list:
+    """The five required views for one patient, each a different photograph so
+    no two cases look identical in the file explorer."""
+    return [
+        ("INTRAORAL_FRONTAL", next(_frontals)),
+        ("BUCCAL_RIGHT", next(_frontals)),
+        ("BUCCAL_LEFT", next(_frontals)),
+        ("OCCLUSAL_UPPER", next(_uppers)),
+        ("OCCLUSAL_LOWER", next(_lowers)),
+    ]
 
 
 def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
@@ -114,12 +146,12 @@ def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
         ),
         "create an order",
     )
-    for slot in ("INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER"):
+    for slot, asset in photo_set():
         check(
             doctor.post(
                 f"{BASE}/orders/{order['id']}/files",
                 data={"category": "RECORD_PHOTO", "slot": slot},
-                files={"upload": (f"{slot.lower()}.png", io.BytesIO(_png(slot)), "image/png")},
+                files={"upload": (f"{slot.lower()}.jpg", io.BytesIO(_read(asset)), "image/jpeg")},
             ),
             f"upload the {slot.lower()} photo",
         )
@@ -127,7 +159,7 @@ def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
         doctor.post(
             f"{BASE}/orders/{order['id']}/files",
             data={"category": "OPG", "slot": ""},
-            files={"upload": ("opg.png", io.BytesIO(_png("OPG", 780, 390)), "image/png")},
+            files={"upload": ("opg.jpg", io.BytesIO(_read(next(_opgs))), "image/jpeg")},
         ),
         "upload the OPG",
     )
@@ -159,12 +191,16 @@ def upload_scan(order_id: str) -> None:
     )
     # A scan is a set: upper, lower and bite. The case only advances once all
     # three are present.
-    for slot in ("UPPER_ARCH", "LOWER_ARCH", "BITE"):
+    for slot, asset in (
+        ("UPPER_ARCH", "scans/upper-arch.stl"),
+        ("LOWER_ARCH", "scans/lower-arch.stl"),
+        ("BITE", "scans/bite-registration.stl"),
+    ):
         check(
             doctor.post(
                 f"{BASE}/orders/{order_id}/files",
                 data={"category": "INTRAORAL_SCAN", "slot": slot},
-                files={"upload": (f"{slot.lower()}.stl", io.BytesIO(b"solid demo" * 512), "model/stl")},
+                files={"upload": (pathlib.Path(asset).name, io.BytesIO(_read(asset)), "model/stl")},
             ),
             f"upload the {slot.lower()} scan",
         )

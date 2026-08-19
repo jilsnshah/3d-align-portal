@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import RouteMap from "../../components/RouteMap";
+import RouteSheet from "../../components/RouteSheet";
 
 import { api, formatDay, formatTime, toISODate } from "../../api";
 import type { Booking } from "../../api";
-import { Empty, ErrorText, Loading } from "../../components/ui";
+import { Empty, ErrorText, Field, Loading } from "../../components/ui";
 
 const STATUS_TONE: Record<string, string> = {
   ASSIGNED: "pill pill-gold",
@@ -15,9 +17,10 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function AdminBookings() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<"week" | "list">("week");
+  const [view, setView] = useState<"week" | "list" | "routes" | "requests">("week");
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [statusFilter, setStatusFilter] = useState("");
+  const pending = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -60,10 +63,33 @@ export default function AdminBookings() {
           >
             List
           </button>
+          <button
+            type="button"
+            className={view === "routes" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
+            onClick={() => setView("routes")}
+          >
+            Routes
+          </button>
+          <button
+            type="button"
+            className={view === "requests" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
+            onClick={() => setView("requests")}
+          >
+            Requests
+            {(pending.data?.length ?? 0) > 0 && (
+              <span className="bell-count" style={{ marginLeft: 6 }}>
+                {pending.data?.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
-      {view === "week" ? (
+      {view === "requests" ? (
+        <RequestsView />
+      ) : view === "routes" ? (
+        <RoutesView />
+      ) : view === "week" ? (
         <>
           <div className="row-between" style={{ marginBottom: 14 }}>
             <button type="button" className="btn-ghost btn-sm" onClick={() => shift(-7)}>
@@ -280,4 +306,185 @@ function startOfWeek(d: Date): Date {
   copy.setDate(copy.getDate() - offset);
   copy.setHours(0, 0, 0, 0);
   return copy;
+}
+
+
+/** One technician's day, re-costed against traffic and drawn on a map. */
+function RoutesView() {
+  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [technicianId, setTechnicianId] = useState("");
+
+  const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
+  const chosen = technicianId || technicians.data?.[0]?.id || "";
+
+  const route = useQuery({
+    queryKey: ["route", chosen, day],
+    queryFn: () => api.technicianRoute(chosen, day),
+    enabled: Boolean(chosen),
+  });
+
+  return (
+    <div className="stack">
+      <div className="card row" style={{ gap: 14 }}>
+        <Field label="Technician">
+          <select value={chosen} onChange={(e) => setTechnicianId(e.target.value)}>
+            {technicians.data?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.full_name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Day">
+          <input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
+        </Field>
+      </div>
+
+      {route.isLoading && <Loading what="the route" />}
+      {route.data && (
+        <div className="split">
+          <div className="card">
+            <RouteMap route={route.data} />
+          </div>
+          <div className="card">
+            <RouteSheet route={route.data} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/** Handover requests from technicians.
+
+    The lab has three ways out, and none of them is new machinery: name a
+    technician, let the scheduler choose whoever can actually reach it, or
+    decline and leave the visit where it is. */
+function RequestsView() {
+  const queryClient = useQueryClient();
+  const requests = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
+  const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [pick, setPick] = useState<Record<string, string>>({});
+  // A named technician is offered without force first. Overriding their
+  // availability is a decision the lab should make knowingly, not a default —
+  // otherwise "assign to them" quietly contradicts "nobody can reach it".
+  const [forced, setForced] = useState<Record<string, boolean>>({});
+  const [conflict, setConflict] = useState<Record<string, string>>({});
+
+  const resolve = useMutation({
+    mutationFn: (args: { id: string; body: Parameters<typeof api.resolveReassignment>[1] }) =>
+      api.resolveReassignment(args.id, args.body).catch((err) => {
+        if (err instanceof Error && err.message.includes("not free")) {
+          setConflict((c) => ({ ...c, [args.id]: err.message }));
+          setForced((f) => ({ ...f, [args.id]: true }));
+        }
+        throw err;
+      }),
+    onSuccess: () => {
+      setConflict({});
+      setForced({});
+      void queryClient.invalidateQueries({ queryKey: ["reassignments"] });
+      void queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      void queryClient.invalidateQueries({ queryKey: ["route"] });
+    },
+  });
+
+  if (requests.isLoading) return <Loading what="requests" />;
+  if (!requests.data?.length) {
+    return <Empty>No technician has asked to hand over a visit.</Empty>;
+  }
+
+  return (
+    <div className="stack">
+      <ErrorText error={resolve.error} />
+      {requests.data.map((r) => (
+        <div className="card stack-sm" key={r.id}>
+          <div className="row-between">
+            <div>
+              <b>{r.requested_by}</b>{" "}
+              <span className="dim">wants to hand over {formatDay(r.starts_at)}</span>{" "}
+              <b className="num">{formatTime(r.starts_at)}</b>
+            </div>
+            <span className="pill pill-warn">Awaiting the lab</span>
+          </div>
+          <div className="dim">
+            {r.order_reference} · {r.patient_name} · {r.clinic_name}
+          </div>
+          <p>“{r.reason}”</p>
+
+          <input
+            placeholder="Note (optional)"
+            value={note[r.id] ?? ""}
+            onChange={(e) => setNote({ ...note, [r.id]: e.target.value })}
+          />
+
+          {conflict[r.id] && (
+            <div className="banner banner-warn">
+              {conflict[r.id]} Assigning anyway will put them on a visit they cannot
+              reach on time.
+            </div>
+          )}
+
+          <div className="row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={resolve.isPending}
+              onClick={() =>
+                resolve.mutate({ id: r.id, body: { action: "ANY", note: note[r.id] ?? "" } })
+              }
+            >
+              Give it to whoever can reach it
+            </button>
+
+            <select
+              value={pick[r.id] ?? ""}
+              style={{ width: "auto" }}
+              onChange={(e) => setPick({ ...pick, [r.id]: e.target.value })}
+            >
+              <option value="">Choose a technician…</option>
+              {technicians.data
+                ?.filter((t) => t.full_name !== r.requested_by)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name}
+                  </option>
+                ))}
+            </select>
+            <button
+              type="button"
+              className={forced[r.id] ? "btn-danger" : "btn-ghost"}
+              disabled={!pick[r.id] || resolve.isPending}
+              onClick={() =>
+                resolve.mutate({
+                  id: r.id,
+                  body: {
+                    action: "TECHNICIAN",
+                    technician_id: pick[r.id],
+                    note: note[r.id] ?? "",
+                    force: forced[r.id] ?? false,
+                  },
+                })
+              }
+            >
+              {forced[r.id] ? "Assign anyway" : "Assign to them"}
+            </button>
+
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={resolve.isPending}
+              onClick={() =>
+                resolve.mutate({ id: r.id, body: { action: "DECLINE", note: note[r.id] ?? "" } })
+              }
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -9,6 +9,11 @@ venv/
 backend/storage/
 secrets/
 
+# Real case exports. These are a named patient's scans and biomodels — hundreds
+# of megabytes of identifiable clinical records. The openly licensed
+# photographs and the generated dummy STLs beside them are fine to track.
+demo-data/simulation/
+
 # Node
 node_modules/
 dist/

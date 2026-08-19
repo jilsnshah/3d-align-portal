@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { useAuth } from "../auth";
+import LocationPicker from "../components/LocationPicker";
+import type { PickedLocation } from "../components/LocationPicker";
 import { ErrorText, Field } from "../components/ui";
 
 export default function Register() {
@@ -25,6 +27,7 @@ export default function Register() {
     state: "",
     pincode: "",
   });
+  const [pin, setPin] = useState<PickedLocation | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -51,6 +54,8 @@ export default function Register() {
           city: form.city,
           state: form.state,
           pincode: form.pincode,
+          latitude: pin?.lat,
+          longitude: pin?.lng,
           is_default_shipping: true,
         },
       });
@@ -64,11 +69,14 @@ export default function Register() {
   }
 
   return (
-    <div className="page page-narrow">
-      <div style={{ maxWidth: 620, margin: "5vh auto" }}>
-        <div className="row" style={{ marginBottom: 22, gap: 10 }}>
+    <div className="auth-shell">
+      <div className="auth-card wide">
+        <div className="auth-brand">
           <span className="brand-mark" aria-hidden="true" />
-          <h1>Register your clinic</h1>
+          <div>
+            <h1>3D Align</h1>
+            <span className="brand-sub">Clinic registration</span>
+          </div>
         </div>
 
         <form className="stack" onSubmit={handleSubmit}>
@@ -123,6 +131,29 @@ export default function Register() {
 
           <div className="card">
             <h4 style={{ marginBottom: 12 }}>Clinic address</h4>
+            <div className="stack-sm" style={{ marginBottom: 16 }}>
+              <h4>Mark your clinic on the map</h4>
+              <p className="dim">
+                Search for your practice or drop the pin on it — the address below fills itself in.
+                A technician is routed to this pin, so it matters more than the typed address.
+              </p>
+              <LocationPicker
+                value={pin}
+                onChange={setPin}
+                onResolved={(a) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    line1: a.line1 || prev.line1,
+                    line2: a.line2 || prev.line2,
+                    city: a.city || prev.city,
+                    state: a.state || prev.state,
+                    pincode: a.pincode || prev.pincode,
+                  }))
+                }
+                query={[form.line1, form.line2, form.city, form.pincode].filter(Boolean).join(", ")}
+              />
+            </div>
+
             <p className="dim" style={{ marginBottom: 12 }}>
               Aligners ship here unless you add another address later.
             </p>
@@ -144,12 +175,13 @@ export default function Register() {
                   <input required value={form.pincode} onChange={set("pincode")} />
                 </Field>
               </div>
+
             </div>
           </div>
 
           <ErrorText error={error} />
           <div className="row-between">
-            <Link to="/login" className="dim">
+            <Link to="/login" className="auth-foot" style={{ margin: 0 }}>
               Already registered? Sign in
             </Link>
             <button type="submit" className="btn-primary" disabled={busy}>

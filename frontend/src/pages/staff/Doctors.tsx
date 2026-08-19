@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { api, formatDate } from "../../api";
+import { PAGE_SIZE, api, formatDate } from "../../api";
+import { LoadMore } from "../../components/LoadMore";
 import type { PendingDoctor } from "../../api";
 import { Empty, ErrorText, Loading } from "../../components/ui";
 
@@ -9,10 +10,14 @@ export default function StaffDoctors() {
   const queryClient = useQueryClient();
   const [pendingOnly, setPendingOnly] = useState(true);
 
-  const doctors = useQuery({
+  const doctors = useInfiniteQuery({
     queryKey: ["staff-doctors", pendingOnly],
-    queryFn: () => api.staffDoctors(pendingOnly),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.staffDoctors(pendingOnly, { limit: PAGE_SIZE + 1, offset: pageParam as number }),
+    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
+  const rows = (doctors.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
 
   return (
     <main className="page">
@@ -33,11 +38,11 @@ export default function StaffDoctors() {
 
       {doctors.isLoading ? (
         <Loading what="doctors" />
-      ) : doctors.data?.length === 0 ? (
+      ) : rows.length === 0 ? (
         <Empty>{pendingOnly ? "Nobody is waiting for verification." : "No doctors yet."}</Empty>
       ) : (
         <div className="stack">
-          {doctors.data?.map((doctor) => (
+          {rows.map((doctor) => (
             <DoctorCard
               key={doctor.id}
               doctor={doctor}
@@ -47,6 +52,7 @@ export default function StaffDoctors() {
               }}
             />
           ))}
+          <LoadMore query={doctors} noun="doctors" shown={rows.length} />
         </div>
       )}
     </main>

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import AddressChooser from "../../components/AddressChooser";
 import { api, formatDate, formatMoney } from "../../api";
 import type { OrderDetail as Order, Slot } from "../../api";
 import FileUploader from "../../components/FileUploader";
@@ -10,6 +11,7 @@ import SlotCalendar from "../../components/SlotCalendar";
 import {
   ActionPanel,
   CaseSummary,
+  SimulationCard,
   InvoiceCard,
   OrderHeader,
   PlanCard,
@@ -44,8 +46,12 @@ export default function DoctorOrderDetail() {
     onSuccess: invalidate,
   });
   const decidePhase = useMutation({
-    mutationFn: (v: { id: string; decision: "CONTINUE" | "REPEAT"; notes: string }) =>
-      api.decidePhase(orderId, v.id, v.decision, v.notes),
+    mutationFn: (v: {
+      id: string;
+      decision: "CONTINUE" | "REPEAT";
+      notes: string;
+      addressId: string | null;
+    }) => api.decidePhase(orderId, v.id, v.decision, v.notes, v.addressId),
     onSuccess: invalidate,
   });
 
@@ -101,14 +107,20 @@ export default function DoctorOrderDetail() {
               shipmentId={data.awaiting_phase_decision}
               pending={decidePhase.isPending}
               error={decidePhase.error}
-              onDecide={(decision, notes) =>
-                decidePhase.mutate({ id: data.awaiting_phase_decision!, decision, notes })
+              onDecide={(decision, notes, addressId) =>
+                decidePhase.mutate({
+                  id: data.awaiting_phase_decision!,
+                  decision,
+                  notes,
+                  addressId,
+                })
               }
             />
           )}
           {sections.map((key, index) => render(key, index === 0))}
         </div>
         <div className="stack">
+          <SimulationCard order={data} />
           <CaseSummary order={data} />
           <Timeline order={data} />
         </div>
@@ -128,9 +140,10 @@ function PhaseDecisionPanel({
   shipmentId: string;
   pending: boolean;
   error: unknown;
-  onDecide: (decision: "CONTINUE" | "REPEAT", notes: string) => void;
+  onDecide: (decision: "CONTINUE" | "REPEAT", notes: string, addressId: string | null) => void;
 }) {
   const [notes, setNotes] = useState("");
+  const [deliverTo, setDeliverTo] = useState<string | null>(order.shipping_address?.id ?? null);
   const phase = order.shipments.find((s) => s.id === shipmentId);
   const span =
     phase?.aligner_range_from && phase?.aligner_range_to
@@ -151,13 +164,20 @@ function PhaseDecisionPanel({
           : `You have confirmed ${span}. The lab cannot send the next batch until you answer.`
       }
     >
+      {!isFinal && (
+        <AddressChooser
+          value={deliverTo}
+          onChange={setDeliverTo}
+          title="Deliver the next phase to"
+        />
+      )}
       <ErrorText error={error} />
       <div className="row">
         <button
           type="button"
           className="btn-primary"
           disabled={pending}
-          onClick={() => onDecide("CONTINUE", notes)}
+          onClick={() => onDecide("CONTINUE", notes, deliverTo)}
         >
           {isFinal
             ? "All fitting — complete the case"
@@ -179,7 +199,7 @@ function PhaseDecisionPanel({
         type="button"
         className="btn-ghost"
         disabled={pending || !notes.trim()}
-        onClick={() => onDecide("REPEAT", notes)}
+        onClick={() => onDecide("REPEAT", notes, deliverTo)}
       >
         Remake phase {phase?.phase_number ?? ""}
       </button>
@@ -199,6 +219,12 @@ function DoctorActions({
   const [revisionNotes, setRevisionNotes] = useState("");
   const [issueNotes, setIssueNotes] = useState("");
   const [dispatchMode, setDispatchMode] = useState<"FULL" | "PHASED">("PHASED");
+  // Confirmed at each dispatch decision, because a practice can have several
+  // clinics and the right one depends on where the patient is being seen.
+  const [deliverTo, setDeliverTo] = useState<string | null>(order.shipping_address?.id ?? null);
+  // Where the scan is taken is a separate question from where aligners are
+  // posted — a patient can be seen at a branch and the boxes go to the main site.
+  const [visitTo, setVisitTo] = useState<string | null>(order.shipping_address?.id ?? null);
   const [scanRoute, setScanRoute] = useState<"UPLOAD" | "APPOINTMENT" | "COURIER">(
     order.scan_route ?? "UPLOAD",
   );
@@ -213,7 +239,8 @@ function DoctorActions({
   });
   const acceptQuote = useMutation({ mutationFn: () => api.acceptQuote(order.id), onSuccess: onDone });
   const approvePlan = useMutation({
-    mutationFn: () => api.respondToPlan(order.id, { approve: true }),
+    mutationFn: () =>
+      api.respondToPlan(order.id, { approve: true, shipping_address_id: deliverTo }),
     onSuccess: onDone,
   });
   const requestRevision = useMutation({
@@ -221,7 +248,12 @@ function DoctorActions({
     onSuccess: onDone,
   });
   const confirmFit = useMutation({
-    mutationFn: () => api.submitFitReview(order.id, { fits: true, dispatch_mode: dispatchMode }),
+    mutationFn: () =>
+      api.submitFitReview(order.id, {
+        fits: true,
+        dispatch_mode: dispatchMode,
+        shipping_address_id: deliverTo,
+      }),
     onSuccess: onDone,
   });
   const reportIssue = useMutation({
@@ -241,6 +273,7 @@ function DoctorActions({
       api.bookAppointment(order.id, {
         starts_at: slot!.starts_at,
         access_notes: accessNotes,
+        address_id: visitTo,
       }),
     onSuccess: () => {
       setSlot(null);
@@ -397,11 +430,16 @@ function DoctorActions({
 
           {scanRoute === "APPOINTMENT" && !order.appointment?.status.match(/ASSIGNED|EN_ROUTE/) && (
             <div className="stack-sm">
+              <AddressChooser
+                value={visitTo}
+                onChange={setVisitTo}
+                title="Which clinic is the patient being seen at?"
+              />
               <p className="dim">
-                Pick a free slot. A 3D Align technician will be assigned automatically and travel to
-                your clinic.
+                Pick a free slot. A technician is assigned automatically, and the times offered are
+                the ones somebody can actually reach this address by.
               </p>
-              <SlotCalendar selected={slot} onPick={setSlot} />
+              <SlotCalendar selected={slot} onPick={setSlot} addressId={visitTo} />
               {slot && (
                 <>
                   <Field label="Anything the technician should know">
@@ -453,6 +491,11 @@ function DoctorActions({
           title="Treatment plan ready"
           why="Approve to start fabrication of the training aligner, or send it back with changes."
         >
+          <AddressChooser
+            value={deliverTo}
+            onChange={setDeliverTo}
+            title="Deliver the training aligner to"
+          />
           <ErrorText error={approvePlan.error ?? requestRevision.error} />
           <div className="row">
             <button
@@ -497,6 +540,11 @@ function DoctorActions({
               <option value="FULL">Full case, all at once</option>
             </select>
           </Field>
+          <AddressChooser
+            value={deliverTo}
+            onChange={setDeliverTo}
+            title="Deliver the aligners to"
+          />
           <ErrorText error={confirmFit.error ?? reportIssue.error} />
           <button
             type="button"

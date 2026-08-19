@@ -16,6 +16,10 @@ os.environ["STORAGE_LOCAL_ROOT"] = f"{TMP}/storage"
 os.environ["STAFF_EMAIL"] = "admin@3dalign.example.com"
 os.environ["STAFF_PASSWORD"] = "adminpassword"
 os.environ["DCI_CHECK_ENABLED"] = "false"
+# Never let a test bill the live Maps account or depend on a network round trip.
+# Routing behaviour is exercised against stub providers instead.
+os.environ["GOOGLE_MAPS_API_KEY"] = ""
+os.environ["GOOGLE_MAPS_BROWSER_KEY"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -133,15 +137,44 @@ with TestClient(app) as boot:
 
     # -- availability -----------------------------------------------------
     today = datetime.now(timezone.utc).date()
+
+    # The month view is the cheap one: which days are worth clicking, with no
+    # travel lookups at all.
     r = doctor.get(f"/api/appointments/availability?from={today}&to={today + timedelta(days=13)}")
     check("availability returns a calendar", r.status_code == 200, r.text)
     days = r.json()
     check("14 days returned", len(days) == 14, str(len(days)))
     check("sunday is closed", any(d["closed"] for d in days), "no closed day found")
+    check(
+        "the month view carries capacity but not times",
+        all(d["slots"] == [] for d in days) and any(d["technicians_free"] > 0 for d in days),
+        str([(d["date"], d["technicians_free"], len(d["slots"])) for d in days[:3]]),
+    )
+    check(
+        "a week of detail is the most that can be asked for at once",
+        doctor.get(
+            f"/api/appointments/availability?from={today}"
+            f"&to={today + timedelta(days=13)}&detail=true"
+        ).status_code
+        == 400,
+    )
 
-    bookable = [d for d in days if d["free_count"] > 0]
-    check("there are bookable days", len(bookable) > 0)
-    day = bookable[0]
+    open_days = [d for d in days if d["technicians_free"] > 0]
+    check("there are days with capacity", len(open_days) > 0)
+
+    # Exact times are fetched only for a chosen day.
+    def slots_on(date_str):
+        return doctor.get(
+            f"/api/appointments/availability?from={date_str}&to={date_str}&detail=true"
+        ).json()[0]
+
+    day = None
+    for candidate in open_days:
+        detail = slots_on(candidate["date"])
+        if any(s["available"] for s in detail["slots"]):
+            day = detail
+            break
+    check("a chosen day returns real times", day is not None)
     check(
         "the grid shows taken slots too, not just free ones",
         len(day["slots"]) >= day["free_count"],
@@ -150,16 +183,10 @@ with TestClient(app) as boot:
 
     # Pick a free slot that has a following slot on the same day, so the travel
     # buffer's effect on the neighbour can be asserted.
-    day = next(
-        d for d in bookable
-        if any(
-            s["available"] and i + 1 < len(d["slots"])
-            for i, s in enumerate(d["slots"])
-        )
-    )
     slot = next(
         s for i, s in enumerate(day["slots"]) if s["available"] and i + 1 < len(day["slots"])
     )
+    bookable = [day]
 
     # -- booking ----------------------------------------------------------
     r = doctor.post(f"/api/orders/{oid}/appointment", json={
@@ -169,7 +196,11 @@ with TestClient(app) as boot:
     check("doctor books the slot", r.status_code == 200, r.text)
     booking = r.json()["appointment"]
     check("a technician was assigned automatically", booking["technician_name"] in techs, str(booking))
-    check("the assignment reason is recorded", "Free for this slot" in booking["assignment_reason"], booking["assignment_reason"])
+    check(
+        "the assignment reason explains the routing",
+        "away from the previous stop" in booking["assignment_reason"],
+        booking["assignment_reason"],
+    )
     check("scan route switched to appointment", r.json()["scan_route"] == "APPOINTMENT")
 
     r = doctor.post(f"/api/orders/{oid}/appointment", json={"starts_at": slot["starts_at"]})
@@ -180,7 +211,7 @@ with TestClient(app) as boot:
 
     # -- the buffer actually blocks the neighbouring slot ------------------
     oid2 = case_awaiting_scan("Kabir Nair")
-    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}")
+    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}&detail=true")
     slots = r.json()[0]["slots"]
     booked_index = next(i for i, s in enumerate(slots) if s["starts_at"] == slot["starts_at"])
     check("the booked slot is still free for the other technician", slots[booked_index]["available"])
@@ -192,7 +223,7 @@ with TestClient(app) as boot:
     check("the two cases went to different technicians", second_tech != booking["technician_name"], second_tech)
 
     oid3 = case_awaiting_scan("Sana Kapoor")
-    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}")
+    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}&detail=true")
     slots = r.json()[0]["slots"]
     check("that slot is now fully booked", not slots[booked_index]["available"], str(slots[booked_index]))
     check(
@@ -346,14 +377,276 @@ with TestClient(app) as boot:
 
     admin.put("/api/admin/settings", json={"min_notice_hours": 1})
 
+    # -- a cancelled visit must genuinely release everything ---------------
+    # The dangerous failure is a cancellation that looks fine but leaves the
+    # technician's calendar blocked, or the case unable to book again.
+    cancelled = admin.get("/api/admin/bookings").json()
+    dead = next(b for b in cancelled if b["status"] == "CANCELLED")
+    check(
+        "a cancelled visit is no longer live",
+        dead["status"] == "CANCELLED",
+        dead["status"],
+    )
+    r = doctor.post(f"/api/appointments/{dead['id']}/cancel", json={"reason": "again"})
+    check("cancelling twice is refused", r.status_code == 409, r.text)
+
+    freed_order = dead["order"]["id"] if isinstance(dead.get("order"), dict) else None
+    if freed_order:
+        r = doctor.get(f"/api/orders/{freed_order}")
+        check(
+            "the case goes back to awaiting its scan",
+            r.json()["status"] == "AWAITING_SCAN",
+            r.json()["status"],
+        )
+        day_of = dead["starts_at"][:10]
+        detail = doctor.get(
+            f"/api/appointments/availability?from={day_of}&to={day_of}&detail=true"
+        ).json()[0]
+        free_slot = next((s for s in detail["slots"] if s["available"]), None)
+        check("the cancelled day still offers times", free_slot is not None)
+        if free_slot:
+            r = doctor.post(
+                f"/api/orders/{freed_order}/appointment",
+                json={"starts_at": free_slot["starts_at"]},
+            )
+            check("the case can be booked again after cancelling", r.status_code == 200, r.text[:120])
+            rebooked = r.json()["appointment"]
+            r = admin.post(
+                f"/api/appointments/{rebooked['id']}/cancel", json={"reason": "tidy up"}
+            )
+            check("the replacement can be cancelled too", r.status_code == 200, r.text[:80])
+
+    # -- a technician who could not scan also releases the slot ------------
+    r = doctor.post(f"/api/orders/{oid3}/appointment", json={"starts_at": slot["starts_at"]})
+    if r.status_code == 200:
+        job = r.json()["appointment"]
+        owner = next(t for t in techs.values() if t["full_name"] == job["technician_name"])
+        session = tech_a if owner["full_name"] == techs["Anil Rathod"]["full_name"] else tech_b
+        r = session.post(f"/api/tech/jobs/{job['id']}/no-show", json={"note": "Clinic shut."})
+        if r.status_code == 200:
+            check("could-not-scan closes the visit", r.json()["status"] == "NO_SHOW", r.text[:80])
+            r = doctor.get(f"/api/orders/{oid3}")
+            check(
+                "the case is bookable again after a no-show",
+                r.json()["status"] == "AWAITING_SCAN"
+                and not any(a.get("is_live") for a in [r.json().get("appointment") or {}]),
+                r.json()["status"],
+            )
+
+
+    # -- a technician asking the lab to hand a visit over -------------------
+    # The handover reuses the ordinary reassignment path, so this checks the
+    # request queue and the three ways out of it.
+    live_jobs = [b for b in admin.get("/api/admin/bookings").json() if b["status"] == "ASSIGNED"]
+    check("there is a live visit to hand over", len(live_jobs) > 0, str(len(live_jobs)))
+    if live_jobs:
+        job = live_jobs[0]
+        owner = job["technician_name"]
+        session = tech_a if owner == techs["Anil Rathod"]["full_name"] else tech_b
+
+        r = session.post(
+            f"/api/tech/jobs/{job['id']}/reassign-request",
+            json={"reason": "Car broke down on the ring road."},
+        )
+        check("a technician can ask the lab to reassign", r.status_code == 200, r.text[:120])
+        request_id = r.json()["id"]
+        check("the request starts pending", r.json()["status"] == "PENDING", r.json()["status"])
+
+        r = session.post(
+            f"/api/tech/jobs/{job['id']}/reassign-request", json={"reason": "asking twice"}
+        )
+        check("the same visit cannot be queued twice", r.status_code == 409, r.text[:80])
+
+        check(
+            "the lab sees it in the queue",
+            any(x["id"] == request_id for x in admin.get("/api/admin/reassignments").json()),
+        )
+
+        # A technician cannot touch somebody else's visit.
+        other = tech_b if session is tech_a else tech_a
+        r = other.post(
+            f"/api/tech/jobs/{job['id']}/reassign-request", json={"reason": "not mine"}
+        )
+        check("a technician cannot hand over a visit that is not theirs", r.status_code == 404, r.text[:80])
+
+        # Decline leaves it exactly where it was.
+        r = admin.post(
+            f"/api/admin/reassignments/{request_id}/resolve",
+            json={"action": "DECLINE", "note": "No cover today."},
+        )
+        check("the lab can decline the request", r.status_code == 200, r.text[:100])
+        check("declining marks it declined", r.json()["status"] == "DECLINED", r.json()["status"])
+        after = [b for b in admin.get("/api/admin/bookings").json() if b["id"] == job["id"]][0]
+        check("a declined request leaves the visit alone", after["technician_name"] == owner, after["technician_name"])
+        r = admin.post(
+            f"/api/admin/reassignments/{request_id}/resolve", json={"action": "ANY"}
+        )
+        check("a resolved request cannot be resolved again", r.status_code == 409, r.text[:80])
+
+        # Now actually hand it over, by name.
+        r = session.post(
+            f"/api/tech/jobs/{job['id']}/reassign-request", json={"reason": "Still stuck."}
+        )
+        second = r.json()["id"]
+        target = next(t for t in techs.values() if t["full_name"] != owner)
+        r = admin.post(
+            f"/api/admin/reassignments/{second}/resolve",
+            json={"action": "TECHNICIAN", "technician_id": target["id"], "force": True},
+        )
+        check("the lab can name the replacement", r.status_code == 200, r.text[:120])
+        moved = [b for b in admin.get("/api/admin/bookings").json() if b["id"] == job["id"]][0]
+        check(
+            "the visit moved to the named technician",
+            moved["technician_name"] == target["full_name"],
+            moved["technician_name"],
+        )
+        check(
+            "the handover is on the record",
+            "Reassigned by the lab" in moved["assignment_reason"],
+            moved["assignment_reason"],
+        )
+
+        # When nobody else can take it, the refusal must fit the situation. The
+        # booking-time wording ("the nearest time that works is 16:34") is advice
+        # the lab cannot act on here — the visit's time is fixed.
+        r = other.post(
+            f"/api/tech/jobs/{job['id']}/reassign-request", json={"reason": "Cannot make it."}
+        )
+        if r.status_code == 200:
+            stuck = r.json()["id"]
+            holder = target["full_name"]
+            for name, tech in techs.items():
+                if name != holder:
+                    admin.post(
+                        f"/api/admin/technicians/{tech['id']}/time-off",
+                        json={
+                            "starts_at": f"{job['starts_at'][:10]}T00:00:00Z",
+                            "ends_at": f"{job['starts_at'][:10]}T23:59:00Z",
+                            "reason": "Leave",
+                        },
+                    )
+            r = admin.post(f"/api/admin/reassignments/{stuck}/resolve", json={"action": "ANY"})
+            check(
+                "handing over to nobody is refused",
+                r.status_code == 409,
+                r.text[:100],
+            )
+            detail = r.json().get("detail", "")
+            check(
+                "the refusal names who is holding it",
+                holder in detail,
+                detail,
+            )
+            check(
+                "the refusal does not offer a time the lab cannot book",
+                "nearest time that works" not in detail,
+                detail,
+            )
+
+    # -- a clinic outside the service city takes a whole day ---------------
+    # The drive there and back leaves no room for anything else, so the visit
+    # has to occupy the shift rather than a slot inside it.
+    admin.put("/api/admin/settings", json={"day_visit_over_km": 45})
+    far = admin.get("/api/admin/settings").json()
+    check("the day-visit threshold is configurable", far["day_visit_over_km"] == 45, str(far))
+
+    r = doctor.post(
+        "/api/addresses",
+        json={
+            "label": "Vadodara branch",
+            "line1": "Alkapuri",
+            "city": "Vadodara",
+            "state": "Gujarat",
+            "pincode": "390007",
+            "country": "India",
+            "latitude": 22.3072,
+            "longitude": 73.1812,
+            "is_default_shipping": False,
+        },
+    )
+    if r.status_code == 201:
+        distant = r.json()["id"]
+        check("a clinic 100 km out still resolves", r.json()["latitude"] is not None, r.text[:80])
+
+        far_day = None
+        for candidate in days:
+            detail = doctor.get(
+                f"/api/appointments/availability?from={candidate['date']}"
+                f"&to={candidate['date']}&detail=true&address_id={distant}"
+            ).json()[0]
+            if detail["slots"] and detail["slots"][0]["available"]:
+                far_day = detail
+                break
+
+        check("a distant clinic is offered a day", far_day is not None)
+        if far_day:
+            only = far_day["slots"]
+            check(
+                "it is offered as one whole day, not a list of times",
+                len(only) == 1,
+                f"{len(only)} slots offered",
+            )
+            span = (
+                datetime.fromisoformat(only[0]["ends_at"].replace("Z", "+00:00"))
+                - datetime.fromisoformat(only[0]["starts_at"].replace("Z", "+00:00"))
+            ).total_seconds() / 3600
+            check("the offer spans the shift", span >= 4, f"{span:.1f} hours")
+
+            # oid3 may already hold a live visit from the earlier flows, so the
+            # day visit gets its own case rather than skipping silently.
+            fresh = doctor.post(
+                "/api/orders",
+                json={
+                    "new_patient": {"full_name": "Vadodara Patient", "sex": "F"},
+                    "arch": "BOTH",
+                    "priority": "STANDARD",
+                    "chief_complaint": "Crowding.",
+                },
+            ).json()["id"]
+            upload_records(doctor, fresh)
+            doctor.post(f"/api/orders/{fresh}/submit")
+            admin.post(f"/api/staff/orders/{fresh}/start-review")
+            admin.post(
+                f"/api/staff/orders/{fresh}/quotes",
+                json={"category": "ALIGN_16_20", "tax": "0"},
+            )
+            doctor.post(f"/api/orders/{fresh}/quote/accept")
+
+            r = doctor.post(
+                f"/api/orders/{fresh}/appointment",
+                json={"starts_at": only[0]["starts_at"], "address_id": distant},
+            )
+            check("an out-of-city visit can be booked", r.status_code == 200, r.text[:140])
+            if r.status_code == 200:
+                visit = r.json()["appointment"]
+                check("an out-of-city visit is marked as a day visit", visit["is_day_visit"], str(visit)[:120])
+                check(
+                    "the reason says the technician is out for the day",
+                    "whole day" in visit["assignment_reason"],
+                    visit["assignment_reason"],
+                )
+                booked = (
+                    datetime.fromisoformat(visit["ends_at"].replace("Z", "+00:00"))
+                    - datetime.fromisoformat(visit["starts_at"].replace("Z", "+00:00"))
+                ).total_seconds() / 3600
+                check("the appointment occupies the shift", booked >= 4, f"{booked:.1f} hours")
+
+                # That technician must be gone from the ordinary pool.
+                same = [
+                    b
+                    for b in admin.get("/api/admin/bookings").json()
+                    if b["id"] == visit["id"]
+                ]
+                check("the day visit shows in the lab's calendar", len(same) == 1)
+
     # -- time off removes capacity ---------------------------------------
-    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}")
+    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}&detail=true")
     free_before = r.json()[0]["free_count"]
     for name, tech in techs.items():
         admin.post(f"/api/admin/technicians/{tech['id']}/time-off", json={
             "starts_at": f"{day['date']}T00:00:00Z", "ends_at": f"{day['date']}T23:59:00Z", "reason": "Team offsite",
         })
-    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}")
+    r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}&detail=true")
     check("time off empties the day", r.json()[0]["free_count"] == 0, f"{free_before} -> {r.json()[0]['free_count']}")
 
 print()

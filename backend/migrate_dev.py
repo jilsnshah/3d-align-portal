@@ -14,7 +14,38 @@ from app.db import engine
 # Tables introduced later are created by create_all(); this only patches columns
 # added to tables that already exist.
 ADDITIONS = {
+    "addresses": [
+        ("latitude", "FLOAT"),
+        ("longitude", "FLOAT"),
+        ("geocode_source", "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ("geocoded_at", "TIMESTAMP"),
+    ],
+    "booking_settings": [
+        ("timezone_name", "VARCHAR(60) NOT NULL DEFAULT 'Asia/Kolkata'"),
+        ("lab_address", "VARCHAR(255) NOT NULL DEFAULT ''"),
+        ("lab_latitude", "FLOAT"),
+        ("lab_longitude", "FLOAT"),
+        ("visit_duration_minutes", "INTEGER NOT NULL DEFAULT 45"),
+        ("booking_granularity_minutes", "INTEGER NOT NULL DEFAULT 15"),
+        ("travel_weight", "FLOAT NOT NULL DEFAULT 1.0"),
+        ("fairness_weight", "FLOAT NOT NULL DEFAULT 0.5"),
+        ("idle_weight", "FLOAT NOT NULL DEFAULT 0.5"),
+        ("max_travel_minutes", "INTEGER NOT NULL DEFAULT 75"),
+        ("fallback_speed_kmph", "FLOAT NOT NULL DEFAULT 22.0"),
+        ("service_radius_km", "FLOAT NOT NULL DEFAULT 120.0"),
+        ("day_visit_over_km", "FLOAT NOT NULL DEFAULT 45.0"),
+    ],
+    "travel_estimates": [
+        ("bucket", "VARCHAR(10) NOT NULL DEFAULT ''"),
+        ("expires_at", "TIMESTAMP"),
+    ],
+    "appointments": [
+        ("is_day_visit", "BOOLEAN NOT NULL DEFAULT 0"),
+    ],
     "orders": [
+        # Backfilled by backfill_case_numbers.py, which also re-packs the AL
+        # series so it only covers cases that actually reached planning.
+        ("enquiry_number", "VARCHAR(30) NOT NULL DEFAULT ''"),
         ("records_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("scan_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("planning_revision", "INTEGER NOT NULL DEFAULT 1"),
@@ -80,4 +111,91 @@ with engine.begin() as conn:
         print("  - scan_appointments (replaced by appointments)")
         applied += 1
 
-print(f"\n{applied} change(s) applied." if applied else "\nNothing to do — schema is current.")
+
+# --------------------------------------------------------------------------
+# Column rebuilds
+# --------------------------------------------------------------------------
+# SQLite cannot relax a NOT NULL in place, so the table is rebuilt from the
+# model. order_number became nullable when the AL series stopped being spent on
+# cases that never reach planning.
+
+
+def _relax_nullable(conn, table_name, column, model_table):
+    row = conn.exec_driver_sql(
+        f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+    ).scalar()
+    if row is None or f"{column} VARCHAR" not in row or "NOT NULL" not in row:
+        return False
+    # Already nullable? The declaration for this column carries no NOT NULL.
+    decl = [ln.strip() for ln in row.splitlines() if ln.strip().startswith(column + " ")]
+    if decl and "NOT NULL" not in decl[0]:
+        return False
+
+    existing = {c["name"] for c in inspect(conn).get_columns(table_name)}
+    wanted = [c.name for c in model_table.columns if c.name in existing]
+    cols = ", ".join(f'"{c}"' for c in wanted)
+
+    indexes = [
+        r[0]
+        for r in conn.exec_driver_sql(
+            f"SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='{table_name}'"
+            " AND sql IS NOT NULL"
+        ).fetchall()
+    ]
+
+    # legacy_alter_table stops SQLite from rewriting other tables' foreign keys
+    # to point at the temporary name.
+    conn.exec_driver_sql("PRAGMA legacy_alter_table=ON")
+    for name in indexes:
+        conn.exec_driver_sql(f'DROP INDEX IF EXISTS "{name}"')
+    conn.exec_driver_sql(f'ALTER TABLE "{table_name}" RENAME TO "{table_name}__old"')
+    model_table.create(bind=conn)
+    conn.exec_driver_sql(
+        f'INSERT INTO "{table_name}" ({cols}) SELECT {cols} FROM "{table_name}__old"'
+    )
+    conn.exec_driver_sql(f'DROP TABLE "{table_name}__old"')
+    conn.exec_driver_sql("PRAGMA legacy_alter_table=OFF")
+    return True
+
+
+with engine.begin() as conn:
+    # travel_estimates is a pure cache, and its unique constraint gained the
+    # traffic bucket. Rebuilding it costs nothing but a few re-lookups, which
+    # beats trying to reshape a constraint SQLite baked into the table.
+    from app.models import TravelEstimate
+
+    row = conn.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='travel_estimates'"
+    ).scalar()
+    if row is not None and "bucket" not in row.split("UNIQUE")[-1]:
+        conn.exec_driver_sql("DROP TABLE travel_estimates")
+        TravelEstimate.__table__.create(bind=conn)
+        print("  ~ travel_estimates rebuilt with the traffic bucket in its key")
+        applied += 1
+
+with engine.begin() as conn:
+    from app.models import Order
+
+    # The new unique index cannot be built while every row still holds the ''
+    # default, so seed the enquiry refs first. backfill_case_numbers.py derives
+    # the same values from the same ordering, so running it after is a no-op.
+    blanks = conn.exec_driver_sql(
+        "SELECT id, created_at FROM orders WHERE enquiry_number = '' ORDER BY created_at, id"
+    ).fetchall()
+    if blanks:
+        seen = {}
+        for order_id, created in blanks:
+            year = str(created)[:4]
+            seen[year] = seen.get(year, 0) + 1
+            conn.exec_driver_sql(
+                "UPDATE orders SET enquiry_number = ? WHERE id = ?",
+                (f"EN-{year}-{seen[year]:04d}", order_id),
+            )
+        print(f"  + {len(blanks)} enquiry reference(s) seeded")
+        applied += 1
+
+    if _relax_nullable(conn, "orders", "order_number", Order.__table__):
+        print("  ~ orders.order_number is now nullable")
+        applied += 1
+
+print(f"\n{applied} change(s) applied.")

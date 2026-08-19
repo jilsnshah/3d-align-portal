@@ -15,7 +15,26 @@ import io
 import sys
 from collections import defaultdict
 
+import pathlib
+from itertools import cycle
+
 import requests
+
+DEMO = pathlib.Path(__file__).resolve().parent.parent / "demo-data"
+
+FRONTALS = cycle([
+    "photos/Class_II.jpg", "photos/Class1type2.jpg", "photos/Deep_bite.jpg",
+    "photos/Sever_Crowding_of_teeth.jpg", "photos/Class_2_div_2_malocclusion.jpg",
+    "photos/Clas2div2_atypical.jpg", "photos/Class2division1malocclusion.jpg",
+    "photos/110216ek01.jpg", "photos/110216ek03.jpg", "photos/110216ek05.jpg",
+])
+UPPERS = cycle(["photos/110216ek07.jpg", "photos/110216ek08.jpg"])
+LOWERS = cycle(["photos/110216ek09.jpg", "photos/110216ek10.jpg"])
+OPGS = cycle(["radiographs/Basic_panoramic_radiograph.jpg", "radiographs/Mixed_dentition_pan.jpg"])
+
+
+def asset(relative: str) -> bytes:
+    return (DEMO / relative).read_bytes()
 
 BASE = "http://127.0.0.1:8000/api"
 ADMIN = {"email": "staff@3dalign.com", "password": "changeme"}
@@ -89,12 +108,18 @@ def case_awaiting_scan(patient, complaint):
         ),
         "create a case",
     )
-    for view in ("INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER"):
+    for view, source in (
+        ("INTRAORAL_FRONTAL", next(FRONTALS)),
+        ("BUCCAL_RIGHT", next(FRONTALS)),
+        ("BUCCAL_LEFT", next(FRONTALS)),
+        ("OCCLUSAL_UPPER", next(UPPERS)),
+        ("OCCLUSAL_LOWER", next(LOWERS)),
+    ):
         check(
             doctor.post(
                 f"{BASE}/orders/{order['id']}/files",
                 data={"category": "RECORD_PHOTO", "slot": view},
-                files={"upload": (f"{view.lower()}.jpg", io.BytesIO(b"demo" * 256), "image/jpeg")},
+                files={"upload": (f"{view.lower()}.jpg", io.BytesIO(asset(source)), "image/jpeg")},
             ),
             f"upload the {view.lower()} photo",
         )
@@ -102,7 +127,7 @@ def case_awaiting_scan(patient, complaint):
         doctor.post(
             f"{BASE}/orders/{order['id']}/files",
             data={"category": "OPG", "slot": ""},
-            files={"upload": ("opg.jpg", io.BytesIO(b"demo" * 256), "image/jpeg")},
+            files={"upload": ("opg.jpg", io.BytesIO(asset(next(OPGS))), "image/jpeg")},
         ),
         "upload the OPG",
     )
@@ -184,14 +209,16 @@ if len(booked) > 2:
         session.post(
             f"{BASE}/orders/{order['id']}/files",
             data={"category": "RECORD_PHOTO", "slot": "INTRAORAL_FRONTAL"},
-            files={"upload": ("chairside.jpg", io.BytesIO(b"x" * 900), "image/jpeg")},
+            files={"upload": ("chairside-retake.jpg", io.BytesIO(asset(next(FRONTALS))), "image/jpeg")},
         )
         # The visit only closes once the whole scan set is on the case.
-        for slot in ("UPPER_ARCH", "LOWER_ARCH", "BITE"):
+        for slot, src in (("UPPER_ARCH", "scans/upper-arch.stl"),
+                          ("LOWER_ARCH", "scans/lower-arch.stl"),
+                          ("BITE", "scans/bite-registration.stl")):
             r = session.post(
                 f"{BASE}/orders/{order['id']}/files",
                 data={"category": "INTRAORAL_SCAN", "slot": slot},
-                files={"upload": (f"{slot.lower()}.stl", io.BytesIO(b"solid" * 900), "model/stl")},
+                files={"upload": (pathlib.Path(src).name, io.BytesIO(asset(src)), "model/stl")},
             )
         state = admin.get(f"{BASE}/admin/bookings").json()
         closed = any(b["id"] == appointment["id"] and b["status"] == "COMPLETED" for b in state)

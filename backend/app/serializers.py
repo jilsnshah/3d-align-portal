@@ -43,7 +43,7 @@ CATEGORY_LABELS = {
     FileCategory.CBCT: "CBCT",
     FileCategory.INTRAORAL_SCAN: "Intraoral scan",
     FileCategory.TREATMENT_PLAN: "Treatment plan",
-    FileCategory.SIMULATION_VIDEO: "Simulation video",
+    FileCategory.SIMULATION_MODEL: "Simulation files",
     FileCategory.FIT_ISSUE_PHOTO: "Fit issue photographs",
     FileCategory.OTHER: "Other",
 }
@@ -92,12 +92,18 @@ CORE_CATEGORIES = {
     FileCategory.INTRAORAL_SCAN,
     FileCategory.LATERAL_CEPH,
     FileCategory.CBCT,
+    # Miscellaneous uploads need a home too, now that there is no separate
+    # "add a file" box beside the explorer.
+    FileCategory.OTHER,
 }
 
 # Categories that only make sense once the case reaches a certain point.
 STAGE_CATEGORIES = {
     FileCategory.TREATMENT_PLAN: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
-    FileCategory.SIMULATION_VIDEO: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
+    # The lab needs somewhere to drop the staged export the moment planning
+    # opens; a section that only appears once files exist has nowhere to
+    # receive the first one.
+    FileCategory.SIMULATION_MODEL: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
     FileCategory.FIT_ISSUE_PHOTO: {OrderStatus.FIT_REVIEW, OrderStatus.FIT_ISSUE},
 }
 
@@ -192,7 +198,7 @@ def _file_out(order: Order, f) -> schemas.FileOut:
 def order_summary(order: Order) -> schemas.OrderSummary:
     return schemas.OrderSummary(
         id=order.id,
-        order_number=order.order_number,
+        order_number=order.reference,
         status=order.status,
         status_label=STATUS_LABELS[order.status],
         patient_name=order.patient.full_name,
@@ -221,6 +227,11 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
     ]
     return schemas.OrderDetail(
         **base,
+        has_simulation=any(
+            f.category == FileCategory.SIMULATION_MODEL and not f.is_deleted
+            for f in order.files
+        ),
+        enquiry_number=order.enquiry_number,
         dispatch_mode=order.dispatch_mode,
         scan_route=order.scan_route,
         scan_courier_tracking=order.scan_courier_tracking,
@@ -276,6 +287,7 @@ def appointment_out(appointment: Appointment) -> schemas.AppointmentOut:
     )
     technician = appointment.technician
     return schemas.AppointmentOut(
+        is_day_visit=bool(getattr(appointment, "is_day_visit", False)),
         id=appointment.id,
         starts_at=appointment.starts_at,
         ends_at=appointment.ends_at,
@@ -351,3 +363,38 @@ def _awaiting_decision(order: Order):
     if last is not None and last.status.value == "DELIVERED" and last.phase_decision is None:
         return last.id
     return None
+
+
+def day_route_out(route, maps_url: str, browser_key: str = "") -> schemas.DayRouteOut:
+    return schemas.DayRouteOut(
+        technician_id=route.technician_id,
+        technician_name=route.technician_name,
+        date=route.day,
+        stops=[
+            schemas.RouteStopOut(
+                kind=stop.kind,
+                label=stop.label,
+                address=stop.address,
+                latitude=stop.point[0] if stop.point else None,
+                longitude=stop.point[1] if stop.point else None,
+                arrives_at=stop.arrives_at,
+                departs_at=stop.departs_at,
+                leg_minutes=round(stop.leg_minutes, 1),
+                leg_km=round(stop.leg_km, 2),
+                appointment_id=stop.appointment_id,
+                order_reference=stop.order_reference,
+                patient_name=stop.patient_name,
+                booked_for=stop.booked_for,
+                late_by_minutes=round(stop.late_by_minutes, 1),
+            )
+            for stop in route.stops
+        ],
+        total_km=round(route.total_km, 2),
+        drive_minutes=round(route.drive_minutes, 1),
+        onsite_minutes=round(route.onsite_minutes, 1),
+        warnings=route.warnings,
+        at_risk=route.is_at_risk,
+        maps_url=maps_url,
+        polyline=route.polyline,
+        browser_map_key=browser_key,
+    )

@@ -27,7 +27,7 @@ export type FileCategory =
   | "CBCT"
   | "INTRAORAL_SCAN"
   | "TREATMENT_PLAN"
-  | "SIMULATION_VIDEO"
+  | "SIMULATION_MODEL"
   | "FIT_ISSUE_PHOTO"
   | "OTHER";
 
@@ -52,6 +52,9 @@ export interface Me {
 }
 
 export interface Address {
+  latitude?: number | null;
+  longitude?: number | null;
+  geocode_source?: string;
   id: string;
   label: string;
   line1: string;
@@ -237,6 +240,8 @@ export interface OrderSummary {
 }
 
 export interface OrderDetail extends OrderSummary {
+  enquiry_number: string;
+  has_simulation: boolean;
   dispatch_mode: "FULL" | "PHASED" | null;
   scan_route: "UPLOAD" | "APPOINTMENT" | "COURIER" | null;
   scan_courier_tracking: string;
@@ -275,6 +280,7 @@ export interface OrderDetail extends OrderSummary {
 export type AppointmentStatus = "ASSIGNED" | "EN_ROUTE" | "COMPLETED" | "CANCELLED" | "NO_SHOW";
 
 export interface Appointment {
+  is_day_visit: boolean;
   id: string;
   starts_at: string;
   ends_at: string;
@@ -318,6 +324,7 @@ export interface Slot {
 }
 
 export interface DayAvailability {
+  technicians_free: number;
   date: string;
   closed: boolean;
   free_count: number;
@@ -351,14 +358,109 @@ export interface Technician {
   upcoming_jobs: number;
 }
 
+export interface RouteStop {
+  kind: "lab" | "visit";
+  label: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  arrives_at: string | null;
+  departs_at: string | null;
+  leg_minutes: number;
+  leg_km: number;
+  appointment_id: string;
+  order_reference: string;
+  patient_name: string;
+  booked_for: string | null;
+  late_by_minutes: number;
+}
+
+export interface ResolvedAddress {
+  formatted?: string;
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface StageModel {
+  file_id: string;
+  filename: string;
+  arch: "upper" | "lower";
+  step: number;
+  kind: string;
+  size_bytes: number;
+}
+
+export interface Stage {
+  step: number;
+  upper: StageModel | null;
+  lower: StageModel | null;
+  is_passive: boolean;
+}
+
+export interface Simulation {
+  order_reference: string;
+  patient_name: string;
+  stages: Stage[];
+  total_aligners: number;
+}
+
+export interface MapConfig {
+  browser_key: string;
+  centre: { lat: number; lng: number } | null;
+  service_city: string;
+}
+
+export interface Reassignment {
+  id: string;
+  status: "PENDING" | "RESOLVED" | "DECLINED";
+  reason: string;
+  resolution: string;
+  created_at: string;
+  resolved_at: string | null;
+  requested_by: string;
+  appointment_id: string;
+  order_reference: string;
+  patient_name: string;
+  clinic_name: string;
+  starts_at: string;
+  current_technician: string;
+}
+
+export interface DayRoute {
+  technician_id: string;
+  technician_name: string;
+  date: string;
+  stops: RouteStop[];
+  total_km: number;
+  drive_minutes: number;
+  onsite_minutes: number;
+  warnings: string[];
+  at_risk: boolean;
+  maps_url: string;
+  polyline: string;
+  browser_map_key: string;
+}
+
 export interface BookingSettings {
   slot_minutes: number;
+  visit_duration_minutes: number;
+  booking_granularity_minutes: number;
   travel_buffer_minutes: number;
   booking_horizon_days: number;
   min_notice_hours: number;
   max_daily_jobs: number;
+  max_travel_minutes: number;
+  travel_weight: number;
+  fairness_weight: number;
+  idle_weight: number;
+  fallback_speed_kmph: number;
+  lab_address: string;
   working_hours: Record<string, [string, string] | null>;
   service_city: string;
+  timezone_name: string;
 }
 
 export interface Notification {
@@ -396,14 +498,52 @@ export class ApiError extends Error {
   }
 }
 
+/* Sessions are scoped to a browser tab.
+   A cookie is shared by every tab on an origin, so signing in as the lab would
+   replace a doctor session in the next tab. Each tab claims a short slot id
+   held in sessionStorage — which browsers keep per tab — and sends it with
+   every request; the server gives that slot its own httpOnly cookie. One URL,
+   as many simultaneous accounts as you have tabs. */
+const SLOT_KEY = "align.session.slot";
+const NEW_SESSION_FLAG = "newsession";
+
+function newSlot(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+export function sessionSlot(): string {
+  // A tab opened with window.open inherits a *copy* of the opener's
+  // sessionStorage, so "open another account" would silently reuse the same
+  // slot. The flag in the URL forces a fresh one, then cleans itself up.
+  if (new URLSearchParams(window.location.search).has(NEW_SESSION_FLAG)) {
+    sessionStorage.setItem(SLOT_KEY, newSlot());
+    const url = new URL(window.location.href);
+    url.searchParams.delete(NEW_SESSION_FLAG);
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }
+  let slot = sessionStorage.getItem(SLOT_KEY);
+  if (!slot) {
+    slot = newSlot();
+    sessionStorage.setItem(SLOT_KEY, slot);
+  }
+  return slot;
+}
+
+/** Opens a tab that deliberately starts signed out, so another account can be
+    used alongside this one on the same URL. */
+export function openFreshTab(): void {
+  window.open(`${window.location.origin}/login?${NEW_SESSION_FLAG}=1`, "_blank")?.focus();
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const slotHeader = { "X-Session-Slot": sessionSlot() };
   const response = await fetch(`/api${path}`, {
     credentials: "include",
     ...init,
     headers:
       init.body instanceof FormData
-        ? init.headers
-        : { "Content-Type": "application/json", ...(init.headers ?? {}) },
+        ? { ...slotHeader, ...(init.headers ?? {}) }
+        : { "Content-Type": "application/json", ...slotHeader, ...(init.headers ?? {}) },
   });
 
   if (!response.ok) {
@@ -429,6 +569,26 @@ const patch = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 const del = <T,>(path: string) => request<T>(path, { method: "DELETE" });
 
+export interface Page {
+  limit?: number;
+  offset?: number;
+}
+
+/** Lists are paged so a busy practice does not ship hundreds of rows at once.
+    One extra row is asked for beyond the page size: if it comes back, there is
+    more to load, which avoids a second count query. */
+export const PAGE_SIZE = 25;
+
+function pageQuery(page: Page, extra: Record<string, string> = {}): string {
+  const q = new URLSearchParams();
+  q.set("limit", String(page.limit ?? PAGE_SIZE));
+  if (page.offset) q.set("offset", String(page.offset));
+  Object.entries(extra).forEach(([k, v]) => {
+    if (v) q.set(k, v);
+  });
+  return q.toString();
+}
+
 export const api = {
   // auth
   me: () => get<Me>("/auth/me"),
@@ -445,12 +605,23 @@ export const api = {
   createAddress: (body: unknown) => post<Address>("/addresses", body),
   updateAddress: (id: string, body: unknown) => patch<Address>(`/addresses/${id}`, body),
   deleteAddress: (id: string) => del<void>(`/addresses/${id}`),
-  patients: () => get<Patient[]>("/patients"),
+  patients: (page: Page = {}, search = "") =>
+    get<Patient[]>(`/patients?${pageQuery(page, { search })}`),
   createPatient: (body: unknown) => post<Patient>("/patients", body),
 
   // doctor orders
-  orders: (needsAction = false) =>
-    get<OrderSummary[]>(`/orders${needsAction ? "?needs_action=true" : ""}`),
+  orders: (
+    needsAction = false,
+    page: Page = {},
+    filters: { search?: string; patientId?: string } = {},
+  ) =>
+    get<OrderSummary[]>(
+      `/orders?${pageQuery(page, {
+        needs_action: needsAction ? "true" : "",
+        search: filters.search ?? "",
+        patient_id: filters.patientId ?? "",
+      })}`,
+    ),
   order: (id: string) => get<OrderDetail>(`/orders/${id}`),
   createOrder: (body: unknown) => post<OrderDetail>("/orders", body),
   updateOrder: (id: string, body: unknown) => patch<OrderDetail>(`/orders/${id}`, body),
@@ -462,8 +633,18 @@ export const api = {
   submitFitReview: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/fit-review`, body),
   confirmDelivery: (orderId: string, shipmentId: string) =>
     post<OrderDetail>(`/orders/${orderId}/shipments/${shipmentId}/delivered`),
-  decidePhase: (orderId: string, shipmentId: string, decision: "CONTINUE" | "REPEAT", notes = "") =>
-    post<OrderDetail>(`/orders/${orderId}/shipments/${shipmentId}/phase-decision`, { decision, notes }),
+  decidePhase: (
+    orderId: string,
+    shipmentId: string,
+    decision: "CONTINUE" | "REPEAT",
+    notes = "",
+    shippingAddressId: string | null = null,
+  ) =>
+    post<OrderDetail>(`/orders/${orderId}/shipments/${shipmentId}/phase-decision`, {
+      decision,
+      notes,
+      shipping_address_id: shippingAddressId,
+    }),
   cancelDraft: (id: string, reason: string) => post<OrderDetail>(`/orders/${id}/cancel`, { reason }),
 
   // files
@@ -480,13 +661,26 @@ export const api = {
     post<OrderFile>(`/orders/${orderId}/files/${fileId}/restore`),
   purgeFile: (orderId: string, fileId: string) =>
     del<void>(`/orders/${orderId}/files/${fileId}/purge`),
-  downloadUrl: (orderId: string, fileId: string) => `/api/orders/${orderId}/files/${fileId}/download`,
+  // Browsers cannot attach a header to <img src> or a download link, so the
+  // slot rides as a query parameter for these two.
+  downloadUrl: (orderId: string, fileId: string) =>
+    `/api/orders/${orderId}/files/${fileId}/download?slot=${sessionSlot()}`,
   previewUrl: (orderId: string, fileId: string) =>
-    `/api/orders/${orderId}/files/${fileId}/download?inline=1`,
+    `/api/orders/${orderId}/files/${fileId}/download?inline=1&slot=${sessionSlot()}`,
 
   // booking — doctor
-  availability: (from: string, to: string) =>
-    get<DayAvailability[]>(`/appointments/availability?from=${from}&to=${to}`),
+  // Month view: which days are worth clicking. No travel lookups server-side.
+  availability: (from: string, to: string, addressId?: string) =>
+    get<DayAvailability[]>(
+      `/appointments/availability?from=${from}&to=${to}` +
+        (addressId ? `&address_id=${addressId}` : ""),
+    ),
+  // Exact times for one day, computed against real travel.
+  dayAvailability: (date: string, addressId?: string) =>
+    get<DayAvailability[]>(
+      `/appointments/availability?from=${date}&to=${date}&detail=true` +
+        (addressId ? `&address_id=${addressId}` : ""),
+    ).then((days) => days[0]),
   bookAppointment: (orderId: string, body: unknown) =>
     post<OrderDetail>(`/orders/${orderId}/appointment`, body),
   cancelAppointment: (appointmentId: string, reason: string) =>
@@ -522,6 +716,38 @@ export const api = {
   savePricing: (prices: { category: string; price_min: string; price_max: string; is_active: boolean }[]) =>
     request<AlignerPrice[]>("/staff/pricing", { method: "PUT", body: JSON.stringify({ prices }) }),
   bookingSettings: () => get<BookingSettings>("/admin/settings"),
+  technicianRoute: (technicianId: string, day: string) =>
+    get<DayRoute>(`/admin/technicians/${technicianId}/route?day=${day}`),
+  myRoute: (day: string) => get<DayRoute>(`/tech/route?day=${day}`),
+  requestReassignment: (appointmentId: string, reason: string) =>
+    request<Reassignment>(`/tech/jobs/${appointmentId}/reassign-request`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  mapConfig: () => get<MapConfig>("/config/map"),
+  simulation: (orderId: string) => get<Simulation>(`/orders/${orderId}/files/simulation`),
+  meshUrl: (orderId: string, fileId: string) =>
+    `/api/orders/${orderId}/files/simulation/${fileId}/mesh?slot=${sessionSlot()}`,
+  searchAddress: (q: string) =>
+    get<{ result: { lat: number; lng: number; address: string; approximate: boolean } | null }>(
+      `/config/search?q=${encodeURIComponent(q)}`,
+    ),
+  suggestAddress: (q: string) =>
+    get<{ suggestions: { text: string }[] }>(`/config/suggest?q=${encodeURIComponent(q)}`),
+  reverseGeocode: (lat: number, lng: number) =>
+    get<{ address: string; parts: ResolvedAddress }>(
+      `/config/reverse-geocode?lat=${lat}&lng=${lng}`,
+    ),
+  reassignments: (pendingOnly = true) =>
+    get<Reassignment[]>(`/admin/reassignments?pending_only=${pendingOnly}`),
+  resolveReassignment: (
+    id: string,
+    body: { action: "TECHNICIAN" | "ANY" | "DECLINE"; technician_id?: string; note?: string; force?: boolean },
+  ) =>
+    request<Reassignment>(`/admin/reassignments/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   saveBookingSettings: (body: unknown) =>
     request<BookingSettings>("/admin/settings", { method: "PUT", body: JSON.stringify(body) }),
 
@@ -533,13 +759,10 @@ export const api = {
 
   // staff
   queue: () => get<Queue>("/staff/queue"),
-  staffOrders: (params: { status?: string; search?: string } = {}) => {
-    const q = new URLSearchParams();
-    if (params.status) q.set("status", params.status);
-    if (params.search) q.set("search", params.search);
-    const qs = q.toString();
-    return get<OrderSummary[]>(`/staff/orders${qs ? `?${qs}` : ""}`);
-  },
+  staffOrders: (params: { status?: string; search?: string } = {}, page: Page = {}) =>
+    get<OrderSummary[]>(
+      `/staff/orders?${pageQuery(page, { status: params.status ?? "", search: params.search ?? "" })}`,
+    ),
   staffOrder: (id: string) => get<OrderDetail>(`/staff/orders/${id}`),
   startReview: (id: string) => post<OrderDetail>(`/staff/orders/${id}/start-review`),
   requestRecords: (id: string, note: string) =>
@@ -556,8 +779,10 @@ export const api = {
   completeOrder: (id: string) => post<OrderDetail>(`/staff/orders/${id}/complete`),
   cancelOrder: (id: string, reason: string) => post<OrderDetail>(`/staff/orders/${id}/cancel`, { reason }),
   generateInvoice: (id: string) => post<OrderDetail>(`/staff/orders/${id}/invoice`),
-  staffDoctors: (pendingOnly = false) =>
-    get<PendingDoctor[]>(`/staff/doctors${pendingOnly ? "?pending_only=true" : ""}`),
+  staffDoctors: (pendingOnly = false, page: Page = {}, search = "") =>
+    get<PendingDoctor[]>(
+      `/staff/doctors?${pageQuery(page, { pending_only: pendingOnly ? "true" : "", search })}`,
+    ),
   verifyDoctor: (id: string, approve: boolean, reason = "") =>
     post<PendingDoctor>(`/staff/doctors/${id}/verify`, { approve, reason }),
 };
@@ -571,7 +796,7 @@ export const CATEGORY_LABEL: Record<FileCategory, string> = {
   CBCT: "CBCT",
   INTRAORAL_SCAN: "Intraoral scan (STL)",
   TREATMENT_PLAN: "Treatment plan",
-  SIMULATION_VIDEO: "Simulation video",
+  SIMULATION_MODEL: "Simulation files (STL)",
   FIT_ISSUE_PHOTO: "Fit issue photo",
   OTHER: "Other",
 };

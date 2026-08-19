@@ -19,6 +19,7 @@ import AdminBookings from "./pages/admin/Bookings";
 import AdminTechnicians from "./pages/admin/Technicians";
 import AdminSettings from "./pages/admin/Settings";
 import TechSchedule from "./pages/tech/Schedule";
+import Viewer from "./pages/Viewer";
 
 export default function App() {
   const { me, loading } = useAuth();
@@ -41,6 +42,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/tech" element={<TechSchedule />} />
           <Route path="/tech/jobs/:orderId" element={<StaffOrderDetail />} />
+          <Route path="/viewer/:orderId" element={<Viewer />} />
         </Route>
         <Route path="*" element={<Navigate to="/tech" replace />} />
       </Routes>
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="/staff" element={<StaffQueue />} />
           <Route path="/staff/orders" element={<StaffOrders />} />
           <Route path="/staff/orders/:orderId" element={<StaffOrderDetail />} />
+          <Route path="/viewer/:orderId" element={<Viewer />} />
           <Route path="/staff/doctors" element={<StaffDoctors />} />
           <Route path="/staff/bookings" element={<AdminBookings />} />
           <Route path="/staff/technicians" element={<AdminTechnicians />} />

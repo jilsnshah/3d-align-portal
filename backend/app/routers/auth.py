@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -9,15 +9,22 @@ from ..db import get_db
 from ..deps import current_doctor, current_user
 from ..enums import UserRole, VerificationStatus
 from ..models import Address, Doctor, User, utcnow
-from ..security import hash_password, make_session_token, verify_password
+from ..security import (
+    SLOT_HEADER,
+    cookie_name_for,
+    hash_password,
+    make_session_token,
+    verify_password,
+)
+from ..services.geo import locate_for
 from ..services.registry import DENTAL_COUNCILS, check_registration
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _set_session(response: Response, user: User) -> None:
+def _set_session(response: Response, user: User, request: Request) -> None:
     response.set_cookie(
-        settings.session_cookie_name,
+        cookie_name_for(request.headers.get(SLOT_HEADER)),
         make_session_token(user.id),
         max_age=settings.session_max_age_seconds,
         httponly=True,
@@ -42,7 +49,12 @@ def councils() -> list[str]:
 
 
 @router.post("/register", response_model=schemas.MeOut, status_code=status.HTTP_201_CREATED)
-def register(payload: schemas.RegisterIn, response: Response, db: Session = Depends(get_db)):
+def register(
+    payload: schemas.RegisterIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     email = payload.email.lower().strip()
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
@@ -66,18 +78,26 @@ def register(payload: schemas.RegisterIn, response: Response, db: Session = Depe
     db.add(doctor)
     db.flush()
 
-    address = Address(doctor_id=doctor.id, **payload.address.model_dump())
+    fields = payload.address.model_dump()
+    picked = (fields.pop("latitude", None), fields.pop("longitude", None))
+    address = Address(doctor_id=doctor.id, **fields)
+    locate_for(db, address, picked if None not in picked else None)
     address.is_default_shipping = True
     db.add(address)
 
     db.commit()
     db.refresh(user)
-    _set_session(response, user)
+    _set_session(response, user, request)
     return _me(user)
 
 
 @router.post("/login", response_model=schemas.MeOut)
-def login(payload: schemas.LoginIn, response: Response, db: Session = Depends(get_db)):
+def login(
+    payload: schemas.LoginIn,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.email == payload.email.lower().strip()).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
@@ -87,13 +107,14 @@ def login(payload: schemas.LoginIn, response: Response, db: Session = Depends(ge
     user.last_login_at = utcnow()
     db.commit()
     db.refresh(user)
-    _set_session(response, user)
+    _set_session(response, user, request)
     return _me(user)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response):
-    response.delete_cookie(settings.session_cookie_name, path="/")
+def logout(response: Response, request: Request):
+    """Signs out only this tab. Other tabs keep their own sessions."""
+    response.delete_cookie(cookie_name_for(request.headers.get(SLOT_HEADER)), path="/")
 
 
 @router.get("/me", response_model=schemas.MeOut)

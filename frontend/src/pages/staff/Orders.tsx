@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { api, formatDate } from "../../api";
+import { PAGE_SIZE, api, formatDate } from "../../api";
+import { LoadMore } from "../../components/LoadMore";
 import { Empty, Loading, StatusPill } from "../../components/ui";
 
 const STATUSES = [
@@ -30,17 +31,24 @@ export default function StaffOrders() {
   const status = params.get("status") ?? "";
   const [search, setSearch] = useState("");
 
-  const orders = useQuery({
+  const orders = useInfiniteQuery({
     queryKey: ["staff-orders", status, search],
-    queryFn: () => api.staffOrders({ status: status || undefined, search: search || undefined }),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.staffOrders(
+        { status: status || undefined, search: search || undefined },
+        { limit: PAGE_SIZE + 1, offset: pageParam as number },
+      ),
+    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
+  const rows = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
 
   return (
     <main className="page">
       <div className="page-head">
         <div>
           <h1>All cases</h1>
-          <p className="sub">{orders.data?.length ?? 0} case(s) shown.</p>
+          <p className="sub">{rows.length} case(s) shown.</p>
         </div>
         <div className="row">
           <input
@@ -68,9 +76,10 @@ export default function StaffOrders() {
 
       {orders.isLoading ? (
         <Loading what="cases" />
-      ) : orders.data?.length === 0 ? (
+      ) : rows.length === 0 ? (
         <Empty>No cases match.</Empty>
       ) : (
+        <>
         <div className="table-wrap">
           <table>
             <thead>
@@ -83,7 +92,7 @@ export default function StaffOrders() {
               </tr>
             </thead>
             <tbody>
-              {orders.data?.map((order) => (
+              {rows.map((order) => (
                 <tr
                   key={order.id}
                   className="clickable"
@@ -111,6 +120,8 @@ export default function StaffOrders() {
             </tbody>
           </table>
         </div>
+        <LoadMore query={orders} noun="cases" shown={rows.length} />
+        </>
       )}
     </main>
   );

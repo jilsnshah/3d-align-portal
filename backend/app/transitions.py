@@ -7,6 +7,8 @@ as a notification — all inside the caller's transaction. Endpoints never assig
 
 from __future__ import annotations
 
+import logging
+
 from typing import Optional
 
 from fastapi import HTTPException, status as http_status
@@ -14,6 +16,9 @@ from sqlalchemy.orm import Session
 
 from .enums import LAB_ROLES, STATUS_LABELS, TERMINAL_STATUSES, OrderStatus, UserRole
 from .models import Notification, Order, StatusEvent, User, utcnow
+from .services.numbering import next_order_number
+
+log = logging.getLogger(__name__)
 
 S = OrderStatus
 
@@ -97,8 +102,35 @@ def assert_status(order: Order, *expected: OrderStatus) -> None:
     if order.status not in expected:
         names = " or ".join(STATUS_LABELS[e] for e in expected)
         raise TransitionError(
-            f"Order {order.order_number} is {STATUS_LABELS[order.status]}; this action needs {names}."
+            f"Order {order.reference} is {STATUS_LABELS[order.status]}; this action needs {names}."
         )
+
+
+def _rename_storage_folder(order: Order) -> None:
+    """Moves the case folder from its enquiry ref to its new AL number.
+
+    Never allowed to block the transition: a case that reached planning matters
+    more than a tidy folder name, and the stored refs stay valid either way.
+    """
+    old_name = order.enquiry_number
+    new_name = order.order_number
+    if not order.files and order.storage_folder_ref is None:
+        return
+    try:
+        from .services.storage import get_storage
+
+        storage = get_storage()
+        moved = storage.rename_order_folder(old_name, new_name)
+        if moved is None:
+            return
+        order.storage_folder_ref = moved
+        # Local refs embed the folder name; Drive refs are ids and need nothing.
+        prefix = f"Orders/{old_name}/"
+        for f in order.files:
+            if f.storage_ref and f.storage_ref.startswith(prefix):
+                f.storage_ref = f"Orders/{new_name}/" + f.storage_ref[len(prefix) :]
+    except Exception:  # pragma: no cover - storage is best effort here
+        log.exception("Could not rename case folder %s -> %s", old_name, new_name)
 
 
 def transition(
@@ -113,17 +145,24 @@ def transition(
 
     if frm in TERMINAL_STATUSES:
         raise TransitionError(
-            f"Order {order.order_number} is {STATUS_LABELS[frm]} and cannot change."
+            f"Order {order.reference} is {STATUS_LABELS[frm]} and cannot change."
         )
     if not can_transition(frm, to):
         raise TransitionError(
-            f"Cannot move {order.order_number} from {STATUS_LABELS[frm]} to {STATUS_LABELS[to]}."
+            f"Cannot move {order.reference} from {STATUS_LABELS[frm]} to {STATUS_LABELS[to]}."
         )
     if actor is not None and actor.role == UserRole.DOCTOR and (frm, to) not in DOCTOR_MOVES:
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="Only 3D Align staff can make this change.",
         )
+
+    # Reaching planning is what spends an AL number. Every route into planning
+    # comes through here, and the guard makes a second pass (a replan, a fit
+    # issue sent back) a no-op.
+    if to == S.IN_PLANNING and order.order_number is None:
+        order.order_number = next_order_number(db)
+        _rename_storage_folder(order)
 
     order.status = to
     now = utcnow()
@@ -154,7 +193,7 @@ def _notify(
 ) -> None:
     """Tell whoever did not make the change."""
     title = NOTICE.get(to, STATUS_LABELS[to])
-    body = f"{order.order_number} — {order.patient.full_name}"
+    body = f"{order.reference} — {order.patient.full_name}"
     if note:
         body = f"{body}\n{note}"
 

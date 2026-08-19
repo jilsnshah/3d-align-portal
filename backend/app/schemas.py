@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from datetime import date as date_type, datetime, time as time_type
 from decimal import Decimal
@@ -28,10 +28,20 @@ class AddressIn(BaseModel):
     pincode: str = Field(min_length=1, max_length=20)
     country: str = "India"
     is_default_shipping: bool = False
+    # Dropped by the doctor on a map. When present it is used as-is: they know
+    # where their own front door is better than a geocoder does.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
 
 
 class AddressOut(ORMModel, AddressIn):
     id: str
+    # How well the address resolved, so the lab can spot a clinic that will
+    # route badly before a technician is sent to the wrong building.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geocode_source: str = ""
 
 
 class RegisterIn(BaseModel):
@@ -268,6 +278,10 @@ class PlanOut(ORMModel):
 class PlanRespondIn(BaseModel):
     approve: bool
     revision_notes: str = ""
+    # Where this batch should go. A practice can have several clinics, so the
+    # delivery address is confirmed at the point of dispatch rather than being
+    # whatever was set when the case was opened.
+    shipping_address_id: Optional[str] = None
 
 
 class ShipmentIn(BaseModel):
@@ -283,6 +297,10 @@ class ShipmentIn(BaseModel):
 class PhaseDecisionIn(BaseModel):
     decision: enums.PhaseDecision
     notes: str = ""
+    # Where this batch should go. A practice can have several clinics, so the
+    # delivery address is confirmed at the point of dispatch rather than being
+    # whatever was set when the case was opened.
+    shipping_address_id: Optional[str] = None
 
 
 class ShipmentUpdateIn(BaseModel):
@@ -322,6 +340,8 @@ class AppointmentOut(BaseModel):
     id: str
     starts_at: datetime
     ends_at: datetime
+    # Out-of-city visits take the technician's whole day.
+    is_day_visit: bool = False
     status: enums.AppointmentStatus
     status_label: str
     technician_name: str
@@ -350,6 +370,9 @@ class DayAvailability(BaseModel):
     closed: bool
     free_count: int
     slots: list[SlotOut]
+    # Month view only: how many technicians still have room that day. Exact
+    # times need travel lookups, so they are fetched per day on demand.
+    technicians_free: int = 0
 
 
 class BookAppointmentIn(BaseModel):
@@ -440,12 +463,23 @@ class TechnicianOut(BaseModel):
 
 class BookingSettingsIn(BaseModel):
     slot_minutes: Optional[int] = Field(default=None, ge=15, le=240)
+    visit_duration_minutes: Optional[int] = Field(default=None, ge=15, le=240)
+    booking_granularity_minutes: Optional[int] = Field(default=None, ge=5, le=60)
     travel_buffer_minutes: Optional[int] = Field(default=None, ge=0, le=180)
     booking_horizon_days: Optional[int] = Field(default=None, ge=1, le=180)
     min_notice_hours: Optional[int] = Field(default=None, ge=0, le=336)
     max_daily_jobs: Optional[int] = Field(default=None, ge=1, le=20)
+    max_travel_minutes: Optional[int] = Field(default=None, ge=5, le=240)
+    travel_weight: Optional[float] = Field(default=None, ge=0, le=10)
+    fairness_weight: Optional[float] = Field(default=None, ge=0, le=10)
+    idle_weight: Optional[float] = Field(default=None, ge=0, le=10)
+    fallback_speed_kmph: Optional[float] = Field(default=None, ge=5, le=120)
+    service_radius_km: Optional[float] = Field(default=None, ge=5, le=500)
+    day_visit_over_km: Optional[float] = Field(default=None, ge=0, le=500)
     working_hours: Optional[dict] = None
     service_city: Optional[str] = None
+    timezone_name: Optional[str] = None
+    lab_address: Optional[str] = None
 
 
 class AlignerPriceOut(ORMModel):
@@ -469,20 +503,119 @@ class PricingIn(BaseModel):
     prices: list[AlignerPriceIn]
 
 
+class RouteStopOut(BaseModel):
+    kind: str
+    label: str
+    address: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    arrives_at: Optional[datetime] = None
+    departs_at: Optional[datetime] = None
+    leg_minutes: float = 0.0
+    leg_km: float = 0.0
+    appointment_id: str = ""
+    order_reference: str = ""
+    patient_name: str = ""
+    booked_for: Optional[datetime] = None
+    late_by_minutes: float = 0.0
+
+
+class DayRouteOut(BaseModel):
+    technician_id: str
+    technician_name: str
+    date: date_type
+    stops: list[RouteStopOut]
+    total_km: float
+    drive_minutes: float
+    onsite_minutes: float
+    warnings: list[str]
+    at_risk: bool
+    maps_url: str
+    polyline: str = ""
+    browser_map_key: str = ""
+
+
+class ReassignRequestIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class ResolveReassignmentIn(BaseModel):
+    # TECHNICIAN hands it to a named person, ANY re-runs the assignment engine,
+    # DECLINE leaves the visit where it is.
+    action: Literal["TECHNICIAN", "ANY", "DECLINE"]
+    technician_id: Optional[str] = None
+    note: str = ""
+    force: bool = False
+
+
+class ReassignmentOut(BaseModel):
+    id: str
+    status: str
+    reason: str
+    resolution: str
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    requested_by: str
+    appointment_id: str
+    order_reference: str
+    patient_name: str
+    clinic_name: str
+    starts_at: datetime
+    current_technician: str
+
+
+class StageModelOut(BaseModel):
+    file_id: str
+    filename: str
+    arch: str
+    step: int
+    kind: str = ""
+    size_bytes: int = 0
+
+
+class StageOut(BaseModel):
+    step: int
+    upper: Optional[StageModelOut] = None
+    lower: Optional[StageModelOut] = None
+    is_passive: bool = False
+
+
+class SimulationOut(BaseModel):
+    order_reference: str
+    patient_name: str
+    stages: list[StageOut]
+    total_aligners: int = 0
+
+
 class BookingSettingsOut(ORMModel):
     slot_minutes: int
+    visit_duration_minutes: int
+    booking_granularity_minutes: int
     travel_buffer_minutes: int
     booking_horizon_days: int
     min_notice_hours: int
     max_daily_jobs: int
+    max_travel_minutes: int
+    travel_weight: float
+    fairness_weight: float
+    idle_weight: float
+    fallback_speed_kmph: float
+    service_radius_km: float
+    day_visit_over_km: float
     working_hours: dict
     service_city: str
+    timezone_name: str
+    lab_address: str
 
 
 class FitReviewIn(BaseModel):
     fits: bool
     dispatch_mode: Optional[enums.DispatchMode] = None
     issue_notes: str = ""
+    # Where this batch should go. A practice can have several clinics, so the
+    # delivery address is confirmed at the point of dispatch rather than being
+    # whatever was set when the case was opened.
+    shipping_address_id: Optional[str] = None
 
 
 class InvoiceOut(ORMModel):
@@ -521,6 +654,11 @@ class OrderSummary(BaseModel):
 
 
 class OrderDetail(OrderSummary):
+    # Whether the lab has uploaded staged models to view in 3D.
+    has_simulation: bool = False
+    # The ref the case carried before it reached planning. Kept visible so a
+    # doctor quoting the old number can still be matched to the case.
+    enquiry_number: str
     dispatch_mode: Optional[enums.DispatchMode]
     scan_route: Optional[enums.ScanRoute]
     scan_courier_tracking: str

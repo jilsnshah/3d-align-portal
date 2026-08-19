@@ -7,11 +7,7 @@ from sqlalchemy.orm import Session
 from ..models import Counter
 
 
-def next_order_number(db: Session) -> str:
-    """AL-2026-0001. Sequence resets each calendar year."""
-    year = datetime.now(timezone.utc).year
-    key = f"order:{year}"
-
+def _next(db: Session, key: str) -> int:
     counter = db.get(Counter, key, with_for_update=True) if db.bind.dialect.name != "sqlite" else db.get(Counter, key)
     if counter is None:
         counter = Counter(key=key, value=0)
@@ -20,4 +16,18 @@ def next_order_number(db: Session) -> str:
 
     counter.value += 1
     db.flush()
-    return f"AL-{year}-{counter.value:04d}"
+    return counter.value
+
+
+def next_enquiry_number(db: Session) -> str:
+    """EN-2026-0001. Handed out at case creation, so every case has a reference
+    a doctor can quote on the phone. Cheap: an enquiry that dies costs nothing."""
+    year = datetime.now(timezone.utc).year
+    return f"EN-{year}-{_next(db, f'enquiry:{year}'):04d}"
+
+
+def next_order_number(db: Session) -> str:
+    """AL-2026-0001. The lab's production series, spent only when a case reaches
+    planning. Sequence resets each calendar year."""
+    year = datetime.now(timezone.utc).year
+    return f"AL-{year}-{_next(db, f'order:{year}'):04d}"

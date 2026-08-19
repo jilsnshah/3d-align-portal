@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -27,7 +28,7 @@ from ..enums import (
 )
 from ..models import Address, Doctor, FitReview, Notification, Order, Patient, User, utcnow
 from ..serializers import missing_categories, order_detail, order_summary
-from ..services.numbering import next_order_number
+from ..services.numbering import next_enquiry_number
 from ..services import shipments
 from ..services.storage import get_storage
 from ..transitions import assert_status, transition
@@ -38,13 +39,34 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.get("", response_model=list[schemas.OrderSummary])
 def list_orders(
     needs_action: bool = Query(default=False),
+    search: Optional[str] = Query(default=None),
+    patient_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     doctor: Doctor = Depends(verified_doctor),
     db: Session = Depends(get_db),
 ):
+    """A page of the clinic's cases, newest first. A busy practice accumulates
+    hundreds, and none of them need to arrive at once.
+
+    Searching runs in the database so a case on page nine is still findable.
+    """
     query = db.query(Order).filter(Order.doctor_id == doctor.id)
     if needs_action:
         query = query.filter(Order.status.in_(list(DOCTOR_ACTION_STATUSES)))
-    orders = query.order_by(Order.created_at.desc()).all()
+    if patient_id:
+        query = query.filter(Order.patient_id == patient_id)
+    if search and search.strip():
+        needle = f"%{search.strip().lower()}%"
+        query = query.join(Order.patient).filter(
+            or_(
+                func.lower(Order.enquiry_number).like(needle),
+                func.lower(func.coalesce(Order.order_number, "")).like(needle),
+                func.lower(Patient.full_name).like(needle),
+                func.lower(func.coalesce(Patient.external_ref, "")).like(needle),
+            )
+        )
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
     return [order_summary(o) for o in orders]
 
 
@@ -59,7 +81,7 @@ def create_order(
     address = _resolve_address(db, doctor, payload.shipping_address_id)
 
     order = Order(
-        order_number=next_order_number(db),
+        enquiry_number=next_enquiry_number(db),
         doctor_id=doctor.id,
         patient_id=patient.id,
         arch=payload.arch,
@@ -107,6 +129,25 @@ def update_order(
     return order_detail(order, UserRole.DOCTOR)
 
 
+def _set_delivery_address(db, order, doctor, address_id) -> None:
+    """Confirms where the next parcel goes.
+
+    A practice can run several clinics, so the address is chosen at the moment
+    of dispatch rather than inherited from whenever the case was opened. Silently
+    ignoring an unknown id would ship to the wrong building, so it is rejected.
+    """
+    if not address_id:
+        return
+    address = (
+        db.query(Address)
+        .filter(Address.id == address_id, Address.doctor_id == doctor.id)
+        .one_or_none()
+    )
+    if address is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That delivery address is not yours.")
+    order.shipping_address_id = address.id
+
+
 @router.post("/{order_id}/submit", response_model=schemas.OrderDetail)
 def submit_order(
     order_id: str,
@@ -127,7 +168,7 @@ def submit_order(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a shipping address before submitting.")
 
     if not order.storage_folder_ref:
-        order.storage_folder_ref = get_storage().ensure_order_folder(order.order_number)
+        order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
 
     transition(db, order, OrderStatus.SUBMITTED, user)
     db.commit()
@@ -216,6 +257,7 @@ def respond_to_plan(
 ):
     order = owned_order(order_id, db, doctor)
     assert_status(order, OrderStatus.PLAN_SHARED)
+    _set_delivery_address(db, order, doctor, payload.shipping_address_id)
 
     plan = order.current_plan
     if plan is None:
@@ -298,6 +340,7 @@ def decide_phase(
     if shipment.phase_decision is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "You have already answered for this phase.")
 
+    _set_delivery_address(db, order, doctor, payload.shipping_address_id)
     shipment.phase_decision = payload.decision
     shipment.decision_notes = payload.notes
 
@@ -331,7 +374,7 @@ def decide_phase(
                     user_id=member.id,
                     order_id=order.id,
                     title="Ready for the next phase",
-                    body=f"{order.order_number} — continue from aligner {start}.",
+                    body=f"{order.reference} — continue from aligner {start}.",
                 )
             )
 
@@ -351,6 +394,7 @@ def submit_fit_review(
     """Fit verdict and dispatch preference in one submission."""
     order = owned_order(order_id, db, doctor)
     assert_status(order, OrderStatus.FIT_REVIEW)
+    _set_delivery_address(db, order, doctor, payload.shipping_address_id)
 
     training = next(
         (

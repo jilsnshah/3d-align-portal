@@ -10,6 +10,9 @@ itsdangerous==2.2.0
 argon2-cffi==23.1.0
 python-dotenv==1.0.1
 
+# Google Maps calls (Routes + Geocoding) go out over httpx.
+httpx==0.28.1
+
 # Google Drive (optional — only needed when STORAGE_BACKEND=drive)
 google-api-python-client==2.156.0
 google-auth==2.37.0

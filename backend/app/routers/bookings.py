@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .. import schemas
+from ..config import settings as app_settings
 from ..db import get_db
 from ..deps import (
     current_admin,
@@ -25,6 +26,7 @@ from ..deps import (
     verified_doctor,
 )
 from ..enums import (
+    ReassignmentStatus,
     LIVE_APPOINTMENT_STATUSES,
     AppointmentStatus,
     OrderStatus,
@@ -32,6 +34,7 @@ from ..enums import (
     UserRole,
 )
 from ..models import (
+    ReassignmentRequest,
     Appointment,
     AvailabilityRule,
     Doctor,
@@ -43,14 +46,25 @@ from ..models import (
     utcnow,
 )
 from ..security import hash_password
-from ..serializers import appointment_out, order_detail, technician_out
+from ..serializers import appointment_out, day_route_out, order_detail, technician_out
 from ..services import scheduling
+from ..services.routes import build_day_route, google_maps_link
+from ..services.travel import TravelService
 
 router = APIRouter(tags=["bookings"])
 
 
 def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    """Normalise to UTC.
+
+    SQLite stores no offset, so an aware datetime is written as its own wall
+    clock and read back naive. A booking sent as 09:30+05:30 would come back as
+    09:30 UTC — five and a half hours out. Converting before storing is what
+    keeps that from happening.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 # --------------------------------------------------------------------------
@@ -58,38 +72,85 @@ def _as_utc(value: datetime) -> datetime:
 # --------------------------------------------------------------------------
 
 
+def _clinic_address(doctor, address_id):
+    """The clinic a visit is going to. Falls back to the doctor's default so a
+    doctor who never picked an address still gets travel-aware availability."""
+    if address_id:
+        for address in doctor.addresses:
+            if address.id == address_id:
+                return address
+    for address in doctor.addresses:
+        if address.is_default_shipping:
+            return address
+    return doctor.addresses[0] if doctor.addresses else None
+
+
+
+
 @router.get("/appointments/availability", response_model=list[schemas.DayAvailability])
 def availability(
     from_date: date_type = Query(..., alias="from"),
     to_date: date_type = Query(..., alias="to"),
+    address_id: Optional[str] = Query(default=None),
+    detail: bool = Query(default=False),
     doctor: Doctor = Depends(verified_doctor),
     db: Session = Depends(get_db),
 ):
+    """Month view: which days are worth clicking.
+
+    Deliberately does not work out exact times. Doing so means asking the
+    routing provider how long every leg of every technician's day takes, and a
+    doctor flicking through a calendar would bill for weeks of routing they
+    never look at. Pass ``detail=true`` for a single day to get real times.
+    """
     settings = scheduling.get_settings(db)
     if (to_date - from_date).days > 62:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ask for at most two months at a time.")
 
+    if detail and (to_date - from_date).days > 6:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Detailed availability is limited to a week at a time.",
+        )
+
+    clinic = scheduling.address_point(_clinic_address(doctor, address_id))
+    travel = TravelService(db, settings)
+
     days = []
     cursor = from_date
     while cursor <= to_date:
-        slots = scheduling.slots_for_day(db, cursor, settings)
-        days.append(
-            schemas.DayAvailability(
-                date=cursor,
-                closed=not slots,
-                slots=[
-                    schemas.SlotOut(
-                        starts_at=s.starts_at,
-                        ends_at=s.ends_at,
-                        available=s.available,
-                        reason=s.reason,
-                    )
-                    for s in slots
-                ],
-                free_count=sum(1 for s in slots if s.available),
+        if detail:
+            slots = scheduling.slots_for_day(db, cursor, settings, clinic, travel)
+            days.append(
+                schemas.DayAvailability(
+                    date=cursor,
+                    closed=not slots,
+                    slots=[
+                        schemas.SlotOut(
+                            starts_at=s.starts_at,
+                            ends_at=s.ends_at,
+                            available=s.available,
+                            reason=s.reason,
+                        )
+                        for s in slots
+                    ],
+                    free_count=sum(1 for s in slots if s.available),
+                    technicians_free=0,
+                )
             )
-        )
+        else:
+            closed, free = scheduling.day_capacity(db, cursor, settings, clinic)
+            days.append(
+                schemas.DayAvailability(
+                    date=cursor,
+                    closed=closed,
+                    slots=[],
+                    free_count=0,
+                    technicians_free=free,
+                )
+            )
         cursor += timedelta(days=1)
+    db.commit()
     return days
 
 
@@ -115,11 +176,26 @@ def book_appointment(
 
     settings = scheduling.get_settings(db)
     starts_at = _as_utc(payload.starts_at)
-    ends_at = starts_at + timedelta(minutes=settings.slot_minutes)
+    address = _clinic_address(doctor, payload.address_id or order.shipping_address_id)
+    clinic = scheduling.address_point(address)
+
+    # Outside the service city the technician is out for the day, so the
+    # appointment has to occupy the day — otherwise the calendar would happily
+    # sell the afternoon to somebody else.
+    day_visit = scheduling.requires_day_visit(clinic, settings)
+    if day_visit:
+        span = scheduling.day_visit_window(starts_at.date(), settings)
+        if span is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The lab is closed that day.")
+        starts_at, ends_at = span
+    else:
+        ends_at = starts_at + scheduling.visit_length(settings)
 
     # Availability was advisory; this is the check that counts.
     try:
-        technician, reason = scheduling.assign_technician(db, starts_at, ends_at, settings)
+        technician, reason = scheduling.assign_technician(
+            db, starts_at, ends_at, settings, clinic
+        )
     except scheduling.SlotUnavailable as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
@@ -129,6 +205,7 @@ def book_appointment(
         starts_at=starts_at,
         ends_at=ends_at,
         status=AppointmentStatus.ASSIGNED,
+        is_day_visit=day_visit,
         address_id=payload.address_id or order.shipping_address_id,
         contact_name=payload.contact_name or doctor.full_name,
         contact_phone=payload.contact_phone or doctor.phone,
@@ -143,7 +220,7 @@ def book_appointment(
             user_id=technician.user_id,
             order_id=order.id,
             title="New scan visit assigned",
-            body=f"{order.order_number} — {order.patient.full_name}\n{starts_at:%d %b %Y, %H:%M}",
+            body=f"{order.reference} — {order.patient.full_name}\n{starts_at:%d %b %Y, %H:%M}",
         )
     )
     db.commit()
@@ -193,7 +270,7 @@ def cancel_appointment(
             user_id=recipient,
             order_id=order.id,
             title="Scan visit cancelled",
-            body=f"{order.order_number} — {payload.reason}",
+            body=f"{order.reference} — {payload.reason}",
         )
     )
     db.commit()
@@ -204,6 +281,42 @@ def cancel_appointment(
 # --------------------------------------------------------------------------
 # Technician — their own schedule
 # --------------------------------------------------------------------------
+
+
+@router.get("/tech/route", response_model=schemas.DayRouteOut)
+def my_route(
+    day: date_type = Query(default=None),
+    technician: Technician = Depends(current_technician),
+    db: Session = Depends(get_db),
+):
+    """The technician's own day, re-costed against traffic right now."""
+    settings = scheduling.get_settings(db)
+    target = day or datetime.now(timezone.utc).date()
+    route = build_day_route(db, technician, target, settings)
+    db.commit()
+    return day_route_out(route, google_maps_link(route))
+
+
+
+@router.get("/admin/technicians/{technician_id}/route", response_model=schemas.DayRouteOut)
+def technician_route(
+    technician_id: str,
+    day: date_type = Query(default=None),
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Any technician's day, for the lab's route view."""
+    technician = db.get(Technician, technician_id)
+    if technician is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Technician not found.")
+
+    settings = scheduling.get_settings(db)
+    target = day or datetime.now(timezone.utc).date()
+    route = build_day_route(db, technician, target, settings)
+    db.commit()
+    # The browser key is referrer-restricted and belongs in the page; the server
+    # key never leaves the backend.
+    return day_route_out(route, google_maps_link(route), app_settings.google_maps_browser_key)
 
 
 @router.get("/tech/schedule", response_model=list[schemas.JobOut])
@@ -236,7 +349,7 @@ def _job_order(appointment: Appointment) -> schemas.JobOrderOut:
     order = appointment.order
     return schemas.JobOrderOut(
         id=order.id,
-        order_number=order.order_number,
+        order_number=order.reference,
         patient_name=order.patient.full_name,
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
@@ -287,7 +400,7 @@ def mark_en_route(
             user_id=appointment.order.doctor.user_id,
             order_id=appointment.order_id,
             title="Technician on the way",
-            body=f"{appointment.order.order_number} — {technician.full_name} is heading over.",
+            body=f"{appointment.order.reference} — {technician.full_name} is heading over.",
         )
     )
     db.commit()
@@ -312,7 +425,7 @@ def mark_no_show(
             user_id=appointment.order.doctor.user_id,
             order_id=appointment.order_id,
             title="Scan could not be taken",
-            body=f"{appointment.order.order_number} — {payload.note}",
+            body=f"{appointment.order.reference} — {payload.note}",
         )
     )
     db.commit()
@@ -356,6 +469,229 @@ def list_bookings(
     ]
 
 
+def _hand_over(
+    db: Session,
+    appointment: Appointment,
+    technician: Technician,
+    overridden: bool = False,
+    note: str = "",
+) -> None:
+    """Move a live visit to another technician and tell both of them.
+
+    The one place a visit changes hands, so the notifications and the audit
+    line cannot drift apart between the lab's own reassignment and a
+    technician-initiated handover.
+    """
+    previous = appointment.technician
+    appointment.technician_id = technician.id
+    appointment.assignment_reason = (
+        f"Reassigned by the lab from {previous.full_name if previous else 'unassigned'}"
+        f"{' (availability overridden)' if overridden else ''}."
+        + (f" {note}" if note else "")
+    )
+    db.add(
+        Notification(
+            user_id=technician.user_id,
+            order_id=appointment.order_id,
+            title="Scan visit assigned to you",
+            body=f"{appointment.order.reference} — {_as_utc(appointment.starts_at):%d %b, %H:%M}",
+        )
+    )
+    if previous and previous.id != technician.id:
+        db.add(
+            Notification(
+                user_id=previous.user_id,
+                order_id=appointment.order_id,
+                title="Visit handed over",
+                body=(
+                    f"{appointment.order.reference} — now with {technician.full_name}."
+                ),
+            )
+        )
+
+
+def _reassignment_out(request) -> schemas.ReassignmentOut:
+    appointment = request.appointment
+    order = appointment.order if appointment else None
+    return schemas.ReassignmentOut(
+        id=request.id,
+        status=request.status.value,
+        reason=request.reason,
+        resolution=request.resolution,
+        created_at=request.created_at,
+        resolved_at=request.resolved_at,
+        requested_by=request.technician.full_name if request.technician else "",
+        appointment_id=request.appointment_id,
+        order_reference=order.reference if order else "",
+        patient_name=order.patient.full_name if order and order.patient else "",
+        clinic_name=order.doctor.clinic_name if order and order.doctor else "",
+        starts_at=_as_utc(appointment.starts_at) if appointment else utcnow(),
+        current_technician=appointment.technician.full_name
+        if appointment and appointment.technician
+        else "",
+    )
+
+
+@router.post("/tech/jobs/{appointment_id}/reassign-request", response_model=schemas.ReassignmentOut)
+def request_reassignment(
+    appointment_id: str,
+    payload: schemas.ReassignRequestIn,
+    technician: Technician = Depends(current_technician),
+    db: Session = Depends(get_db),
+):
+    """A technician asking the lab to take a visit off them."""
+    appointment = db.get(Appointment, appointment_id)
+    if not appointment or appointment.technician_id != technician.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found.")
+    if not appointment.is_live:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That booking is already closed.")
+
+    existing = (
+        db.query(ReassignmentRequest)
+        .filter(
+            ReassignmentRequest.appointment_id == appointment.id,
+            ReassignmentRequest.status == ReassignmentStatus.PENDING,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The lab already has a request for this visit.")
+
+    request = ReassignmentRequest(
+        appointment_id=appointment.id,
+        technician_id=technician.id,
+        reason=payload.reason.strip(),
+    )
+    db.add(request)
+
+    for member in db.query(User).filter(User.role == UserRole.ADMIN, User.is_active.is_(True)).all():
+        db.add(
+            Notification(
+                user_id=member.id,
+                order_id=appointment.order_id,
+                title="Reassignment requested",
+                body=(
+                    f"{appointment.order.reference} — {technician.full_name} asked to hand over "
+                    f"{_as_utc(appointment.starts_at):%d %b, %H:%M}.\n{payload.reason.strip()}"
+                ),
+            )
+        )
+    db.commit()
+    db.refresh(request)
+    return _reassignment_out(request)
+
+
+@router.get("/admin/reassignments", response_model=list[schemas.ReassignmentOut])
+def list_reassignments(
+    pending_only: bool = Query(default=True),
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    query = db.query(ReassignmentRequest)
+    if pending_only:
+        query = query.filter(ReassignmentRequest.status == ReassignmentStatus.PENDING)
+    rows = query.order_by(ReassignmentRequest.created_at.desc()).limit(200).all()
+    return [_reassignment_out(r) for r in rows]
+
+
+@router.post("/admin/reassignments/{request_id}/resolve", response_model=schemas.ReassignmentOut)
+def resolve_reassignment(
+    request_id: str,
+    payload: schemas.ResolveReassignmentIn,
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Three ways out: name a technician, let the scheduler choose, or decline.
+
+    The handover itself goes through the same feasibility check and the same
+    assignment engine the lab already uses, so a visit moved this way is as
+    reachable as one booked normally.
+    """
+    request = db.get(ReassignmentRequest, request_id)
+    if not request:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found.")
+    if not request.is_open:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That request is already resolved.")
+
+    appointment = request.appointment
+    if payload.action == "DECLINE":
+        request.status = ReassignmentStatus.DECLINED
+        request.resolution = payload.note or "The lab kept the visit where it was."
+        request.resolved_at = utcnow()
+        db.add(
+            Notification(
+                user_id=request.technician.user_id,
+                order_id=appointment.order_id,
+                title="Reassignment declined",
+                body=f"{appointment.order.reference} — {request.resolution}",
+            )
+        )
+        db.commit()
+        db.refresh(request)
+        return _reassignment_out(request)
+
+    if not appointment.is_live:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That booking is already closed.")
+
+    settings = scheduling.get_settings(db)
+    clinic = scheduling.address_point(appointment.address)
+    starts, ends = _as_utc(appointment.starts_at), _as_utc(appointment.ends_at)
+
+    if payload.action == "TECHNICIAN":
+        technician = db.get(Technician, payload.technician_id or "")
+        if not technician or not technician.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Technician not found.")
+        if technician.id == appointment.technician_id:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That is the technician asking to hand it over.")
+        free = scheduling.technician_is_free(
+            db, technician, starts, ends, settings,
+            ignore_appointment_id=appointment.id, clinic=clinic,
+        )
+        if not free and not payload.force:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{technician.full_name} is not free then. Re-send with force to override.",
+            )
+        overridden = not free
+    else:
+        # Let the scheduler pick, excluding whoever is handing it over.
+        try:
+            technician, _ = scheduling.assign_technician(
+                db, starts, ends, settings, clinic,
+                exclude_ids={appointment.technician_id},
+                ignore_appointment_id=appointment.id,
+            )
+        except scheduling.SlotUnavailable as exc:
+            # The booking-time explanation does not fit here: the visit's time is
+            # fixed, so "the nearest time that works is 16:34" is advice the lab
+            # cannot act on. Say what is actually true and what the options are.
+            holder = (
+                appointment.technician.full_name if appointment.technician else "the current technician"
+            )
+            when = starts.astimezone(scheduling.lab_zone(settings))
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                (
+                    f"No other technician can reach this clinic at {when:%H:%M}"
+                    f" on {when:%d %b} — {holder} is the only one who fits it in."
+                    " Assign someone specific to override, or decline the request."
+                ),
+            ) from exc
+        overridden = False
+
+    _hand_over(db, appointment, technician, overridden=overridden, note=payload.note)
+    request.status = ReassignmentStatus.RESOLVED
+    request.resolution = (
+        f"Handed to {technician.full_name}"
+        + (" (availability overridden)" if overridden else "")
+        + (f". {payload.note}" if payload.note else ".")
+    )
+    request.resolved_at = utcnow()
+    db.commit()
+    db.refresh(request)
+    return _reassignment_out(request)
+
+
 @router.post("/admin/bookings/{appointment_id}/reassign", response_model=schemas.BookingOut)
 def reassign_booking(
     appointment_id: str,
@@ -381,6 +717,7 @@ def reassign_booking(
         _as_utc(appointment.ends_at),
         settings,
         ignore_appointment_id=appointment.id,
+        clinic=scheduling.address_point(appointment.address),
     )
     if not free and not payload.force:
         raise HTTPException(
@@ -388,20 +725,7 @@ def reassign_booking(
             f"{technician.full_name} is not free then. Re-send with force to override.",
         )
 
-    previous = appointment.technician
-    appointment.technician_id = technician.id
-    appointment.assignment_reason = (
-        f"Reassigned by the lab from {previous.full_name if previous else 'unassigned'}"
-        f"{' (availability overridden)' if not free else ''}."
-    )
-    db.add(
-        Notification(
-            user_id=technician.user_id,
-            order_id=appointment.order_id,
-            title="Scan visit assigned to you",
-            body=f"{appointment.order.order_number} — {_as_utc(appointment.starts_at):%d %b, %H:%M}",
-        )
-    )
+    _hand_over(db, appointment, technician, overridden=not free)
     db.commit()
     db.refresh(appointment)
     return schemas.BookingOut(

@@ -66,48 +66,121 @@ per weekday so Saturday can be a half day and Sunday closed.
 
 ## 3. Availability: computed, not generated
 
-No slot table, no nightly job. Free slots are derived on read from working hours
+No slot table, no nightly job. Free times are derived on read from working hours
 minus existing appointments minus time off. A roster change applies instantly.
 
-Slots sit on a grid of `slot_minutes` from each weekday's opening time. A slot is
-**free** if at least one active technician has:
+**There is no slot grid.** A visit can start at any moment a technician can
+actually reach the clinic. For each gap in a technician's day the scheduler
+computes the window a visit fits into:
 
-- the slot inside working hours for that weekday
-- no overlapping appointment, widened by `travel_buffer_minutes` either side
-- no overlapping time off
-- fewer than `max_daily_jobs` that day
+```
+earliest start = previous job ends + travel(previous clinic -> this clinic) + margin
+latest  start  = next job starts   - travel(this clinic -> next clinic)
+                                   - the visit itself - margin
+```
 
-and the slot is `≥ now + min_notice_hours` and `≤ now + booking_horizon_days`.
+Everything between those two is bookable. A technician finishing in Bopal at
+10:45 who needs 47 minutes to reach Maninagar offers **11:32**, not "the 11:30
+hour is gone".
 
-The doctor sees the union across technicians — a slot is offered if *anyone* can
-take it. They pick a time; the system picks the person.
+The doctor is shown:
 
-`GET /appointments/availability` returns, per day, every slot on the grid marked
-`free` or `unavailable`, so the calendar can render both rather than silently
-hiding what is gone.
+- times on `booking_granularity_minutes` (default 15) across the open day, so
+  unavailable times stay visible and a day is seen filling up, **plus**
+- each window's exact earliest arrival, because that is the whole point
 
-Only one service city for now (Ahmedabad), so there is no geography filter.
+Everyone starts and ends the day at the lab, so the first and last visit are
+costed against a real origin rather than being unconstrained.
+
+A time is offered if *anyone* can reach it. The doctor picks a time; the system
+picks the person.
+
+### Travel times, with traffic
+
+Resolved cheapest-first:
+
+1. the `travel_estimates` cache, keyed on `(origin, destination, weekday+hour)`
+   — a 09:00 Monday run and a 17:00 Friday run are different journeys, so the
+   departure hour is part of the key. Entries expire after 14 days because
+   traffic patterns drift.
+2. **Google Routes** (`computeRouteMatrix`) with a `departureTime`, batching
+   every origin against every destination in one request
+3. straight-line distance x 1.4 road factor / `fallback_speed_kmph`
+
+Two regimes:
+
+- **Within two hours of departure**, the lookup is made live and never cached.
+  A prediction is worthless when the traffic is already visible.
+- **Further out**, the prediction is bucketed by weekday and hour and reused
+  across every future booking that falls in the same slot.
+
+Durations are **pessimistic** by default (`GOOGLE_TRAFFIC_MODEL`). A technician
+arriving early is a non-event; arriving late in front of a waiting patient is
+not, so the schedule is built against the bad traffic day rather than the
+average one.
+
+Rung 3 is what lets the system run with no API key at all, and what keeps
+booking alive when the provider is down or out of quota. Scheduling never blocks
+on a network call.
+
+Addresses are geocoded **on write** — Google when a key is configured, an
+offline table of Ahmedabad pincode centroids otherwise. An address that will not
+resolve is still bookable; it falls back to the flat `travel_buffer_minutes`
+rather than the system inventing a distance.
+
+Travel is looked up once per technician per gap, not once per candidate time,
+which is what keeps a month of calendar cheap.
+
+### Re-validation
+
+A visit booked three weeks ago was costed against *predicted* traffic. That
+prediction is not a promise.
+
+`services/routes.build_day_route` re-costs a technician's whole day against
+current traffic and marks any stop whose projected arrival is later than its
+booked time. It powers three things at once:
+
+- the lab's route view (Bookings -> Routes)
+- the technician's running sheet, refreshed every ten minutes
+- the answer to "does today still hold?"
+
+Without it, "never late" is a claim about an estimate made weeks earlier.
 
 ---
 
-## 4. Assignment
+## 4. Assignment: cheapest insertion
 
-Deliberately plain. Of the technicians free for that slot, take the one with the
-**fewest jobs that day**; ties break on name so the result is stable.
+The cost of a visit is what it **adds to the round**, not how far the technician
+is in a straight line:
 
-```python
-free = [t for t in active_technicians if is_free(t, slot)]
-if not free:
-    raise SlotTaken()
-technician = min(free, key=lambda t: (jobs_that_day(t), t.full_name))
+```
+detour = travel(previous -> clinic) + travel(clinic -> next) - travel(previous -> next)
 ```
 
-That is the whole algorithm. It spreads work without pretending to optimise
-travel, which is not a real problem inside one city with four people. If routing
-ever matters, this function is the single place it changes.
+A technician further away but already passing the door beats a nearer one who
+would have to double back.
 
-The chosen technician and a one-line reason go on the appointment so an admin can
-see why, and reassign in one click if someone calls in sick.
+```
+cost = travel_weight   x detour_minutes
+     + fairness_weight x minutes_committed_above_the_team_average
+     + idle_weight     x stranded_minutes_too_small_to_reuse
+```
+
+Lowest cost wins; ties break on name so the result is stable and testable.
+
+- **fairness** stops the most central technician soaking up every job. It is
+  weighted to break near-ties rather than to override routing — the lab set
+  efficiency first, and `max_daily_jobs` remains the hard backstop.
+- **idle** only counts gaps too small to hold another visit. Booking midday on
+  an open diary is free; leaving twelve unusable minutes is not.
+
+Every weight, the maximum travel per visit, and the fallback speed are editable
+from the admin panel, so the lab can dial efficiency against fairness without a
+deploy.
+
+The chosen technician and a one-line reason — "47 min away from the previous
+stop; adds 94 min to the route" — go on the appointment so an admin can see why,
+and reassign in one click if someone calls in sick.
 
 ---
 

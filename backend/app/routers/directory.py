@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import schemas
+from ..config import settings as app_settings
 from ..db import get_db
 from ..deps import current_doctor, verified_doctor
+from ..services.geo import locate_for
 from ..models import Address, Doctor, Order, Patient
 
 router = APIRouter(tags=["directory"])
@@ -16,6 +21,59 @@ router = APIRouter(tags=["directory"])
 # --------------------------------------------------------------------------
 # Addresses
 # --------------------------------------------------------------------------
+
+
+@router.get("/config/map")
+def map_config():
+    """What the map picker needs before anyone has signed in.
+
+    The browser key is meant to be in the page — it is restricted by HTTP
+    referrer, which is what protects it. The server key never appears here.
+    """
+    from ..services import scheduling
+    from ..db import SessionLocal
+
+    with SessionLocal() as db:
+        settings = scheduling.get_settings(db)
+        centre = scheduling.lab_point(settings)
+    return {
+        "browser_key": app_settings.google_maps_browser_key,
+        "centre": {"lat": centre[0], "lng": centre[1]} if centre else None,
+        "service_city": settings.service_city,
+    }
+
+
+@router.get("/config/search")
+def address_search(q: str):
+    """Where is this typed address? Drives the pin following the form."""
+    from ..services import scheduling
+    from ..services.geo import search
+    from ..db import SessionLocal
+
+    with SessionLocal() as db:
+        centre = scheduling.lab_point(scheduling.get_settings(db))
+    return {"result": search(q, centre)}
+
+
+@router.get("/config/suggest")
+def address_suggest(q: str):
+    """Autocomplete as the doctor types. Empty until Places is enabled."""
+    from ..services import scheduling
+    from ..services.geo import suggest
+    from ..db import SessionLocal
+
+    with SessionLocal() as db:
+        centre = scheduling.lab_point(scheduling.get_settings(db))
+    return {"suggestions": suggest(q, centre)}
+
+
+@router.get("/config/reverse-geocode")
+def reverse_geocode(lat: float, lng: float):
+    """Turns a dropped pin into a readable address, using the server key."""
+    from ..services.geo import describe
+
+    found = describe((lat, lng))
+    return {"address": (found or {}).get("formatted", ""), "parts": found or {}}
 
 
 @router.get("/addresses", response_model=list[schemas.AddressOut])
@@ -29,7 +87,10 @@ def create_address(
     doctor: Doctor = Depends(current_doctor),
     db: Session = Depends(get_db),
 ):
-    address = Address(doctor_id=doctor.id, **payload.model_dump())
+    fields = payload.model_dump()
+    picked = (fields.pop("latitude", None), fields.pop("longitude", None))
+    address = Address(doctor_id=doctor.id, **fields)
+    locate_for(db, address, picked if None not in picked else None)
     if payload.is_default_shipping:
         _clear_default(db, doctor)
     db.add(address)
@@ -48,8 +109,20 @@ def update_address(
     address = _owned_address(db, doctor, address_id)
     if payload.is_default_shipping:
         _clear_default(db, doctor)
-    for key, value in payload.model_dump().items():
+
+    # A clinic that moves keeps its old coordinates unless they are refreshed,
+    # and a technician sent to the previous building has no way to tell.
+    before = (address.line1, address.line2, address.city, address.pincode)
+    fields = payload.model_dump()
+    picked = (fields.pop("latitude", None), fields.pop("longitude", None))
+    for key, value in fields.items():
         setattr(address, key, value)
+    moved = (address.line1, address.line2, address.city, address.pincode) != before
+    if None not in picked:
+        locate_for(db, address, picked)
+    elif moved:
+        locate_for(db, address)
+
     db.commit()
     db.refresh(address)
     return address
@@ -91,12 +164,18 @@ def _clear_default(db: Session, doctor: Doctor) -> None:
 
 
 @router.get("/patients", response_model=list[schemas.PatientOut])
-def list_patients(doctor: Doctor = Depends(verified_doctor), db: Session = Depends(get_db)):
+def list_patients(
+    search: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    doctor: Doctor = Depends(verified_doctor),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Patient).filter(Patient.doctor_id == doctor.id)
+    if search and search.strip():
+        query = query.filter(func.lower(Patient.full_name).like(f"%{search.strip().lower()}%"))
     return (
-        db.query(Patient)
-        .filter(Patient.doctor_id == doctor.id)
-        .order_by(Patient.full_name)
-        .all()
+        query.order_by(Patient.full_name).offset(offset).limit(limit).all()
     )
 
 

@@ -12,9 +12,11 @@ interactive OAuth token that expires, and nothing is ever made public. The old
 code set ``{'type': 'anyone', 'role': 'reader'}`` on patient folders, which put
 identifiable records on permanent public URLs.
 
-The tree is keyed on order_number, which never changes:
+The tree is keyed on the case reference. A case starts under its enquiry ref
+and the folder is renamed once the case reaches planning and earns an AL number:
 
-    <root>/Orders/AL-2026-0417/{records,scans,planning}/
+    <root>/Orders/EN-2026-0044/{records,scans,planning}/   before planning
+    <root>/Orders/AL-2026-0417/{records,scans,planning}/   after
 """
 
 from __future__ import annotations
@@ -74,6 +76,18 @@ class LocalStorage:
         with target.open("wb") as out:
             shutil.copyfileobj(fileobj, out)
         return StoredFile(ref=str(target.relative_to(self.root)), size_bytes=target.stat().st_size)
+
+    def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
+        """Renames the case folder when a case is given its AL number. Local refs
+        embed the folder name, so the caller has to rewrite them too."""
+        source = self.root / "Orders" / old_name
+        target = self.root / "Orders" / new_name
+        if not source.is_dir():
+            return None
+        if target.exists():
+            raise StorageError(f"Cannot rename to {new_name}: that folder already exists.")
+        source.rename(target)
+        return str(target)
 
     def open(self, ref: str) -> BinaryIO:
         path = self.root / ref
@@ -158,6 +172,29 @@ class DriveStorage:
         for sub in SUBFOLDERS:
             self._get_or_create_folder(sub, order_id)
         return order_id
+
+    def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
+        """Drive refs are file ids, so renaming the parent folder leaves every
+        stored file reachable. Nothing else needs rewriting."""
+        orders_id = self._get_or_create_folder("Orders", self.root_folder_id)
+        found = (
+            self.service.files()
+            .list(
+                q=(
+                    f"name = '{old_name}' and '{orders_id}' in parents "
+                    "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                ),
+                fields="files(id)",
+                pageSize=1,
+            )
+            .execute()
+            .get("files", [])
+        )
+        if not found:
+            return None
+        folder_id = found[0]["id"]
+        self.service.files().update(fileId=folder_id, body={"name": new_name}).execute()
+        return folder_id
 
     def save(
         self, order_number: str, subfolder: str, filename: str, fileobj: BinaryIO, mime_type: str

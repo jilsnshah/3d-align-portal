@@ -4,8 +4,12 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
+import { sessionSlot } from "./api";
 import { AuthProvider } from "./auth";
 import "./styles.css";
+
+// Claim this tab's session slot before the first request goes out.
+sessionSlot();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
