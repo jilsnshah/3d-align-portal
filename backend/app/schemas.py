@@ -673,6 +673,10 @@ class BookingSettingsIn(BaseModel):
     service_city: Optional[str] = None
     timezone_name: Optional[str] = None
     lab_address: Optional[str] = None
+    # Sent when the lab drops the pin itself. A placement beats a lookup, so
+    # these win over geocoding the typed address.
+    lab_latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    lab_longitude: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class AlignerPriceOut(ORMModel):
@@ -800,6 +804,10 @@ class SimulationOut(BaseModel):
 
 
 class BookingSettingsOut(ORMModel):
+    lab_latitude: Optional[float] = None
+    lab_longitude: Optional[float] = None
+    # How the lab's point was arrived at, so a coarse one is visible as coarse.
+    lab_geocode_source: str = ""
     upi_vpa: str = ""
     upi_payee_name: str = ""
     plan_fee: Decimal = Decimal("0")

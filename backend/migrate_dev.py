@@ -27,6 +27,7 @@ ADDITIONS = {
     "phase_issue_messages": [],
     "payments": [],
     "booking_settings": [
+        ("lab_geocode_source", "VARCHAR(30) NOT NULL DEFAULT ''"),
         ("upi_vpa", "VARCHAR(120) NOT NULL DEFAULT ''"),
         ("upi_payee_name", "VARCHAR(120) NOT NULL DEFAULT '3D Align'"),
         ("plan_fee", "NUMERIC(12,2) NOT NULL DEFAULT 2000"),

@@ -5,6 +5,7 @@ import { WEEKDAYS, api, formatMoney } from "../../api";
 import type { AlignerPrice, BookingSettings, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 import OrthodontistRoster from "../../components/OrthodontistRoster";
+import LocationPicker from "../../components/LocationPicker";
 import { useAuth } from "../../auth";
 
 type Knob = { key: keyof BookingSettings; label: string; hint: string; min: number; max: number; step?: number };
@@ -395,14 +396,45 @@ export default function AdminSettings() {
               value={draft.lab_address}
               onChange={(e) => {
                 setSaved(false);
-                setDraft({ ...draft, lab_address: e.target.value });
+                // Typing changes the words; the point below is what actually
+                // costs the routes, so it is re-derived on save unless the pin
+                // has been placed by hand.
+                setDraft({ ...draft, lab_address: e.target.value, lab_latitude: null, lab_longitude: null });
               }}
             />
             <span className="dim">
               Every technician's day starts and ends here, so the first and last visit are costed
-              against a real origin.
+              against a real origin. Search or drag the pin to place it exactly — otherwise the
+              address is looked up when you save.
             </span>
           </Field>
+          <LocationPicker
+            value={
+              draft.lab_latitude != null && draft.lab_longitude != null
+                ? { lat: draft.lab_latitude, lng: draft.lab_longitude }
+                : null
+            }
+            query={draft.lab_address}
+            onChange={(next) => {
+              setSaved(false);
+              setDraft({
+                ...draft,
+                lab_latitude: next ? next.lat : null,
+                lab_longitude: next ? next.lng : null,
+              });
+            }}
+            onResolved={(addr) => {
+              // The pin knows where it landed, so the words follow it.
+              const line = [addr.line1, addr.city, addr.pincode].filter(Boolean).join(", ");
+              if (line) setDraft((d) => (d ? { ...d, lab_address: line } : d));
+            }}
+          />
+          {draft.lab_geocode_source === "pincode" && (
+            <Banner tone="warn">
+              This point came from the pincode, which is the centre of a whole postal area.
+              Drop the pin on the building for accurate travel times.
+            </Banner>
+          )}
         </div>
 
         <div className="card stack-sm">

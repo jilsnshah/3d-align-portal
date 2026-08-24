@@ -896,6 +896,10 @@ class BookingSettings(Base, TimestampMixin):
     lab_address: Mapped[str] = mapped_column(String(255), default="")
     lab_latitude: Mapped[Optional[float]] = mapped_column(Float)
     lab_longitude: Mapped[Optional[float]] = mapped_column(Float)
+    # Whether the point came from a dropped pin, a street-level lookup, or the
+    # coarse pincode table. Every route starts and ends here, so how good it is
+    # matters as much as what it is.
+    lab_geocode_source: Mapped[str] = mapped_column(String(30), default="")
 
     # How long a scan visit actually takes, and how finely the doctor may pick a
     # start time inside a feasible window.

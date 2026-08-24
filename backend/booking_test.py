@@ -88,6 +88,67 @@ with TestClient(app) as boot:
     r = admin.put("/api/admin/settings", json={"min_notice_hours": 1, "booking_horizon_days": 14})
     check("settings are editable from the admin panel", r.json()["min_notice_hours"] == 1, r.text)
 
+    # The lab's point is where every technician's day starts and ends. Typing a
+    # new address used to move the words and leave the coordinates behind, so
+    # every route was costed from a building the lab had left.
+    before = admin.get("/api/admin/settings").json()
+    r = admin.put(
+        "/api/admin/settings",
+        json={"lab_address": "Prahladnagar Garden Road, Ahmedabad 380015", "service_city": "Ahmedabad"},
+    )
+    check("the lab address can be changed", r.status_code == 200, r.text[:160])
+    moved = r.json()
+    check(
+        "and the coordinates follow it rather than staying put",
+        (moved["lab_latitude"], moved["lab_longitude"])
+        != (before["lab_latitude"], before["lab_longitude"]),
+        f"{before['lab_latitude']},{before['lab_longitude']} -> "
+        f"{moved['lab_latitude']},{moved['lab_longitude']}",
+    )
+    check(
+        "and land where that address actually is",
+        (moved["lab_latitude"], moved["lab_longitude"]) == (23.005, 72.507),
+        f"{moved['lab_latitude']},{moved['lab_longitude']}",
+    )
+    check(
+        "with the accuracy on the record, so a coarse point reads as coarse",
+        moved["lab_geocode_source"] == "pincode",
+        moved["lab_geocode_source"],
+    )
+
+    r = admin.put(
+        "/api/admin/settings",
+        json={"lab_address": "Somewhere entirely", "lab_latitude": 23.0301, "lab_longitude": 72.5100},
+    )
+    check(
+        "a pin the lab drops itself wins over the lookup",
+        (r.json()["lab_latitude"], r.json()["lab_longitude"]) == (23.0301, 72.51)
+        and r.json()["lab_geocode_source"] == "picked",
+        r.text[:200],
+    )
+
+    r = admin.put("/api/admin/settings", json={"lab_address": "qqqqzzzz nowhere at all"})
+    check(
+        "an address that cannot be placed is refused rather than silently kept",
+        r.status_code == 400,
+        f"{r.status_code} {r.text[:140]}",
+    )
+    kept = admin.get("/api/admin/settings").json()
+    check(
+        "and the previous point is left untouched",
+        (kept["lab_latitude"], kept["lab_longitude"]) == (23.0301, 72.51),
+        f"{kept['lab_latitude']},{kept['lab_longitude']}",
+    )
+    # Put it back so the routing assertions below run from the usual origin.
+    admin.put(
+        "/api/admin/settings",
+        json={
+            "lab_address": before["lab_address"],
+            "lab_latitude": before["lab_latitude"],
+            "lab_longitude": before["lab_longitude"],
+        },
+    )
+
     # -- technicians ------------------------------------------------------
     techs = {}
     for name, email in [("Anil Rathod", "anil@3dalign.example.com"), ("Bhavna Shah", "bhavna@3dalign.example.com")]:

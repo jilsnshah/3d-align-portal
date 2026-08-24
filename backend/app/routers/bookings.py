@@ -50,7 +50,7 @@ from ..models import (
 )
 from ..security import hash_password
 from ..serializers import appointment_out, day_route_out, order_detail, technician_out
-from ..services import scheduling
+from ..services import geo, scheduling
 from ..services.routes import build_day_route, google_maps_link
 from ..services.travel import TravelService
 
@@ -1173,8 +1173,32 @@ def update_settings(
     db: Session = Depends(get_db),
 ):
     settings = scheduling.get_settings(db)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    fields = payload.model_dump(exclude_unset=True)
+
+    # The lab's point is where every technician's day starts and ends, so it
+    # cannot be allowed to drift from the address written above it. Typing a new
+    # address used to leave the old coordinates in place, silently costing every
+    # route from a building the lab had moved out of.
+    picked = fields.pop("lab_latitude", None), fields.pop("lab_longitude", None)
+    address_changed = "lab_address" in fields and fields["lab_address"] != settings.lab_address
+
+    for field, value in fields.items():
         setattr(settings, field, value)
+
+    if picked[0] is not None and picked[1] is not None:
+        # A pin the lab dropped itself beats any lookup.
+        settings.lab_latitude, settings.lab_longitude = picked
+        settings.lab_geocode_source = "picked"
+    elif address_changed:
+        found = geo.geocode(settings.lab_address or "", settings.service_city or "", "")
+        if found is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "That address could not be placed on the map. Drop the pin instead, or "
+                "add the area and pincode.",
+            )
+        settings.lab_latitude, settings.lab_longitude, settings.lab_geocode_source = found
+
     db.commit()
     db.refresh(settings)
     return settings

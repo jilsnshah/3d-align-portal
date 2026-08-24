@@ -618,6 +618,10 @@ export interface BookingSettings {
   idle_weight: number;
   fallback_speed_kmph: number;
   lab_address: string;
+  lab_latitude: number | null;
+  lab_longitude: number | null;
+  /** "picked", a street-level lookup, or the coarse pincode table. */
+  lab_geocode_source: string;
   working_hours: Record<string, [string, string] | null>;
   service_city: string;
   timezone_name: string;
