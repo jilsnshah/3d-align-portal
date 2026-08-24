@@ -30,11 +30,8 @@ export default function Login() {
     <div className="auth-shell">
       <div className="auth-card">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <h1>3D Align</h1>
-            <span className="brand-sub">Clear aligner lab</span>
-          </div>
+          <img className="brand-logo" src="/logo.png" alt="3D Aligners" />
+          <span className="brand-sub">Clear aligner lab</span>
         </div>
         <div className="card">
           <h2 style={{ marginBottom: 4 }}>Sign in</h2>

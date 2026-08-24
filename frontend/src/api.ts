@@ -17,6 +17,7 @@ export type OrderStatus =
   | "FIT_ISSUE"
   | "ALIGNER_PRODUCTION"
   | "DISPATCHING"
+  | "PHASE_REVIEW"
   | "COMPLETED"
   | "CANCELLED";
 
@@ -29,6 +30,9 @@ export type FileCategory =
   | "TREATMENT_PLAN"
   | "SIMULATION_MODEL"
   | "FIT_ISSUE_PHOTO"
+  | "PROGRESS_PHOTO"
+  | "PAYMENT_PROOF"
+  | "PHASE_FIT_PHOTO"
   | "OTHER";
 
 export type ShipmentType = "TRAINING_ALIGNER" | "ALIGNER_PHASE" | "FULL_CASE";
@@ -165,6 +169,9 @@ export interface Quote {
   line_items: QuoteLineItem[];
 }
 
+/** Enquiries carry an EN reference; cases that reached planning carry an AL one. */
+export type CaseSeries = "enquiry" | "aligner";
+
 export interface TreatmentPlan {
   id: string;
   version: number;
@@ -174,6 +181,8 @@ export interface TreatmentPlan {
   final_category: AlignerCategory | null;
   final_category_label: string;
   final_price: string;
+  final_discount: string;
+  final_discount_reason: string;
   final_tax: string;
   final_total: string;
   ipr_required: boolean;
@@ -229,6 +238,10 @@ export interface OrderSummary {
   order_number: string;
   status: OrderStatus;
   status_label: string;
+  category: AlignerCategory | null;
+  category_label: string;
+  /** False while the band is still the estimate read off the photographs. */
+  category_confirmed: boolean;
   patient_name: string;
   doctor_name: string;
   clinic_name: string;
@@ -243,6 +256,24 @@ export interface OrderDetail extends OrderSummary {
   enquiry_number: string;
   has_simulation: boolean;
   dispatch_mode: "FULL" | "PHASED" | null;
+  phase_count: number | null;
+  /** Non-zero once the case has been rescanned without the plan being redrawn. */
+  refinement_round: number;
+  /** Which progress views are still missing for the phase just received. */
+  progress_missing: string[];
+  progress_round: number;
+  payments: Payment[];
+  charges: ChargeLine[];
+  /** True while the clinic has not paid the plan fee — plans arrive empty. */
+  plan_locked: boolean;
+  phase_issues: PhaseFitIssue[];
+  open_phase_issue: string | null;
+  phases_divided: boolean;
+  /** Steps the treatment runs — the longer arch, not both added together. */
+  aligner_steps: number;
+  /** Most phases this case can be split into at 5 aligners a phase. */
+  max_phases: number;
+  phase_plan: PhaseSpan[];
   scan_route: "UPLOAD" | "APPOINTMENT" | "COURIER" | null;
   scan_courier_tracking: string;
   chief_complaint: string;
@@ -400,11 +431,104 @@ export interface Stage {
   is_passive: boolean;
 }
 
+/** Where each staged arch sits in the bite the scanner recorded. Both matrices
+ *  are 4x4 rigid transforms in row-major order, in millimetres. */
+export interface Articulation {
+  upper: number[];
+  lower: number[];
+  method: "bite-witnessed" | "bite-registered" | "scan-pair";
+  rms_upper: number;
+  rms_lower: number;
+  bite_median_mm: number | null;
+  bite_touching_upper: number | null;
+  notes: string[];
+}
+
+export type PaymentKind = "TREATMENT_PLAN" | "TRAINING_FIT" | "PRODUCTION_PHASE";
+export type PaymentStatus = "DUE" | "SUBMITTED" | "VERIFIED" | "REJECTED";
+
+export interface Payment {
+  id: string;
+  kind: PaymentKind;
+  kind_label: string;
+  phase_number: number;
+  amount: string;
+  shipping_amount: string;
+  total: string;
+  status: PaymentStatus;
+  status_label: string;
+  reference: string;
+  proof_file_id: string | null;
+  rejected_reason: string;
+  submitted_at: string | null;
+  verified_at: string | null;
+  /** upi:// intent with the payee and amount already filled in. */
+  upi_link: string;
+  label: string;
+}
+
+export interface ChargeLine {
+  label: string;
+  amount: string;
+  note: string;
+}
+
+export interface ShippingRate {
+  city: string;
+  amount: string;
+  is_active: boolean;
+}
+
+export type PhaseStatus = "NOT_STARTED" | "ACTIVE" | "ISSUE" | "COMPLETED";
+
+export interface PhaseSpan {
+  phase: number;
+  from_step: number;
+  to_step: number;
+  upper_from: number | null;
+  upper_to: number | null;
+  lower_from: number | null;
+  lower_to: number | null;
+  status: PhaseStatus;
+  status_label: string;
+  round: number;
+}
+
+export interface PhaseIssueMessage {
+  id: string;
+  from_lab: boolean;
+  body: string;
+  created_at: string;
+}
+
+export interface PhaseFitIssue {
+  id: string;
+  phase_number: number;
+  phase_round: number;
+  arch: "UPPER" | "LOWER";
+  aligner_number: number;
+  notes: string;
+  photo_revision: number;
+  status: "OPEN" | "RESOLVED";
+  resolution: "REMAKE" | "RESCAN" | "CLINIC_CONFIRMED" | null;
+  lab_comments: string;
+  /** Whose turn it is while the issue is open. */
+  awaiting: "LAB" | "CLINIC";
+  messages: PhaseIssueMessage[];
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface Simulation {
   order_reference: string;
   patient_name: string;
   stages: Stage[];
   total_aligners: number;
+  /** Null when the scans cannot place the arches — the viewer then shows a
+   *  nominal bite and says so. */
+  articulation: Articulation | null;
+  /** Why there is no articulation, when there is none. */
+  articulation_note: string;
 }
 
 export interface MapConfig {
@@ -461,6 +585,11 @@ export interface BookingSettings {
   working_hours: Record<string, [string, string] | null>;
   service_city: string;
   timezone_name: string;
+  upi_vpa: string;
+  upi_payee_name: string;
+  plan_fee: string;
+  training_fit_fee: string;
+  default_shipping_fee: string;
 }
 
 export interface Notification {
@@ -613,13 +742,14 @@ export const api = {
   orders: (
     needsAction = false,
     page: Page = {},
-    filters: { search?: string; patientId?: string } = {},
+    filters: { search?: string; patientId?: string; series?: CaseSeries } = {},
   ) =>
     get<OrderSummary[]>(
       `/orders?${pageQuery(page, {
         needs_action: needsAction ? "true" : "",
         search: filters.search ?? "",
         patient_id: filters.patientId ?? "",
+        series: filters.series ?? "",
       })}`,
     ),
   order: (id: string) => get<OrderDetail>(`/orders/${id}`),
@@ -759,9 +889,16 @@ export const api = {
 
   // staff
   queue: () => get<Queue>("/staff/queue"),
-  staffOrders: (params: { status?: string; search?: string } = {}, page: Page = {}) =>
+  staffOrders: (
+    params: { status?: string; search?: string; series?: CaseSeries } = {},
+    page: Page = {},
+  ) =>
     get<OrderSummary[]>(
-      `/staff/orders?${pageQuery(page, { status: params.status ?? "", search: params.search ?? "" })}`,
+      `/staff/orders?${pageQuery(page, {
+        status: params.status ?? "",
+        search: params.search ?? "",
+        series: params.series ?? "",
+      })}`,
     ),
   staffOrder: (id: string) => get<OrderDetail>(`/staff/orders/${id}`),
   startReview: (id: string) => post<OrderDetail>(`/staff/orders/${id}/start-review`),
@@ -771,6 +908,45 @@ export const api = {
   acceptScan: (id: string, note: string) => post<OrderDetail>(`/staff/orders/${id}/scan/accept`, { note }),
   rejectScan: (id: string, note: string) => post<OrderDetail>(`/staff/orders/${id}/scan/reject`, { note }),
   sharePlan: (id: string, body: unknown) => post<OrderDetail>(`/staff/orders/${id}/plans`, body),
+  payProof: (orderId: string, paymentId: string, file: File, reference: string) => {
+    const body = new FormData();
+    body.append("upload", file);
+    body.append("reference", reference);
+    return request<OrderDetail>(`/orders/${orderId}/payments/${paymentId}/proof`, {
+      method: "POST",
+      body,
+    });
+  },
+  verifyPayment: (orderId: string, paymentId: string, approve: boolean, reason = "") =>
+    post<OrderDetail>(`/staff/orders/${orderId}/payments/${paymentId}/verify`, {
+      approve,
+      reason,
+    }),
+  shippingRates: () => get<ShippingRate[]>("/staff/shipping-rates"),
+  saveShippingRates: (rows: ShippingRate[]) =>
+    request<ShippingRate[]>("/staff/shipping-rates", {
+      method: "PUT",
+      body: JSON.stringify(rows),
+    }),
+  reportPhaseFitIssue: (
+    id: string,
+    body: { arch: "UPPER" | "LOWER"; aligner_number: number; notes: string },
+  ) => post<OrderDetail>(`/orders/${id}/phase-fit-issue`, body),
+  resolvePhaseFitIssue: (
+    id: string,
+    resolution: "COMMENTS" | "REMAKE" | "RESCAN",
+    comments: string,
+  ) =>
+    post<OrderDetail>(`/staff/orders/${id}/phase-fit-issue/resolve`, {
+      resolution,
+      comments,
+    }),
+  replyToPhaseFitIssue: (id: string, message: string) =>
+    post<OrderDetail>(`/orders/${id}/phase-fit-issue/reply`, { message }),
+  closePhaseFitIssue: (id: string) =>
+    post<OrderDetail>(`/orders/${id}/phase-fit-issue/resolve`, {}),
+  reviewPhase: (id: string, outcome: "CONTINUE" | "RESCAN", note: string) =>
+    post<OrderDetail>(`/staff/orders/${id}/phase-review`, { outcome, note }),
   resolveFitIssue: (id: string, resolution: "rescan" | "replan" | "refabricate") =>
     post<OrderDetail>(`/staff/orders/${id}/fit-issue/resolve?resolution=${resolution}`),
   createShipment: (id: string, body: unknown) => post<OrderDetail>(`/staff/orders/${id}/shipments`, body),
@@ -798,6 +974,9 @@ export const CATEGORY_LABEL: Record<FileCategory, string> = {
   TREATMENT_PLAN: "Treatment plan",
   SIMULATION_MODEL: "Simulation files (STL)",
   FIT_ISSUE_PHOTO: "Fit issue photo",
+  PROGRESS_PHOTO: "Progress photographs",
+  PAYMENT_PROOF: "Payment receipts",
+  PHASE_FIT_PHOTO: "Phase fit issue photographs",
   OTHER: "Other",
 };
 

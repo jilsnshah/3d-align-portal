@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 import { CATEGORY_LABEL, formatBytes, formatDate, formatMoney, formatRange } from "../api";
 import type { FileCategory, OrderDetail } from "../api";
 import { api } from "../api";
-import { ConfirmButton, StatusPill } from "./ui";
+import { CategoryPill, ConfirmButton, StatusPill } from "./ui";
 import type { ReactNode } from "react";
 
 /* The 17 statuses collapse into six phases a human can hold in their head.
@@ -155,6 +155,13 @@ export function CaseSummary({ order }: { order: OrderDetail }) {
             <dd className="mono">{order.enquiry_number}</dd>
           </>
         )}
+        <dt>Align category</dt>
+        <dd>
+          <CategoryPill
+            label={order.category_label}
+            confirmed={order.category_confirmed}
+          />
+        </dd>
         <dt>Arches</dt>
         <dd>{archLabel(order.arch)}</dd>
         <dt>Priority</dt>
@@ -386,15 +393,34 @@ export function PlanCard({ order, open = false }: { order: OrderDetail; open?: b
       summary={
         <>
           {plan.aligners_upper + plan.aligners_lower} aligners
+          {plan.final_category_label && (
+            <span className="dim"> · {plan.final_category_label}</span>
+          )}
           <span className="dim"> · v{plan.version} · {plan.status.replace(/_/g, " ").toLowerCase()}</span>
         </>
       }
     >
       <dl className="kv">
+        <dt>Align category</dt>
+        <dd>
+          <CategoryPill label={plan.final_category_label} confirmed={Boolean(plan.final_category)} />
+        </dd>
         <dt>Total aligners</dt>
         <dd className="num">
           <b>{plan.total_aligners}</b> ({plan.aligners_upper} upper, {plan.aligners_lower} lower)
         </dd>
+        {Number(plan.final_discount) > 0 && (
+          <>
+            <dt>Discount</dt>
+            <dd className="num">
+              <b>− {formatMoney(plan.final_discount)}</b>
+              <span className="dim"> off {formatMoney(plan.final_price)}</span>
+              {plan.final_discount_reason && (
+                <span className="dim"> · {plan.final_discount_reason}</span>
+              )}
+            </dd>
+          </>
+        )}
         {Number(plan.final_total) > 0 && (
           <>
             <dt>Final price</dt>
@@ -403,7 +429,11 @@ export function PlanCard({ order, open = false }: { order: OrderDetail; open?: b
               {Number(plan.final_tax) > 0 && (
                 <span className="dim">
                   {" "}
-                  ({formatMoney(plan.final_price)} + {formatMoney(plan.final_tax)} tax)
+                  (
+                  {formatMoney(
+                    Number(plan.final_price) - Number(plan.final_discount || 0),
+                  )}{" "}
+                  + {formatMoney(plan.final_tax)} tax)
                 </span>
               )}
             </dd>
@@ -612,6 +642,7 @@ const LABELS: Record<string, string> = {
   FIT_ISSUE: "Fit issue reported",
   ALIGNER_PRODUCTION: "Aligners in production",
   DISPATCHING: "Dispatching",
+  PHASE_REVIEW: "Progress photographs under review",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
@@ -650,6 +681,20 @@ export function Waiting({ children }: { children: ReactNode }) {
     only appears once the paperwork catches up is a button nobody finds. */
 export function SimulationCard({ order }: { order: OrderDetail }) {
   if (!order.has_simulation) return null;
+  // The simulation is part of the treatment plan and sits behind the same fee.
+  // Offering a button that refuses the click is what makes the gate feel like a
+  // fault, so it says what it is waiting for instead.
+  if (order.plan_locked) {
+    return (
+      <div className="card">
+        <h4 style={{ marginBottom: 4 }}>3D simulation</h4>
+        <p className="dim">
+          Ready, and included in the treatment plan fee. It opens as soon as that
+          payment is confirmed.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="card row-between">
       <div>

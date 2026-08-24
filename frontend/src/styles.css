@@ -1768,3 +1768,191 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 /* The snapshot button needs a buffer it can still read after rendering. */
 .viewer-stage canvas { display: block; }
+
+/* The plan's price panel. The lead line is the one number the lab must not
+   misread, so it is lifted out of the surrounding grey with the gold wash
+   used elsewhere for "read this". */
+.price-card {
+  background: var(--gold-wash);
+  border-color: var(--gold-line);
+}
+.price-callout {
+  margin-bottom: 12px;
+  padding: 11px 14px;
+  border-radius: var(--r);
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-line);
+  border-left: 3px solid var(--gold);
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+/* An estimated band is still a guess; the marker keeps it from being read as
+   the confirmed figure. */
+.pill-est {
+  margin-left: 6px;
+  font-size: 0.68em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+/* Enquiries and the aligner series are separate lists, not one filtered one. */
+.series-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border-radius: var(--r);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.series-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 8px 18px;
+  border-radius: calc(var(--r) - 3px);
+  font: inherit;
+  font-weight: 560;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
+}
+.series-tabs button:hover { color: var(--ink); }
+.series-tabs button.active {
+  background: var(--black);
+  color: var(--white);
+  box-shadow: var(--shadow-xs);
+}
+
+/* The supplied lockup, drawn white-and-gold on black. The black field is cut
+   to alpha so it sits directly on the dark topbar and auth shell; height is
+   fixed and width follows, so the wordmark never distorts. */
+.brand-logo {
+  height: 26px;
+  width: auto;
+  display: block;
+  flex: none;
+}
+.auth-brand {
+  flex-direction: column;
+  gap: 8px;
+}
+.auth-brand .brand-logo { height: 46px; }
+.auth-brand .brand-sub {
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+.topbar .brand-sub {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  color: var(--gold-bright);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  padding-left: 10px;
+  margin-left: 2px;
+}
+@media (max-width: 760px) {
+  .brand-logo { height: 22px; }
+}
+
+/* Whether the viewer is showing a measured occlusion or a stand-in. */
+.bite-note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.bite-note b { color: var(--ink); }
+
+/* Choosing how many phases a case ships in, and what each one carries. */
+.phase-picker { margin-bottom: 12px; }
+.phase-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.phase-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  font-size: 0.85rem;
+}
+.phase-list li b { min-width: 68px; }
+.phase-list li .num { flex: 1; }
+
+/* What a case owes, and settling it by UPI. */
+.pay-row {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.pay-row:first-of-type { border-top: 0; }
+/* The Pay now control is an anchor, not a button, because it hands off to a
+   upi:// intent. The base button rules are element-scoped, so it has to carry
+   its own metrics. */
+.pay-now {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 9px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--gold-deep);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+.pay-row input[type="file"] { font-size: 0.82rem; max-width: 100%; }
+
+/* A schematic of the view each slot wants. "Buccal right" and "occlusal upper"
+   are only obvious once you know the words, and a photograph in the wrong slot
+   is worse than a missing one — the lab plans from it. */
+.slot-diagram {
+  width: 100%;
+  max-width: 96px;
+  height: auto;
+  display: block;
+}
+.slot-need {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.tile-empty .tile-thumb.placeholder {
+  flex-direction: column;
+  gap: 0;
+  padding: 8px;
+}
+/* Repeated small against a filled tile, so a mismatch is visible without
+   opening the photograph. */
+.slot-diagram-inline {
+  width: 26px;
+  height: 17px;
+  vertical-align: -3px;
+  margin-right: 6px;
+  opacity: 0.75;
+}
+
+/* A phase that has been sent back by a fit issue. */
+.phase-list li.phase-issue {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+.phase-list li .pill { flex: none; }

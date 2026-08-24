@@ -72,11 +72,8 @@ export default function Register() {
     <div className="auth-shell">
       <div className="auth-card wide">
         <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <h1>3D Align</h1>
-            <span className="brand-sub">Clinic registration</span>
-          </div>
+          <img className="brand-logo" src="/logo.png" alt="3D Aligners" />
+          <span className="brand-sub">Clinic registration</span>
         </div>
 
         <form className="stack" onSubmit={handleSubmit}>

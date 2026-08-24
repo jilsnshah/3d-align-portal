@@ -20,7 +20,17 @@ ADDITIONS = {
         ("geocode_source", "VARCHAR(20) NOT NULL DEFAULT ''"),
         ("geocoded_at", "TIMESTAMP"),
     ],
+    "shipping_rates": [],
+    "order_phases": [],
+    "phase_fit_issues": [("awaiting", "VARCHAR(10) NOT NULL DEFAULT 'LAB'")],
+    "phase_issue_messages": [],
+    "payments": [],
     "booking_settings": [
+        ("upi_vpa", "VARCHAR(120) NOT NULL DEFAULT ''"),
+        ("upi_payee_name", "VARCHAR(120) NOT NULL DEFAULT '3D Align'"),
+        ("plan_fee", "NUMERIC(12,2) NOT NULL DEFAULT 2000"),
+        ("training_fit_fee", "NUMERIC(12,2) NOT NULL DEFAULT 1500"),
+        ("default_shipping_fee", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("timezone_name", "VARCHAR(60) NOT NULL DEFAULT 'Asia/Kolkata'"),
         ("lab_address", "VARCHAR(255) NOT NULL DEFAULT ''"),
         ("lab_latitude", "FLOAT"),
@@ -50,6 +60,10 @@ ADDITIONS = {
         ("scan_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("planning_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("fit_round", "INTEGER NOT NULL DEFAULT 1"),
+        ("phase_count", "INTEGER"),
+        ("phase_fit_round", "INTEGER NOT NULL DEFAULT 1"),
+        ("progress_round", "INTEGER NOT NULL DEFAULT 1"),
+        ("refinement_round", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "order_files": [
         ("revision", "INTEGER NOT NULL DEFAULT 1"),
@@ -74,6 +88,10 @@ ADDITIONS = {
         ("price_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
     ],
     "fit_reviews": [("fit_round", "INTEGER NOT NULL DEFAULT 1")],
+    "treatment_plans": [
+        ("final_discount", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
+        ("final_discount_reason", "VARCHAR(160) NOT NULL DEFAULT ''"),
+    ],
 }
 
 # Roles were renamed when technicians arrived.

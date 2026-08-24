@@ -249,6 +249,8 @@ class PlanIn(BaseModel):
     # The lab types the final figure once the plan gives an exact aligner
     # count. Bands only ever drove the expected quote.
     final_price: Decimal = Field(default=Decimal("0"), ge=0)
+    final_discount: Decimal = Field(default=Decimal("0"), ge=0)
+    final_discount_reason: str = ""
     final_tax: Decimal = Field(default=Decimal("0"), ge=0)
     ipr_required: bool = False
     attachments_required: bool = False
@@ -264,6 +266,8 @@ class PlanOut(ORMModel):
     final_category: Optional[str] = None
     final_category_label: str = ""
     final_price: Decimal = Decimal("0")
+    final_discount: Decimal = Decimal("0")
+    final_discount_reason: str = ""
     final_tax: Decimal = Decimal("0")
     final_total: Decimal = Decimal("0")
     ipr_required: bool
@@ -273,6 +277,118 @@ class PlanOut(ORMModel):
     revision_notes: str
     shared_at: Optional[datetime]
     responded_at: Optional[datetime]
+
+
+class PaymentOut(BaseModel):
+    id: str
+    kind: enums.PaymentKind
+    kind_label: str = ""
+    phase_number: int = 0
+    amount: Decimal = Decimal("0")
+    shipping_amount: Decimal = Decimal("0")
+    total: Decimal = Decimal("0")
+    status: enums.PaymentStatus
+    status_label: str = ""
+    reference: str = ""
+    proof_file_id: Optional[str] = None
+    rejected_reason: str = ""
+    submitted_at: Optional[datetime] = None
+    verified_at: Optional[datetime] = None
+    # A upi:// intent the clinic's phone can open, with the payee and amount
+    # already filled in. Empty when the lab has not configured a UPI ID.
+    upi_link: str = ""
+    label: str = ""
+
+
+class PaymentProofIn(BaseModel):
+    reference: str = ""
+    note: str = ""
+
+
+class PaymentVerifyIn(BaseModel):
+    approve: bool
+    reason: str = ""
+
+
+class ChargeLine(BaseModel):
+    """One line of the money breakdown shown against a case."""
+
+    label: str
+    amount: Decimal
+    note: str = ""
+
+
+class ShippingRateOut(ORMModel):
+    city: str
+    amount: Decimal
+    is_active: bool = True
+
+
+class ShippingRateIn(BaseModel):
+    city: str
+    amount: Decimal = Field(default=Decimal("0"), ge=0)
+    is_active: bool = True
+
+
+class PhaseFitIssueIn(BaseModel):
+    """An aligner inside a delivered phase that does not fit."""
+
+    arch: enums.Arch
+    aligner_number: int = Field(ge=1)
+    notes: str = ""
+
+
+class PhaseFitIssueResolveIn(BaseModel):
+    resolution: enums.PhaseIssueAnswer
+    comments: str = ""
+
+
+class PhaseIssueReplyIn(BaseModel):
+    message: str = Field(min_length=1)
+
+
+class PhaseIssueMessageOut(BaseModel):
+    id: str
+    from_lab: bool
+    body: str
+    created_at: datetime
+
+
+class PhaseFitIssueOut(ORMModel):
+    id: str
+    phase_number: int
+    phase_round: int
+    arch: str
+    aligner_number: int
+    notes: str
+    photo_revision: int
+    status: str
+    resolution: Optional[str] = None
+    lab_comments: str
+    awaiting: str = "LAB"
+    messages: list = []
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+
+class PhaseOut(BaseModel):
+    phase: int
+    from_step: int
+    to_step: int
+    upper_from: Optional[int] = None
+    upper_to: Optional[int] = None
+    lower_from: Optional[int] = None
+    lower_to: Optional[int] = None
+    status: str = "NOT_STARTED"
+    status_label: str = ""
+    round: int = 1
+
+
+class PhaseReviewIn(BaseModel):
+    """The lab's verdict on a phase's progress photographs."""
+
+    outcome: enums.PhaseReviewOutcome
+    note: str = ""
 
 
 class PlanRespondIn(BaseModel):
@@ -462,6 +578,13 @@ class TechnicianOut(BaseModel):
 
 
 class BookingSettingsIn(BaseModel):
+    # Payments
+    upi_vpa: Optional[str] = Field(default=None, max_length=120)
+    upi_payee_name: Optional[str] = Field(default=None, max_length=120)
+    plan_fee: Optional[Decimal] = Field(default=None, ge=0)
+    training_fit_fee: Optional[Decimal] = Field(default=None, ge=0)
+    default_shipping_fee: Optional[Decimal] = Field(default=None, ge=0)
+
     slot_minutes: Optional[int] = Field(default=None, ge=15, le=240)
     visit_duration_minutes: Optional[int] = Field(default=None, ge=15, le=240)
     booking_granularity_minutes: Optional[int] = Field(default=None, ge=5, le=60)
@@ -580,14 +703,38 @@ class StageOut(BaseModel):
     is_passive: bool = False
 
 
+class ArticulationOut(BaseModel):
+    """Where each staged arch sits in the bite the scanner recorded. Both are
+    4x4 rigid transforms, row-major, in millimetres."""
+
+    upper: list
+    lower: list
+    method: str
+    rms_upper: float
+    rms_lower: float
+    bite_median_mm: Optional[float] = None
+    bite_touching_upper: Optional[float] = None
+    notes: list = []
+
+
 class SimulationOut(BaseModel):
     order_reference: str
     patient_name: str
     stages: list[StageOut]
     total_aligners: int = 0
+    # None when the scans cannot place the arches; the viewer then shows a
+    # nominal bite and says so rather than implying a measured one.
+    articulation: Optional[ArticulationOut] = None
+    # Why there is no articulation, when there is none.
+    articulation_note: str = ""
 
 
 class BookingSettingsOut(ORMModel):
+    upi_vpa: str = ""
+    upi_payee_name: str = ""
+    plan_fee: Decimal = Decimal("0")
+    training_fit_fee: Decimal = Decimal("0")
+    default_shipping_fee: Decimal = Decimal("0")
     slot_minutes: int
     visit_duration_minutes: int
     booking_granularity_minutes: int
@@ -608,9 +755,24 @@ class BookingSettingsOut(ORMModel):
     lab_address: str
 
 
+class PhaseSpan(BaseModel):
+    """One phase of a phased dispatch, in treatment steps and per-arch aligners."""
+
+    phase: int
+    from_step: int
+    to_step: int
+    upper_from: Optional[int] = None
+    upper_to: Optional[int] = None
+    lower_from: Optional[int] = None
+    lower_to: Optional[int] = None
+
+
 class FitReviewIn(BaseModel):
     fits: bool
     dispatch_mode: Optional[enums.DispatchMode] = None
+    # How many phases to split the remaining aligners into. Required when the
+    # clinic chooses a phased dispatch.
+    phase_count: Optional[int] = Field(default=None, ge=1)
     issue_notes: str = ""
     # Where this batch should go. A practice can have several clinics, so the
     # delivery address is confirmed at the point of dispatch rather than being
@@ -643,6 +805,10 @@ class OrderSummary(BaseModel):
     order_number: str
     status: enums.OrderStatus
     status_label: str
+    # The Align band, so a list can be read without opening every case.
+    category: Optional[str] = None
+    category_label: str = ""
+    category_confirmed: bool = False
     patient_name: str
     doctor_name: str
     clinic_name: str
@@ -660,6 +826,25 @@ class OrderDetail(OrderSummary):
     # doctor quoting the old number can still be matched to the case.
     enquiry_number: str
     dispatch_mode: Optional[enums.DispatchMode]
+    phase_count: Optional[int] = None
+    # Non-zero once the case has been through a mid-course rescan.
+    refinement_round: int = 0
+    # Which progress views are still missing for the phase just received.
+    progress_missing: list = []
+    progress_round: int = 1
+    # Every charge on the case, and the breakdown behind them.
+    payments: list = []
+    charges: list = []
+    plan_locked: bool = False
+    # Every fit issue raised inside a phase, newest last, and the one still open.
+    phase_issues: list = []
+    open_phase_issue: Optional[str] = None
+    phases_divided: bool = False
+    # Steps the treatment runs (the longer arch), the most phases it can be
+    # split into, and what each phase would carry once that is chosen.
+    aligner_steps: int = 0
+    max_phases: int = 0
+    phase_plan: list = []
     scan_route: Optional[enums.ScanRoute]
     scan_courier_tracking: str
     chief_complaint: str

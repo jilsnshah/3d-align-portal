@@ -8,19 +8,31 @@ from .enums import (
     APPOINTMENT_LABELS,
     LAB_ROLES,
     OrderStatus,
+    DOCTOR_HIDDEN_CATEGORIES,
+    PLAN_GATED_CATEGORIES,
     STAFF_ONLY_CATEGORIES,
     STAFF_UPLOAD_WINDOWS,
     UserRole,
     CATEGORY_FOLDER,
     DOCTOR_ACTION_STATUSES,
     FILE_GROUP,
+    PAYMENT_KIND_LABELS,
+    PAYMENT_STATUS_LABELS,
+    PaymentKind,
+    PaymentStatus,
     REQUIRED_SUBMIT_CATEGORIES,
     SLOT_LABELS,
     STATUS_LABELS,
     FileCategory,
+    category_label,
     slots_for,
 )
+from decimal import Decimal
+
+from sqlalchemy.orm import Session
+
 from .models import Appointment, Order, Technician
+from .services import payments, scheduling
 
 
 def missing_categories(order: Order) -> list[FileCategory]:
@@ -45,6 +57,9 @@ CATEGORY_LABELS = {
     FileCategory.TREATMENT_PLAN: "Treatment plan",
     FileCategory.SIMULATION_MODEL: "Simulation files",
     FileCategory.FIT_ISSUE_PHOTO: "Fit issue photographs",
+    FileCategory.PROGRESS_PHOTO: "Progress photographs",
+    FileCategory.PAYMENT_PROOF: "Payment receipts",
+    FileCategory.PHASE_FIT_PHOTO: "Phase fit issue photographs",
     FileCategory.OTHER: "Other",
 }
 
@@ -105,6 +120,13 @@ STAGE_CATEGORIES = {
     # receive the first one.
     FileCategory.SIMULATION_MODEL: {OrderStatus.IN_PLANNING, OrderStatus.PLAN_SHARED},
     FileCategory.FIT_ISSUE_PHOTO: {OrderStatus.FIT_REVIEW, OrderStatus.FIT_ISSUE},
+    # The clinic needs somewhere to put them the moment a phase lands.
+    FileCategory.PROGRESS_PHOTO: {OrderStatus.DISPATCHING, OrderStatus.PHASE_REVIEW},
+    FileCategory.PHASE_FIT_PHOTO: {
+        OrderStatus.DISPATCHING,
+        OrderStatus.PHASE_REVIEW,
+        OrderStatus.FIT_ISSUE,
+    },
 }
 
 
@@ -138,12 +160,19 @@ def _editability(order: Order, category, viewer_role) -> tuple:
     return True, ""
 
 
-def record_sets(order: Order, viewer_role=None) -> list[schemas.RecordSet]:
+def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schemas.RecordSet]:
     """Every category the case has, rendered as its slots. This is what turns a
     flat file list into 'upper arch present, bite still missing'."""
     sets: list[schemas.RecordSet] = []
 
+    lab_side = viewer_role in LAB_ROLES
     for category in CATEGORY_LABELS:
+        # The clinic sees the simulation, not the files behind it.
+        if not lab_side and category in DOCTOR_HIDDEN_CATEGORIES:
+            continue
+        # And sees nothing of the plan at all until it is paid for.
+        if plan_locked and category in PLAN_GATED_CATEGORIES:
+            continue
         live = [f for f in order.files if f.category == category and not f.is_deleted]
         if not _shows_category(order, category, live):
             continue
@@ -195,12 +224,24 @@ def _file_out(order: Order, f) -> schemas.FileOut:
     return file_out(order, f)
 
 
-def order_summary(order: Order) -> schemas.OrderSummary:
+def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
+    # The aligner count and the confirmed band are plan findings. Before the
+    # plan is paid for, the clinic sees the estimate it already had.
+    locked = (
+        viewer_role is not None
+        and viewer_role not in LAB_ROLES
+        and bool(order.plans)
+        and not payments.plan_unlocked(order)
+    )
+    category = order.quoted_category if locked else order.aligner_category
     return schemas.OrderSummary(
         id=order.id,
         order_number=order.reference,
         status=order.status,
         status_label=STATUS_LABELS[order.status],
+        category=category,
+        category_label=category_label(category) if category else "",
+        category_confirmed=False if locked else order.aligner_category_confirmed,
         patient_name=order.patient.full_name,
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
@@ -212,14 +253,155 @@ def order_summary(order: Order) -> schemas.OrderSummary:
     )
 
 
+def _issue_out(issue) -> schemas.PhaseFitIssueOut:
+    out = schemas.PhaseFitIssueOut.model_validate(issue)
+    out.messages = [
+        schemas.PhaseIssueMessageOut(
+            id=m.id, from_lab=m.from_lab, body=m.body, created_at=m.created_at
+        )
+        for m in issue.messages
+    ]
+    return out
+
+
+def _payment_out(order: Order, row, settings) -> schemas.PaymentOut:
+    if row.kind == PaymentKind.PRODUCTION_PHASE:
+        label = f"Phase {row.phase_number} — production aligners"
+    else:
+        label = PAYMENT_KIND_LABELS[row.kind]
+    return schemas.PaymentOut(
+        id=row.id,
+        kind=row.kind,
+        kind_label=PAYMENT_KIND_LABELS[row.kind],
+        phase_number=row.phase_number or 0,
+        amount=row.amount,
+        shipping_amount=row.shipping_amount,
+        total=row.total,
+        status=row.status,
+        status_label=PAYMENT_STATUS_LABELS[row.status],
+        reference=row.reference,
+        proof_file_id=row.proof_file_id,
+        rejected_reason=row.rejected_reason,
+        submitted_at=row.submitted_at,
+        verified_at=row.verified_at,
+        label=label,
+        upi_link=(
+            ""
+            if row.status == PaymentStatus.VERIFIED
+            else payments.upi_link(
+                settings, row.total, f"{order.reference} {label}", row.id[:12]
+            )
+        ),
+    )
+
+
+def charge_lines(order: Order, settings) -> list:
+    """The money on a case, itemised.
+
+    Written out in full rather than as one total, because the clinic is paying
+    it in pieces and needs to see that the plan fee and the training-fit fee are
+    taken off the quote rather than added on top of it.
+    """
+    plan = order.approved_plan or order.current_plan
+    lines = [
+        schemas.ChargeLine(
+            label="Align category",
+            amount=Decimal("0"),
+            note=category_label(order.aligner_category)
+            if order.aligner_category
+            else "Not set yet",
+        ),
+        schemas.ChargeLine(
+            label="Quoted price",
+            amount=payments.quoted_total(order),
+            note="From the treatment plan" if plan and plan.final_total else "Estimated",
+        ),
+        schemas.ChargeLine(
+            label="Treatment plan fee",
+            amount=-Decimal(settings.plan_fee or 0),
+            note="Paid separately — deducted here, not charged twice",
+        ),
+        schemas.ChargeLine(
+            label="Training fit aligner fee",
+            amount=-Decimal(settings.training_fit_fee or 0),
+            note="Paid separately — deducted here, not charged twice",
+        ),
+        schemas.ChargeLine(
+            label="Production aligners",
+            amount=payments.production_total(order, settings),
+            note=_phase_note(order),
+        ),
+    ]
+    # Delivery is per phase, and a phase that has already been paid keeps the
+    # rate it was paid at. Reporting one figure taken from the first phase
+    # under-reports the case whenever a rate has changed mid-treatment, so the
+    # total is summed from the phases themselves.
+    phases = [p for p in order.payments if p.kind == PaymentKind.PRODUCTION_PHASE]
+    if phases:
+        city = payments.delivery_city(order)
+        # Phase one's delivery is free, so it is not part of the rate spread.
+        charged = [p for p in phases if Decimal(p.shipping_amount or 0) > 0]
+        rates = {Decimal(p.shipping_amount or 0) for p in charged}
+        where = f"To {city}" if city else "Default rate"
+        if not charged:
+            note = "First delivery included"
+        elif len(rates) == 1:
+            note = f"{where} · {len(charged)} of {len(phases)} phases · first delivery free"
+        else:
+            # Spell out the split rather than hiding it behind an average.
+            note = where + " · first delivery free · " + ", ".join(
+                f"phase {p.phase_number} {Decimal(p.shipping_amount or 0):,.2f}"
+                for p in sorted(charged, key=lambda x: x.phase_number)
+            )
+        lines.append(
+            schemas.ChargeLine(
+                label="Delivery",
+                amount=sum((Decimal(p.shipping_amount or 0) for p in phases), Decimal("0")),
+                note=note,
+            )
+        )
+        lines.append(
+            schemas.ChargeLine(
+                label="Total for this case",
+                amount=sum((Decimal(p.total) for p in order.payments), Decimal("0")),
+                note="Every charge, including the two fixed fees",
+            )
+        )
+    return lines
+
+
+def _phase_note(order: Order) -> str:
+    count = payments.phase_count(order)
+    if not count:
+        return "Split once the clinic chooses how it ships"
+    if count == 1:
+        return "One delivery"
+    return f"Split equally across {count} phases"
+
+
 def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
-    base = order_summary(order).model_dump()
+    base = order_summary(order, viewer_role).model_dump()
+    db = Session.object_session(order)
+    settings = scheduling.get_settings(db) if db is not None else None
+    # The clinic sees the plan once the plan fee is settled. The lab always sees
+    # it — they wrote it.
+    plan_locked = (
+        viewer_role not in LAB_ROLES
+        and bool(order.plans)
+        and not payments.plan_unlocked(order)
+    )
     events = [
         schemas.EventOut(
             id=e.id,
             from_status=e.from_status,
             to_status=e.to_status,
-            note=e.note,
+            # The move to PLAN_SHARED spells out the aligner count and the
+            # price, which is the plan itself. Withheld with the rest of it.
+            note=(
+                "Treatment plan ready — unlock it to see the details."
+                if plan_locked and e.to_status == OrderStatus.PLAN_SHARED
+                else e.note
+            ),
             actor_name=_actor_name(e),
             created_at=e.created_at,
         )
@@ -233,6 +415,20 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
         ),
         enquiry_number=order.enquiry_number,
         dispatch_mode=order.dispatch_mode,
+        phase_count=order.phase_count,
+        refinement_round=order.refinement_round,
+        progress_round=order.progress_round,
+        progress_missing=[
+            SLOT_LABELS[s] for s in order.missing_slots(FileCategory.PROGRESS_PHOTO)
+        ],
+        aligner_steps=order.aligner_steps,
+        max_phases=order.max_phases,
+        phase_plan=order.phase_plan,
+        phases_divided=order.phases_divided,
+        phase_issues=[_issue_out(i) for i in order.phase_issues],
+        open_phase_issue=(
+            order.open_phase_issue.id if order.open_phase_issue is not None else None
+        ),
         scan_route=order.scan_route,
         scan_courier_tracking=order.scan_courier_tracking,
         chief_complaint=order.chief_complaint,
@@ -252,15 +448,19 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
         ),
         files=[_file_out(order, f) for f in order.files if not f.is_deleted],
         quotes=[_quote_out(q) for q in order.quotes],
-        plans=[_plan_out(p) for p in order.plans],
+        plans=[] if plan_locked else [_plan_out(p) for p in order.plans],
+        plan_locked=plan_locked,
+        payments=[_payment_out(order, p, settings) for p in order.payments],
+        charges=charge_lines(order, settings),
         shipments=[_shipment_out(order, s) for s in order.shipments],
         appointment=appointment_out(order.appointment) if order.appointment else None,
         invoice=schemas.InvoiceOut.model_validate(order.invoice) if order.invoice else None,
         events=events,
         missing_categories=missing_categories(order),
         submit_blockers=order.submit_blockers,
-        record_sets=record_sets(order, viewer_role),
-        total_aligners=order.total_aligners,
+        record_sets=record_sets(order, viewer_role, plan_locked),
+        # The aligner count is a plan finding, so it is withheld with the plan.
+        total_aligners=0 if plan_locked else order.total_aligners,
         next_phase_from=order.next_phase_range[0],
         next_phase_max=order.next_phase_range[1],
         next_phase_number=order.next_phase_label[0],
@@ -346,10 +546,7 @@ def _plan_out(plan) -> schemas.PlanOut:
 
 def _shipment_out(order: Order, shipment) -> schemas.ShipmentOut:
     out = schemas.ShipmentOut.model_validate(shipment)
-    total = order.total_aligners
-    out.is_final_phase = bool(
-        total and shipment.aligner_range_to and shipment.aligner_range_to >= total
-    )
+    out.is_final_phase = order.is_final_phase(shipment)
     return out
 
 
@@ -359,6 +556,12 @@ def _awaiting_decision(order: Order):
     The last phase is asked about too — a batch that does not fit is a batch
     that does not fit, and completing the case silently would leave no way back.
     """
+    # Only while the case is actually waiting on it. A batch can sit delivered
+    # and unanswered for good reasons — a rescan or a remake moves the case on
+    # and the question stops applying — and asking anyway leaves the clinic
+    # staring at a panel about a phase that is being rebuilt.
+    if order.status != OrderStatus.DISPATCHING:
+        return None
     last = order.last_phase
     if last is not None and last.status.value == "DELIVERED" and last.phase_decision is None:
         return last.id

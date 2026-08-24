@@ -2,23 +2,40 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { PAGE_SIZE, api, formatDate } from "../../api";
+import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
-import { Empty, Loading, StatusPill } from "../../components/ui";
+import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
+
+const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
+  {
+    key: "aligner",
+    label: "Aligner cases",
+    hint: "Cases in planning or production, carrying an AL number.",
+  },
+  {
+    key: "enquiry",
+    label: "Enquiries",
+    hint: "Submitted for assessment, still on an EN reference.",
+  },
+];
 
 export default function DoctorOrders() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [series, setSeries] = useState<CaseSeries>("aligner");
   const orders = useInfiniteQuery({
-    queryKey: ["orders", search],
+    queryKey: ["orders", series, search],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      api.orders(false, { limit: PAGE_SIZE + 1, offset: pageParam as number }, { search }),
+      api.orders(
+        false,
+        { limit: PAGE_SIZE + 1, offset: pageParam as number },
+        { search, series },
+      ),
     getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
-
-  if (orders.isLoading) return <Loading what="cases" />;
+  const active = SERIES.find((s) => s.key === series)!;
 
   const all = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
   const actionable = all.filter((o) => o.needs_doctor_action && o.status !== "CANCELLED");
@@ -32,7 +49,7 @@ export default function DoctorOrders() {
       <div className="page-head">
         <div>
           <h1>Your cases</h1>
-          <p className="sub">Clear aligner cases submitted to 3D Align.</p>
+          <p className="sub">{active.hint}</p>
         </div>
         <div className="row">
           <input
@@ -49,12 +66,31 @@ export default function DoctorOrders() {
         </div>
       </div>
 
-      {all.length === 0 ? (
+      <div className="series-tabs" role="tablist" aria-label="Case series">
+        {SERIES.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            role="tab"
+            aria-selected={series === s.key}
+            className={series === s.key ? "active" : ""}
+            onClick={() => setSeries(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {orders.isLoading ? (
+        <Loading what="cases" />
+      ) : all.length === 0 ? (
         search ? (
           <Empty>No cases match “{search}”.</Empty>
+        ) : series === "enquiry" ? (
+          <Empty>No open enquiries — everything has moved into planning.</Empty>
         ) : (
           <Empty>
-            No cases yet. <Link to="/orders/new">Start your first one.</Link>
+            No aligner cases yet. <Link to="/orders/new">Start your first one.</Link>
           </Empty>
         )
       ) : (
@@ -104,6 +140,7 @@ function Section({
               <tr>
                 <th>Case</th>
                 <th>Patient</th>
+                <th>Align category</th>
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -120,6 +157,12 @@ function Section({
                     )}
                   </td>
                   <td>{order.patient_name}</td>
+                  <td>
+                    <CategoryPill
+                      label={order.category_label}
+                      confirmed={order.category_confirmed}
+                    />
+                  </td>
                   <td>
                     <StatusPill status={order.status} label={order.status_label} />
                   </td>

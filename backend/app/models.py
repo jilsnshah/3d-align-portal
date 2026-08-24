@@ -196,6 +196,9 @@ class Order(Base, TimestampMixin):
     priority: Mapped[enums.Priority] = mapped_column(
         _enum(enums.Priority, "priority"), default=enums.Priority.STANDARD
     )
+    # How many phases the clinic asked the remaining aligners to be split into.
+    # Only meaningful when dispatch_mode is PHASED.
+    phase_count: Mapped[Optional[int]] = mapped_column(Integer)
     dispatch_mode: Mapped[Optional[enums.DispatchMode]] = mapped_column(
         _enum(enums.DispatchMode, "dispatch_mode")
     )
@@ -216,6 +219,16 @@ class Order(Base, TimestampMixin):
     scan_revision: Mapped[int] = mapped_column(Integer, default=1)
     planning_revision: Mapped[int] = mapped_column(Integer, default=1)
     fit_round: Mapped[int] = mapped_column(Integer, default=1)
+    # Which phase's progress photographs are being collected, so each phase
+    # keeps its own set instead of overwriting the last.
+    progress_round: Mapped[int] = mapped_column(Integer, default=1)
+    # How many times this case has been sent back for a scan without the plan
+    # being reopened — a training aligner that did not fit, or a phase that was
+    # not tracking. Non-zero means a scan arriving now is a refinement: it
+    # feeds a new training aligner, it does not restart treatment planning.
+    refinement_round: Mapped[int] = mapped_column(Integer, default=0)
+    # One photograph set per fit issue raised inside a phase.
+    phase_fit_round: Mapped[int] = mapped_column(Integer, default=1)
 
     submitted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     approved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
@@ -236,6 +249,21 @@ class Order(Base, TimestampMixin):
     )
     shipments: Mapped[list[Shipment]] = relationship(
         back_populates="order", cascade="all, delete-orphan", order_by="Shipment.created_at"
+    )
+    phases: Mapped[list["OrderPhase"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderPhase.phase_number",
+    )
+    phase_issues: Mapped[list["PhaseFitIssue"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="PhaseFitIssue.created_at",
+    )
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="(Payment.kind, Payment.phase_number)",
     )
     events: Mapped[list[StatusEvent]] = relationship(
         back_populates="order", cascade="all, delete-orphan", order_by="StatusEvent.created_at"
@@ -275,6 +303,8 @@ class Order(Base, TimestampMixin):
             enums.FileGroup.SCAN: self.scan_revision,
             enums.FileGroup.PLANNING: self.planning_revision,
             enums.FileGroup.FIT: self.fit_round,
+            enums.FileGroup.PROGRESS: self.progress_round,
+            enums.FileGroup.PHASE_FIT: self.phase_fit_round,
         }[group]
 
     def bump_revision(self, group: "enums.FileGroup") -> int:
@@ -284,6 +314,10 @@ class Order(Base, TimestampMixin):
             self.scan_revision += 1
         elif group == enums.FileGroup.PLANNING:
             self.planning_revision += 1
+        elif group == enums.FileGroup.PROGRESS:
+            self.progress_round += 1
+        elif group == enums.FileGroup.PHASE_FIT:
+            self.phase_fit_round += 1
         else:
             self.fit_round += 1
         return self.revision_for(group)
@@ -365,7 +399,16 @@ class Order(Base, TimestampMixin):
         accepted one ended, so the lab never picks a start. A remake repeats the
         same span rather than advancing.
         """
-        total = self.total_aligners
+        # Once divided, the next batch is simply the earliest unfinished phase.
+        # Reading it off the last shipment cannot survive a rescan, which has to
+        # resume mid-series without re-delivering what is already done.
+        if self.phases:
+            phase = self.active_phase
+            if phase is None:
+                return self.aligner_steps + 1, self.aligner_steps
+            return phase.from_step, phase.to_step
+
+        total = self.aligner_steps
         last = self.last_phase
         if last is None:
             return 1, total
@@ -376,6 +419,12 @@ class Order(Base, TimestampMixin):
     @property
     def next_phase_label(self) -> tuple:
         """(phase number, round) for the batch the lab would ship next."""
+        if self.phases:
+            phase = self.active_phase
+            if phase is None:
+                return len(self.phases), self.phases[-1].round
+            return phase.phase_number, phase.round
+
         last = self.last_phase
         if last is None:
             return 1, 1
@@ -383,11 +432,38 @@ class Order(Base, TimestampMixin):
             return (last.phase_number or 1), (last.phase_round or 1) + 1
         return (last.phase_number or 0) + 1, 1
 
+    def is_final_phase(self, shipment) -> bool:
+        """Whether a batch carries the last of the series. Measured in steps —
+        the two arches advance together, so the series ends at the last step,
+        not at their aligner counts added together."""
+        total = self.aligner_steps
+        return bool(
+            total and shipment.aligner_range_to and shipment.aligner_range_to >= total
+        )
+
     @property
     def phase_blocker(self) -> Optional[str]:
         """Why the next phase cannot ship yet, or None when it can."""
         if self.dispatch_mode != enums.DispatchMode.PHASED:
             return None
+
+        if self.phases:
+            issue = self.open_phase_issue
+            if issue is not None:
+                return (
+                    f"Phase {issue.phase_number} has an unanswered fit issue on "
+                    f"{issue.arch.lower()} aligner {issue.aligner_number}."
+                )
+            phase = self.active_phase
+            if phase is None:
+                return "Every phase has been delivered and completed."
+            if phase.status == enums.PhaseStatus.ACTIVE:
+                return (
+                    f"Phase {phase.phase_number} is with the clinic. It has to be "
+                    f"received and reviewed before the next batch is made."
+                )
+            return None
+
         last = self.last_phase
         if last is None:
             return None
@@ -398,7 +474,7 @@ class Order(Base, TimestampMixin):
                 f"The clinic has not said whether to continue after phase {last.phase_number}."
             )
         start, _ = self.next_phase_range
-        if self.total_aligners and start > self.total_aligners:
+        if self.aligner_steps and start > self.aligner_steps:
             return "Every aligner in the plan has already been dispatched."
         return None
 
@@ -406,6 +482,114 @@ class Order(Base, TimestampMixin):
     def total_aligners(self) -> int:
         plan = self.approved_plan or self.current_plan
         return (plan.aligners_upper + plan.aligners_lower) if plan else 0
+
+    @property
+    def aligner_steps(self) -> int:
+        """How many steps the treatment runs.
+
+        The arches advance together — step 7 means upper 7 with lower 7 — so the
+        case is as long as its longer arch, not as long as both added together.
+        The shorter arch simply finishes early and the patient carries on in the
+        last aligner of that arch.
+        """
+        plan = self.approved_plan or self.current_plan
+        return max(plan.aligners_upper, plan.aligners_lower) if plan else 0
+
+    @property
+    def max_phases(self) -> int:
+        """The most phases this case can be split into.
+
+        Five aligners is the working size of a phase, and the last one takes
+        whatever is left over — so fourteen steps go out as 5, 5 and 4 rather
+        than being capped at two phases of seven. That means rounding up.
+        """
+        steps = self.aligner_steps
+        if not steps:
+            return 0
+        per = enums.MIN_STEPS_PER_PHASE
+        return max(1, -(-steps // per))  # ceiling division
+
+    @property
+    def active_phase(self):
+        """The earliest phase that is not finished — where delivery resumes.
+
+        This is the whole point of holding phase state: after a mid-course
+        rescan the case picks up here, and everything already completed stays
+        completed.
+        """
+        return next(
+            (p for p in self.phases if p.status != enums.PhaseStatus.COMPLETED), None
+        )
+
+    @property
+    def open_phase_issue(self):
+        return next((i for i in self.phase_issues if i.status == "OPEN"), None)
+
+    @property
+    def phases_divided(self) -> bool:
+        return bool(self.phases)
+
+    @property
+    def phase_plan(self) -> list:
+        """Which aligners each phase carries, once the clinic has chosen how
+        many phases it wants.
+
+        Phases are filled to the same size and the last one carries the
+        remainder, so fourteen steps in three phases go 5, 5, 4. Rounding the
+        size up rather than down is what keeps the short batch at the end,
+        where the patient is finishing, instead of at the start.
+        """
+        # Once the case has been divided the spans are a matter of record, not
+        # of arithmetic — recomputing them could move a boundary under a case
+        # that is already part delivered.
+        if self.phases:
+            return [
+                {
+                    "phase": p.phase_number,
+                    "from_step": p.from_step,
+                    "to_step": p.to_step,
+                    "upper_from": p.upper_from,
+                    "upper_to": p.upper_to,
+                    "lower_from": p.lower_from,
+                    "lower_to": p.lower_to,
+                    "status": p.status,
+                    "status_label": enums.PHASE_STATUS_LABELS[p.status],
+                    "round": p.round,
+                }
+                for p in self.phases
+            ]
+        count = self.phase_count
+        steps = self.aligner_steps
+        if not count or not steps:
+            return []
+        count = max(1, min(count, self.max_phases))
+        plan = self.approved_plan or self.current_plan
+        upper = plan.aligners_upper if plan else 0
+        lower = plan.aligners_lower if plan else 0
+
+        per = max(1, -(-steps // count))  # ceiling, so the short batch is last
+        out = []
+        start = 1
+        for phase in range(1, count + 1):
+            # The last phase takes whatever is left over.
+            end = steps if phase == count else min(steps, start + per - 1)
+            out.append(
+                {
+                    "phase": phase,
+                    "from_step": start,
+                    "to_step": end,
+                    # An arch that has already run out contributes nothing more.
+                    "upper_from": start if start <= upper else None,
+                    "upper_to": min(end, upper) if start <= upper else None,
+                    "lower_from": start if start <= lower else None,
+                    "lower_to": min(end, lower) if start <= lower else None,
+                    "status": enums.PhaseStatus.NOT_STARTED,
+                    "status_label": enums.PHASE_STATUS_LABELS[enums.PhaseStatus.NOT_STARTED],
+                    "round": 1,
+                }
+            )
+            start = end + 1
+        return out
 
     @property
     def approved_plan(self) -> Optional["TreatmentPlan"]:
@@ -435,6 +619,29 @@ class Order(Base, TimestampMixin):
     def current_plan(self) -> Optional[TreatmentPlan]:
         active = [p for p in self.plans if p.status != enums.PlanStatus.SUPERSEDED]
         return active[-1] if active else None
+
+    @property
+    def aligner_category(self) -> Optional[str]:
+        """The Align band this case sits in. The plan's confirmed band wins once
+        it exists; before that it is the estimate the quote was priced off."""
+        plan = self.current_plan
+        if plan is not None and plan.final_category:
+            return plan.final_category
+        quote = self.current_quote
+        return quote.category if quote is not None else None
+
+    @property
+    def quoted_category(self) -> Optional[str]:
+        """The band the estimate was priced at, ignoring anything the treatment
+        plan later confirmed. What the clinic saw before the plan existed."""
+        quote = self.current_quote
+        return quote.category if quote is not None else None
+
+    @property
+    def aligner_category_confirmed(self) -> bool:
+        """False while the band is still the estimate read off photographs."""
+        plan = self.current_plan
+        return plan is not None and bool(plan.final_category)
 
 
 class OrderFile(Base, TimestampMixin):
@@ -566,7 +773,13 @@ class TreatmentPlan(Base, TimestampMixin):
     # quote, is what the case is finally invoiced at.
     final_category: Mapped[Optional[str]] = mapped_column(String(40))
     final_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    # Goodwill or scheme discount taken off the list price. Held separately so
+    # the clinic and the invoice both show what was given away, rather than a
+    # quietly reduced price with no explanation.
+    final_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    final_discount_reason: Mapped[str] = mapped_column(String(160), default="")
     final_tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    # final_price - final_discount + final_tax
     final_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
 
     ipr_required: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -689,6 +902,175 @@ class BookingSettings(Base, TimestampMixin):
     # technician drives out, does the scan and drives back, and nothing else
     # fits around it.
     day_visit_over_km: Mapped[float] = mapped_column(Float, default=45.0)
+
+    # ---- Payments -------------------------------------------------------
+    # The lab collects by UPI. The clinic taps "Pay now", their app opens with
+    # the payee and amount already filled in, and they send back a screenshot.
+    upi_vpa: Mapped[str] = mapped_column(String(120), default="")
+    upi_payee_name: Mapped[str] = mapped_column(String(120), default="3D Align")
+    # Charged once per case, before the treatment plan is released.
+    plan_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("2000"))
+    # Charged once per case, before the training aligner ships. A refit does not
+    # charge it again.
+    training_fit_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("1500"))
+    # Used when the delivery city has no rate of its own.
+    default_shipping_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
+
+class ShippingRate(Base, TimestampMixin):
+    """What delivery costs to a given city. Held in the database so the lab can
+    change a rate without a deploy, the same way aligner prices are."""
+
+    __tablename__ = "shipping_rates"
+
+    city: Mapped[str] = mapped_column(String(120), primary_key=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class OrderPhase(Base, TimestampMixin):
+    """One phase of a phased dispatch, fixed at the moment the clinic chooses.
+
+    The division is permanent. Spans were previously derived from the phase
+    count on every read, which meant anything that touched the plan could shift
+    the boundaries underneath a case that was already part-way delivered. They
+    are written down once instead, and each phase carries its own completion
+    state so a mid-course rescan can resume at the earliest unfinished one
+    without disturbing the phases already behind it.
+    """
+
+    __tablename__ = "order_phases"
+    __table_args__ = (
+        UniqueConstraint("order_id", "phase_number", name="uq_phase_order_number"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    phase_number: Mapped[int] = mapped_column(Integer)
+
+    # Treatment steps this phase covers, and what that means per arch. An arch
+    # that has already finished contributes nothing more, so its bounds are null.
+    from_step: Mapped[int] = mapped_column(Integer)
+    to_step: Mapped[int] = mapped_column(Integer)
+    upper_from: Mapped[Optional[int]] = mapped_column(Integer)
+    upper_to: Mapped[Optional[int]] = mapped_column(Integer)
+    lower_from: Mapped[Optional[int]] = mapped_column(Integer)
+    lower_to: Mapped[Optional[int]] = mapped_column(Integer)
+
+    status: Mapped[str] = mapped_column(String(20), default=enums.PhaseStatus.NOT_STARTED)
+    # Advances when the batch is remade — phase 1 round 2, and so on.
+    round: Mapped[int] = mapped_column(Integer, default=1)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+    order: Mapped["Order"] = relationship(back_populates="phases")
+
+
+class PhaseFitIssue(Base, TimestampMixin):
+    """An aligner inside a phase that does not fit.
+
+    Distinct from the training-aligner fit review: that one asks whether the
+    case can start at all, this one interrupts a phase already in the patient's
+    mouth and hands the phase back to the lab to answer.
+    """
+
+    __tablename__ = "phase_fit_issues"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    phase_number: Mapped[int] = mapped_column(Integer)
+    phase_round: Mapped[int] = mapped_column(Integer, default=1)
+
+    arch: Mapped[str] = mapped_column(String(10))
+    aligner_number: Mapped[int] = mapped_column(Integer)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    # Which revision of the phase-fit photograph set belongs to this report.
+    photo_revision: Mapped[int] = mapped_column(Integer, default=1)
+
+    status: Mapped[str] = mapped_column(String(20), default="OPEN")
+    # Only set once the issue actually ends. Advice from the lab does not end
+    # it — the clinic has to say the aligner is wearing properly now.
+    resolution: Mapped[Optional[str]] = mapped_column(String(20))
+    # Whose turn it is while it is open: the lab has it after a report or a
+    # reply from the clinic, the clinic has it after the lab sends advice.
+    awaiting: Mapped[str] = mapped_column(String(10), default=enums.AWAITING_LAB)
+    # The most recent thing the lab said, kept for records written before the
+    # exchange became a thread.
+    lab_comments: Mapped[str] = mapped_column(Text, default="")
+
+    reported_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    resolved_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+    order: Mapped["Order"] = relationship(back_populates="phase_issues")
+    messages: Mapped[list["PhaseIssueMessage"]] = relationship(
+        back_populates="issue",
+        cascade="all, delete-orphan",
+        order_by="PhaseIssueMessage.created_at",
+    )
+
+
+class PhaseIssueMessage(Base, TimestampMixin):
+    """One turn in the exchange over a fit issue.
+
+    Advice rarely settles a misfitting aligner first time, so this is a
+    conversation rather than a single answer: the lab suggests something, the
+    clinic tries it and says what happened, and it goes back and forth until
+    either the clinic is satisfied or the lab decides to remake or rescan.
+    """
+
+    __tablename__ = "phase_issue_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issue_id: Mapped[str] = mapped_column(ForeignKey("phase_fit_issues.id"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    from_lab: Mapped[bool] = mapped_column(Boolean, default=False)
+    body: Mapped[str] = mapped_column(Text, default="")
+
+    issue: Mapped["PhaseFitIssue"] = relationship(back_populates="messages")
+
+
+class Payment(Base, TimestampMixin):
+    """One charge on a case.
+
+    There is at most one row per (case, kind, phase), which is what makes the
+    plan fee and the training-fit fee one-time: a revision, a rescan or a
+    refabricated training aligner reuses the row that is already there rather
+    than raising a second charge.
+    """
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint("order_id", "kind", "phase_number", name="uq_payment_order_kind_phase"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    # Only set for production phases. Kept as 0 rather than NULL for the rest,
+    # because SQLite treats NULLs as distinct and the uniqueness above would
+    # stop constraining anything.
+    phase_number: Mapped[int] = mapped_column(Integer, default=0)
+
+    # What the aligners themselves cost for this phase, and delivery on top.
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    shipping_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
+    status: Mapped[str] = mapped_column(String(20), default=enums.PaymentStatus.DUE)
+    # The clinic's UPI reference, and the screenshot they sent.
+    reference: Mapped[str] = mapped_column(String(80), default="")
+    proof_file_id: Mapped[Optional[str]] = mapped_column(String(36))
+    note: Mapped[str] = mapped_column(Text, default="")
+    rejected_reason: Mapped[str] = mapped_column(Text, default="")
+
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    verified_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    verified_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+
+    order: Mapped["Order"] = relationship(back_populates="payments")
+
+    @property
+    def total(self) -> Decimal:
+        return (self.amount or Decimal("0")) + (self.shipping_amount or Decimal("0"))
 
 
 class ReassignmentRequest(Base, TimestampMixin):

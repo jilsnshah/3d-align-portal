@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..config import settings
 from pathlib import Path
-from ..services import meshes, simulation
+from ..services import articulation, meshes, simulation
+from ..services import payments as payment_service
 from ..db import get_db
 from ..deps import current_user
 from ..enums import (
@@ -24,6 +25,8 @@ from ..enums import (
     CATEGORY_FOLDER,
     FILE_GROUP,
     FileGroup,
+    DOCTOR_HIDDEN_CATEGORIES,
+    PLAN_GATED_CATEGORIES,
     STAFF_ONLY_CATEGORIES,
     STAFF_UPLOAD_WINDOWS,
     SINGLE_FILE_CATEGORIES,
@@ -50,6 +53,15 @@ DOCTOR_UPLOAD_WINDOWS: dict[FileCategory, set[OrderStatus]] = {
     FileCategory.CBCT: {OrderStatus.DRAFT, OrderStatus.RECORDS_REQUESTED},
     FileCategory.INTRAORAL_SCAN: {OrderStatus.AWAITING_SCAN},
     FileCategory.FIT_ISSUE_PHOTO: {OrderStatus.FIT_REVIEW, OrderStatus.FIT_ISSUE},
+    # Sent after a phase arrives, which is while the case is still dispatching.
+    # Left open during the review so a missed view can still be added.
+    FileCategory.PROGRESS_PHOTO: {OrderStatus.DISPATCHING, OrderStatus.PHASE_REVIEW},
+    # The six views that go with a fit issue raised inside a phase.
+    FileCategory.PHASE_FIT_PHOTO: {
+        OrderStatus.DISPATCHING,
+        OrderStatus.PHASE_REVIEW,
+        OrderStatus.FIT_ISSUE,
+    },
     FileCategory.OTHER: {OrderStatus.DRAFT, OrderStatus.RECORDS_REQUESTED},
 }
 
@@ -250,6 +262,22 @@ def download_file(
     record = db.get(OrderFile, file_id)
     if not record or record.order_id != order.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    # Hiding these from the file list is not enough on its own — the download
+    # is the thing that actually hands the geometry over.
+    if user.role not in LAB_ROLES and record.category in DOCTOR_HIDDEN_CATEGORIES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found.")
+    # Hiding the plan from the file list is not enough on its own — the
+    # download is what actually hands it over.
+    if (
+        user.role not in LAB_ROLES
+        and record.category in PLAN_GATED_CATEGORIES
+        and order.plans
+        and not payment_service.plan_unlocked(order)
+    ):
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            "The treatment plan fee has not been paid yet.",
+        )
 
     disposition = "inline" if inline else "attachment"
     stream = get_storage().open(record.storage_ref)
@@ -365,6 +393,75 @@ def purge_now(
 # --------------------------------------------------------------------------
 
 
+def _assert_plan_unlocked(order, user) -> None:
+    """The 3D simulation is part of the treatment plan, so it is behind the same
+    fee. The lab always sees it — they made it."""
+    if user.role in LAB_ROLES:
+        return
+    if order.plans and not payment_service.plan_unlocked(order):
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            "The treatment plan fee has not been paid yet.",
+        )
+
+
+def _articulation_for(order, stages):
+    """Where the staged arches sit in the patient's own bite, and why not when
+    there is no answer. The viewer falls back to a nominal bite when this is
+    None, and says so rather than implying a measured one.
+
+    Returns (articulation, reason-it-failed).
+    """
+    scans = {}
+    for f in order.files:
+        if f.is_deleted or f.category != FileCategory.INTRAORAL_SCAN or not f.slot:
+            continue
+        keep = scans.get(f.slot)
+        if keep is None or f.revision >= keep.revision:
+            scans[f.slot] = f
+    upper_scan = scans.get(Slot.UPPER_ARCH)
+    lower_scan = scans.get(Slot.LOWER_ARCH)
+    bite_scan = scans.get(Slot.BITE)
+    if upper_scan is None or lower_scan is None:
+        return None, "The case does not have both arch scans on file."
+
+    first_upper = next((s.upper for s in stages if s.upper), None)
+    first_lower = next((s.lower for s in stages if s.lower), None)
+    if first_upper is None or first_lower is None:
+        return None, "The case does not have staged models for both arches."
+    by_id = {f.id: f for f in order.files}
+    stage_upper = by_id.get(first_upper.file_id)
+    stage_lower = by_id.get(first_lower.file_id)
+    if stage_upper is None or stage_lower is None:
+        return None, "The staged models are missing from storage."
+
+    storage = get_storage()
+
+    def load():
+        return (
+            storage.open(upper_scan.storage_ref).read(),
+            storage.open(lower_scan.storage_ref).read(),
+            storage.open(bite_scan.storage_ref).read() if bite_scan else None,
+            storage.open(stage_upper.storage_ref).read(),
+            storage.open(stage_lower.storage_ref).read(),
+        )
+
+    key = [
+        upper_scan.id,
+        lower_scan.id,
+        bite_scan.id if bite_scan else "-",
+        stage_upper.id,
+        stage_lower.id,
+    ]
+    root = Path(settings.storage_local_root)
+    result = articulation.solve_cached(root, key, load)
+    if result is None:
+        # Say why rather than falling back silently: "no bite registration" and
+        # "those scans are not this patient" call for different corrections.
+        return None, articulation.failure_reason(root, key)
+    return schemas.ArticulationOut(**result.__dict__), ""
+
+
 @router.get("/simulation", response_model=schemas.SimulationOut)
 def simulation_manifest(
     order_id: str,
@@ -373,11 +470,15 @@ def simulation_manifest(
 ):
     """The timeline the viewer draws: which steps exist and which meshes to fetch."""
     order = _visible_order(order_id, db, user)
+    _assert_plan_unlocked(order, user)
     stages = simulation.stages_for(order)
+    articulated, articulation_note = _articulation_for(order, stages)
     return schemas.SimulationOut(
         order_reference=order.reference,
         patient_name=order.patient.full_name if order.patient else "",
         total_aligners=order.total_aligners or 0,
+        articulation=articulated,
+        articulation_note=articulation_note,
         stages=[
             schemas.StageOut(
                 step=stage.step,
@@ -403,6 +504,7 @@ def simulation_mesh(
     about a third of that, cached so the conversion happens once per file.
     """
     order = _visible_order(order_id, db, user)
+    _assert_plan_unlocked(order, user)
     record = next((f for f in order.files if f.id == file_id and not f.is_deleted), None)
     if record is None or record.category != FileCategory.SIMULATION_MODEL:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Model not found.")

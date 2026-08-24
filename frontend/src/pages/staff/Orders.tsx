@@ -2,9 +2,9 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { PAGE_SIZE, api, formatDate } from "../../api";
+import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
-import { Empty, Loading, StatusPill } from "../../components/ui";
+import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
 
 const STATUSES = [
   "SUBMITTED",
@@ -25,30 +25,73 @@ const STATUSES = [
   "CANCELLED",
 ];
 
+// An enquiry has not reached planning, so it can only be in the early
+// statuses. Splitting the list means the status filter should split too.
+const ENQUIRY_STATUSES = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "RECORDS_REQUESTED",
+  "QUOTED",
+  "AWAITING_SCAN",
+  "SCAN_SUBMITTED",
+  "CANCELLED",
+];
+
+const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
+  {
+    key: "aligner",
+    label: "Aligner series",
+    hint: "AL numbers — cases in planning or production.",
+  },
+  {
+    key: "enquiry",
+    label: "Enquiries",
+    hint: "EN numbers — not yet through planning, no AL number spent.",
+  },
+];
+
 export default function StaffOrders() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "";
+  const series: CaseSeries = params.get("series") === "enquiry" ? "enquiry" : "aligner";
   const [search, setSearch] = useState("");
 
+  const statusOptions = series === "enquiry" ? ENQUIRY_STATUSES : STATUSES;
+
+  function switchSeries(next: CaseSeries) {
+    // A status that only exists on the other side would show an empty table
+    // and look like a bug, so it is dropped on the way across.
+    const keep =
+      status && (next === "enquiry" ? ENQUIRY_STATUSES : STATUSES).includes(status)
+        ? status
+        : "";
+    const p: Record<string, string> = { series: next };
+    if (keep) p.status = keep;
+    setParams(p);
+  }
+
   const orders = useInfiniteQuery({
-    queryKey: ["staff-orders", status, search],
+    queryKey: ["staff-orders", series, status, search],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api.staffOrders(
-        { status: status || undefined, search: search || undefined },
+        { series, status: status || undefined, search: search || undefined },
         { limit: PAGE_SIZE + 1, offset: pageParam as number },
       ),
     getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
   const rows = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
+  const active = SERIES.find((s) => s.key === series)!;
 
   return (
     <main className="page">
       <div className="page-head">
         <div>
-          <h1>All cases</h1>
-          <p className="sub">{rows.length} case(s) shown.</p>
+          <h1>{active.label}</h1>
+          <p className="sub">
+            {active.hint} {rows.length} shown.
+          </p>
         </div>
         <div className="row">
           <input
@@ -65,7 +108,7 @@ export default function StaffOrders() {
             }}
           >
             <option value="">Every status</option>
-            {STATUSES.map((s) => (
+            {statusOptions.map((s) => (
               <option key={s} value={s}>
                 {s.replace(/_/g, " ").toLowerCase()}
               </option>
@@ -74,10 +117,29 @@ export default function StaffOrders() {
         </div>
       </div>
 
+      <div className="series-tabs" role="tablist" aria-label="Case series">
+        {SERIES.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            role="tab"
+            aria-selected={series === s.key}
+            className={series === s.key ? "active" : ""}
+            onClick={() => switchSeries(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {orders.isLoading ? (
         <Loading what="cases" />
       ) : rows.length === 0 ? (
-        <Empty>No cases match.</Empty>
+        <Empty>
+          {series === "enquiry"
+            ? "No enquiries match."
+            : "No cases in the aligner series match."}
+        </Empty>
       ) : (
         <>
         <div className="table-wrap">
@@ -87,6 +149,7 @@ export default function StaffOrders() {
                 <th>Case</th>
                 <th>Patient</th>
                 <th>Doctor</th>
+                <th>Align category</th>
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -110,6 +173,12 @@ export default function StaffOrders() {
                   <td>
                     {order.doctor_name}
                     {order.clinic_name && <div className="dim">{order.clinic_name}</div>}
+                  </td>
+                  <td>
+                    <CategoryPill
+                      label={order.category_label}
+                      confirmed={order.category_confirmed}
+                    />
                   </td>
                   <td>
                     <StatusPill status={order.status} label={order.status_label} />

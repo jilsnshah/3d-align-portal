@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { api, formatDate, formatMoney, formatRange } from "../../api";
 import type { OrderDetail as Order } from "../../api";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
+import PaymentReview from "../../components/PaymentReview";
+import PhaseTracker from "../../components/PhaseTracker";
 import {
   ActionPanel,
   CaseSummary,
@@ -143,6 +145,8 @@ export default function StaffOrderDetail() {
         </div>
 
         <div className="stack">
+          <PhaseTracker order={data} />
+          <PaymentReview order={data} />
           <SimulationCard order={data} />
           <CaseSummary order={data} />
           <Timeline order={data} />
@@ -209,6 +213,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     aligners_upper: "",
     aligners_lower: "",
     final_price: "",
+    final_discount: "",
+    final_discount_reason: "",
     final_tax: "",
     ipr_required: false,
     attachments_required: false,
@@ -267,11 +273,23 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         aligners_upper: Number(plan.aligners_upper || 0),
         aligners_lower: Number(plan.aligners_lower || 0),
         final_price: plan.final_price || "0",
+        final_discount: plan.final_discount || "0",
+        final_discount_reason: plan.final_discount_reason,
         final_tax: plan.final_tax || "0",
         ipr_required: plan.ipr_required,
         attachments_required: plan.attachments_required,
         summary: plan.summary,
       }),
+    onSuccess: onDone,
+  });
+  const phaseIssue = order.phase_issues.find((i) => i.status === "OPEN");
+  const resolveIssue = useMutation({
+    mutationFn: (resolution: "COMMENTS" | "REMAKE" | "RESCAN") =>
+      api.resolvePhaseFitIssue(order.id, resolution, note),
+    onSuccess: onDone,
+  });
+  const reviewPhase = useMutation({
+    mutationFn: (outcome: "CONTINUE" | "RESCAN") => api.reviewPhase(order.id, outcome, note),
     onSuccess: onDone,
   });
   const resolveFit = useMutation({
@@ -323,7 +341,30 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       planTotalAligners >= p.range_from &&
       (p.range_to === null ? true : planTotalAligners <= p.range_to),
   );
-  const planTotal = (Number(plan.final_price) || 0) + (Number(plan.final_tax) || 0);
+  // The batch this phase should carry, as the clinic chose it. When it is
+  // known the lab confirms a filled-in span instead of deriving one per batch.
+  const plannedPhase = useMemo(
+    () => (order.phase_plan ?? []).find((p) => p.phase === order.next_phase_number) ?? null,
+    [order.phase_plan, order.next_phase_number],
+  );
+
+  // Fill the span in from the clinic's choice, so the usual case is a
+  // confirmation rather than a calculation. Still editable — a remake or a
+  // short final batch sometimes has to differ.
+  useEffect(() => {
+    if (plannedPhase) {
+      setShipment((current) =>
+        current.aligner_range_to
+          ? current
+          : { ...current, aligner_range_to: String(plannedPhase.to_step) },
+      );
+    }
+  }, [plannedPhase]);
+
+  const planDiscount = Number(plan.final_discount) || 0;
+  const planNet = Math.max(0, (Number(plan.final_price) || 0) - planDiscount);
+  const planTotal = planNet + (Number(plan.final_tax) || 0);
+  const discountTooBig = planDiscount > (Number(plan.final_price) || 0);
   const acceptedQuote = order.quotes.find((q) => q.status === "ACCEPTED");
   const quotedTotal = acceptedQuote ? Number(acceptedQuote.total) : null;
 
@@ -596,9 +637,9 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             </Field>
           </div>
 
-          <div className="card" style={{ background: "var(--paper)" }}>
+          <div className="card price-card">
             <h4 style={{ marginBottom: 8 }}>Final price</h4>
-            <p className="dim" style={{ marginBottom: 10 }}>
+            <p className="price-callout">
               {planTotalAligners > 0
                 ? `${planTotalAligners} aligner(s) in total.`
                 : "Enter the aligner counts above."}
@@ -606,7 +647,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               {" "}This replaces the expected quote once the plan is shared.
             </p>
             <div className="grid-2">
-              <Field label="Final price">
+              <Field label="Price before discount">
                 <input
                   type="number"
                   min={0}
@@ -615,6 +656,59 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
                   onChange={(e) => setPlan({ ...plan, final_price: e.target.value })}
                 />
               </Field>
+              <Field label="Discount">
+                <input
+                  type="number"
+                  min={0}
+                  value={plan.final_discount}
+                  placeholder="0"
+                  onChange={(e) => setPlan({ ...plan, final_discount: e.target.value })}
+                />
+              </Field>
+            </div>
+            {planDiscount > 0 && (
+              <div className="row" style={{ marginTop: -2, marginBottom: 8 }}>
+                {[5, 10, 15].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    className="btn-link"
+                    onClick={() =>
+                      setPlan({
+                        ...plan,
+                        final_discount: String(
+                          Math.round(((Number(plan.final_price) || 0) * pct) / 100),
+                        ),
+                      })
+                    }
+                  >
+                    {pct}%
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setPlan({ ...plan, final_discount: "", final_discount_reason: "" })}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+            {planDiscount > 0 && (
+              <Field label="Reason for the discount (the clinic sees this)">
+                <input
+                  type="text"
+                  maxLength={160}
+                  placeholder="Referral scheme, goodwill on a redo, camp rate…"
+                  value={plan.final_discount_reason}
+                  onChange={(e) => setPlan({ ...plan, final_discount_reason: e.target.value })}
+                />
+              </Field>
+            )}
+            {discountTooBig && (
+              <Banner tone="danger">The discount cannot be more than the price before discount.</Banner>
+            )}
+            <div className="grid-2">
               <Field label="Tax">
                 <input
                   type="number"
@@ -641,6 +735,14 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
                   Use {formatMoney(suggested.price_max)}
                 </button>
               </div>
+            )}
+            {planDiscount > 0 && !discountTooBig && (
+              <p className="dim" style={{ marginTop: 10, marginBottom: 0 }}>
+                <span className="num">{formatMoney(plan.final_price || 0)}</span> less{" "}
+                <span className="num">{formatMoney(planDiscount)}</span> discount ={" "}
+                <span className="num">{formatMoney(planNet)}</span>
+                {Number(plan.final_tax) > 0 && <> + {formatMoney(plan.final_tax)} tax</>}
+              </p>
             )}
             <p className="num" style={{ fontSize: "1.2rem", fontWeight: 680, marginTop: 10 }}>
               {formatMoney(planTotal)}
@@ -681,7 +783,12 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
           <button
             type="button"
             className="btn-primary"
-            disabled={sharePlan.isPending || planTotalAligners === 0 || !Number(plan.final_price)}
+            disabled={
+              sharePlan.isPending ||
+              planTotalAligners === 0 ||
+              !Number(plan.final_price) ||
+              discountTooBig
+            }
             onClick={() => sharePlan.mutate()}
           >
             Share plan with the doctor
@@ -690,6 +797,73 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       );
 
     case "FIT_ISSUE":
+      // Two different problems land on this status. A fit issue raised inside a
+      // delivered phase is about one aligner in a batch the patient is already
+      // wearing; the training-aligner one is about whether the case can start
+      // at all. They have different answers, so the panel picks.
+      if (phaseIssue) {
+        return (
+          <ActionPanel
+            title={`Fit issue — phase ${phaseIssue.phase_number}`}
+            why={`The clinic reports that ${phaseIssue.arch.toLowerCase()} aligner ${phaseIssue.aligner_number} does not fit. Nothing further is made until this is answered.`}
+          >
+            {phaseIssue.notes && <Banner tone="warn">{phaseIssue.notes}</Banner>}
+            {phaseIssue.messages.length > 0 && (
+              <div className="stack-sm" style={{ marginBottom: 10 }}>
+                {phaseIssue.messages.map((m) => (
+                  <div key={m.id} className={m.from_lab ? "notif" : "notif unread"}>
+                    <div className="t">{m.from_lab ? "3D Align" : "The clinic"}</div>
+                    <div className="b">{m.body}</div>
+                    <div className="dim">{formatDate(m.created_at)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="dim">
+              The six views are in <b>Phase fit issue photographs</b> below. Instructions
+              change nothing that has been made and do not close the issue — the clinic
+              tries them and says whether they worked, and only they can close it. A
+              remake replaces the same aligners as a new round of this phase; a rescan
+              rebuilds what is left from a fresh scan, with a training aligner first, and
+              picks up again at this phase. Both of those close the issue outright.
+            </p>
+            <Field label="Comments for the clinic (required to send instructions)">
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="What the clinic should do, or why the phase is being remade."
+              />
+            </Field>
+            <ErrorText error={resolveIssue.error} />
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={resolveIssue.isPending || !note.trim()}
+                onClick={() => resolveIssue.mutate("COMMENTS")}
+              >
+                Send advice
+              </button>
+              <button
+                type="button"
+                className="btn-dark"
+                disabled={resolveIssue.isPending}
+                onClick={() => resolveIssue.mutate("REMAKE")}
+              >
+                Remake phase {phaseIssue.phase_number}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={resolveIssue.isPending}
+                onClick={() => resolveIssue.mutate("RESCAN")}
+              >
+                Ask for a new scan
+              </button>
+            </div>
+          </ActionPanel>
+        );
+      }
       return (
         <ActionPanel
           title="Fit issue reported"
@@ -765,6 +939,48 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         </ActionPanel>
       );
 
+    case "PHASE_REVIEW":
+      return (
+        <ActionPanel
+          title="Review the progress photographs"
+          why="The clinic has sent six views of the phase it just finished — upper, lower and frontal, with the aligners in and out. Compare them against the step the plan expected before committing the next batch."
+        >
+          <p className="dim">
+            Open the <b>Progress photographs</b> section below to see them. If the teeth are
+            tracking, the next phase goes to the bench. If they are not, the case needs a fresh
+            scan — the treatment plan is not reopened; the remaining aligners are simply rebuilt
+            against where the teeth actually are, and a training aligner confirms the new fit
+            before the phases carry on.
+          </p>
+          <Field label="Notes for the clinic (required to ask for a new scan)">
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="What the photographs show — which teeth are behind, and by how much."
+            />
+          </Field>
+          <ErrorText error={reviewPhase.error} />
+          <div className="row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={reviewPhase.isPending}
+              onClick={() => reviewPhase.mutate("CONTINUE")}
+            >
+              Tracking — make phase {order.next_phase_number}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={reviewPhase.isPending || !note.trim()}
+              onClick={() => reviewPhase.mutate("RESCAN")}
+            >
+              Not tracking — ask for a new scan
+            </button>
+          </div>
+        </ActionPanel>
+      );
+
     case "ALIGNER_PRODUCTION":
     case "DISPATCHING":
       return (
@@ -786,12 +1002,42 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
                     Phase {order.next_phase_number}
                     {order.next_phase_round > 1 ? ` · round ${order.next_phase_round}` : ""}
                   </b>{" "}
-                  starts at aligner <b>{order.next_phase_from}</b> — the plan has{" "}
-                  {order.total_aligners} in total. You only say how far it runs.
+                  starts at aligner <b>{order.next_phase_from}</b>.
                   {order.next_phase_round > 1 &&
                     " This is a remake, so it covers the same aligners as before."}
                 </p>
-                <Field label={`Runs to aligner (max ${order.next_phase_max})`}>
+
+                {plannedPhase ? (
+                  // The clinic already said how many phases it wanted, so the
+                  // span is settled — the lab confirms it rather than works it
+                  // out again for every batch.
+                  <div className="price-callout">
+                    The clinic asked for <b>{order.phase_count} phase(s)</b>. This one
+                    carries <b>aligners {plannedPhase.from_step}–{plannedPhase.to_step}</b>
+                    {plannedPhase.upper_from !== null && (
+                      <> · upper {plannedPhase.upper_from}–{plannedPhase.upper_to}</>
+                    )}
+                    {plannedPhase.lower_from !== null ? (
+                      <> · lower {plannedPhase.lower_from}–{plannedPhase.lower_to}</>
+                    ) : (
+                      <> · the lower arch has already finished</>
+                    )}
+                    .
+                  </div>
+                ) : (
+                  <p className="dim">
+                    No phase count was recorded for this case, so set how far this batch
+                    runs. The plan has {order.aligner_steps} steps in total.
+                  </p>
+                )}
+
+                <Field
+                  label={
+                    plannedPhase
+                      ? `Runs to aligner (planned ${plannedPhase.to_step})`
+                      : `Runs to aligner (max ${order.next_phase_max})`
+                  }
+                >
                   <input
                     type="number"
                     min={order.next_phase_from}

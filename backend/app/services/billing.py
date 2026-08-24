@@ -86,16 +86,20 @@ def build_invoice_payload(order, quote, doctor, address, plan=None) -> dict:
         # The plan knows the real aligner count, so bill that band.
         from ..enums import category_label
 
-        items = [
-            {
-                "name": (
-                    f"{category_label(plan.final_category)} — clear aligner treatment "
-                    f"({plan.aligners_upper + plan.aligners_lower} aligners)"
-                ),
-                "rate": float(plan.final_price),
-                "quantity": 1,
-            }
-        ]
+        # Refrens totals its own line items, so the discount is folded into the
+        # rate rather than sent as a negative line, and named so the clinic can
+        # see what came off.
+        discount = Decimal(plan.final_discount or 0)
+        net = Decimal(plan.final_price or 0) - discount
+        name = (
+            f"{category_label(plan.final_category)} — clear aligner treatment "
+            f"({plan.aligners_upper + plan.aligners_lower} aligners)"
+        )
+        if discount > 0:
+            name += f" — incl. discount of {discount:,.2f}"
+            if plan.final_discount_reason:
+                name += f" ({plan.final_discount_reason})"
+        items = [{"name": name, "rate": float(net), "quantity": 1}]
         items += [
             {"name": i.description, "rate": float(i.unit_price), "quantity": int(i.quantity)}
             for i in quote.line_items[1:]

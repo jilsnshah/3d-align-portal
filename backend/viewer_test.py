@@ -197,6 +197,132 @@ for label, table in (
     check(f"every file category has {label}", not missing, str(missing))
 
 
+# --------------------------------------------------------------------------
+# Articulation: putting the arches into the patient's own bite
+# --------------------------------------------------------------------------
+
+SCANS = pathlib.Path(
+    "../demo-data/simulation/3D-Align Case-1176 (Nihar)/Scan Files"
+)
+STAGED = pathlib.Path(
+    "../demo-data/simulation/3D-Align Case-1176 (Nihar)/BioModels/3D_ALIGN"
+)
+
+if SCANS.is_dir() and STAGED.is_dir():
+    import numpy as np
+
+    from app.services import articulation
+
+    def rd(p):
+        return p.read_bytes()
+
+    result = articulation.solve(
+        rd(SCANS / "UPPER JAW.stl"),
+        rd(SCANS / "LOWER JAW.stl"),
+        rd(SCANS / "BITE.stl"),
+        rd(STAGED / "0-S-3D_ALIGN_PA.stl"),
+        rd(STAGED / "0-I-3D_ALIGN_PA.stl"),
+    )
+    check(
+        "the bite registration witnesses the scans as articulated",
+        result.method == "bite-witnessed",
+        result.method,
+    )
+    check(
+        "both arches register onto their scans to well under a millimetre",
+        result.rms_upper < 0.3 and result.rms_lower < 0.3,
+        f"upper {result.rms_upper}, lower {result.rms_lower}",
+    )
+    check(
+        "the bite scan lies on the arch surfaces",
+        result.bite_median_mm is not None and result.bite_median_mm < 0.5,
+        str(result.bite_median_mm),
+    )
+    check(
+        "the bite scan touches both arches, not just one",
+        0.2 < result.bite_touching_upper < 0.8,
+        str(result.bite_touching_upper),
+    )
+    for tag, flat in (("upper", result.upper), ("lower", result.lower)):
+        m = np.array(flat).reshape(4, 4)
+        rot = m[:3, :3]
+        # A reflection here would mirror the arch: left canine drawn as right.
+        check(
+            f"the {tag} transform is a rotation, never a mirror",
+            abs(np.linalg.det(rot) - 1.0) < 1e-6,
+            str(np.linalg.det(rot)),
+        )
+        check(
+            f"the {tag} transform is rigid, so millimetres stay millimetres",
+            np.abs(rot @ rot.T - np.eye(3)).max() < 1e-9,
+            str(np.abs(rot @ rot.T - np.eye(3)).max()),
+        )
+        check(
+            f"the {tag} transform does not translate absurdly",
+            np.linalg.norm(m[:3, 3]) < 100,
+            str(np.linalg.norm(m[:3, 3])),
+        )
+
+    # Applying the transforms must actually seat the arches: upper above lower,
+    # meeting rather than floating apart or driven through each other.
+    up = articulation._read_stl(rd(STAGED / "0-S-3D_ALIGN_PA.stl"))
+    lo = articulation._read_stl(rd(STAGED / "0-I-3D_ALIGN_PA.stl"))
+    mu = np.array(result.upper).reshape(4, 4)
+    ml = np.array(result.lower).reshape(4, 4)
+    up_t = up @ mu[:3, :3].T + mu[:3, 3]
+    lo_t = lo @ ml[:3, :3].T + ml[:3, 3]
+    check(
+        "the upper ends up above the lower",
+        up_t[:, 2].mean() > lo_t[:, 2].mean(),
+        f"upper z {up_t[:, 2].mean():.1f} vs lower z {lo_t[:, 2].mean():.1f}",
+    )
+
+    from scipy.spatial import cKDTree
+
+    gap = cKDTree(articulation._sample(up_t, 40000)).query(
+        articulation._sample(lo_t, 20000), workers=-1
+    )[0]
+    check(
+        "the arches occlude rather than float apart",
+        gap.min() < 0.5,
+        f"closest approach {gap.min():.2f} mm",
+    )
+    check(
+        "teeth interdigitate over a real contact area",
+        (gap < 1.0).mean() > 0.02,
+        f"{(gap < 1.0).mean() * 100:.1f}% of the lower within 1 mm",
+    )
+
+    # A case with no bite registration must still be placeable, and must say so.
+    no_bite = articulation.solve(
+        rd(SCANS / "UPPER JAW.stl"),
+        rd(SCANS / "LOWER JAW.stl"),
+        None,
+        rd(STAGED / "0-S-3D_ALIGN_PA.stl"),
+        rd(STAGED / "0-I-3D_ALIGN_PA.stl"),
+    )
+    check(
+        "without a bite registration the method says so",
+        no_bite.method == "scan-pair" and no_bite.bite_median_mm is None,
+        no_bite.method,
+    )
+
+    # Scans that are not the patient's must be refused, not fitted anyway.
+    try:
+        articulation.solve(
+            rd(SCANS / "UPPER JAW.stl"),
+            rd(SCANS / "LOWER JAW.stl"),
+            None,
+            rd(STAGED / "0-S-3D_ALIGN_PA.stl"),
+            rd(SCANS / "BITE.stl"),  # a buccal patch is not a lower arch
+        )
+        check("a mismatched model is refused rather than fitted", False, "it was accepted")
+    except ValueError:
+        check("a mismatched model is refused rather than fitted", True, "")
+else:
+    check("articulation fixtures are present", False, f"missing {SCANS}")
+
+
 print()
 if failures:
     print(f"{len(failures)} check(s) failed:")

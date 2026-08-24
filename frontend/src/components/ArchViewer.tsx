@@ -13,7 +13,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { api } from "../api";
-import type { Simulation, Stage } from "../api";
+import type { Articulation, Simulation, Stage } from "../api";
 
 type ArchKey = "upper" | "lower";
 
@@ -96,24 +96,78 @@ function parseMesh(buffer: ArrayBuffer): Loaded {
   };
 }
 
-/** Sits the two arches together as a bite.
-
-    The planning software exports each arch in its own frame: both stand
-    teeth-up on a flat base at z = 0, so drawing them as they arrive puts one
-    inside the other. The lower is used as the floor and the upper is turned
-    over and set on top of it.
-
-    This is an assembly, not a registered occlusion — the export carries no bite
-    transform — so the arches meet rather than interdigitating. It is honest for
-    judging movement, which is what the timeline is for. */
+/** Fallback gap when the patient's own bite is not available. */
 const BITE_GAP_MM = 1.2;
 
+/** The centre of the two arches once the bite transforms have been applied,
+    so the pair can be framed about the origin the camera orbits. Derived from
+    the transformed corners of each arch's bounding box, which for a rigid
+    transform enclose the arch. */
+function articulatedCentre(
+  all: readonly (readonly [ArchKey, Loaded | null])[],
+  art: Articulation,
+): THREE.Vector3 {
+  const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  all.forEach(([arch, loaded]) => {
+    if (!loaded) return;
+    const m = matrixOf(art, arch);
+    for (const x of [loaded.lo.x, loaded.hi.x])
+      for (const y of [loaded.lo.y, loaded.hi.y])
+        for (const z of [loaded.lo.z, loaded.hi.z]) {
+          const p = new THREE.Vector3(x, y, z).applyMatrix4(m);
+          lo.min(p);
+          hi.max(p);
+        }
+  });
+  if (!Number.isFinite(lo.x)) return new THREE.Vector3();
+  return lo.add(hi).multiplyScalar(0.5);
+}
+
+/** The backend sends row-major matrices; Matrix4.set takes its arguments in
+    that order, unlike fromArray which expects column-major. */
+function matrixOf(art: Articulation, arch: ArchKey): THREE.Matrix4 {
+  const a = arch === "upper" ? art.upper : art.lower;
+  return new THREE.Matrix4().set(
+    a[0], a[1], a[2], a[3],
+    a[4], a[5], a[6], a[7],
+    a[8], a[9], a[10], a[11],
+    a[12], a[13], a[14], a[15],
+  );
+}
+
+/** Sits the two arches together.
+
+    When the case has intraoral scans, the backend registers step 0 of each arch
+    onto the scan of that arch, and the scans carry the bite the scanner
+    recorded with the bite registration. Applying those transforms puts the
+    staged arches into the patient's real occlusion: the overjet, the overbite
+    and the cusps that actually meet are the patient's own, not a nominal gap.
+
+    Without usable scans there is no bite to apply, so the arches are assembled
+    instead — lower as the floor, upper turned over and set on top with a fixed
+    clearance. That is an assembly, not an occlusion, and the viewer labels it
+    as such rather than letting it pass for a measured bite. */
 function place(
   mesh: THREE.Mesh,
   arch: ArchKey,
   loaded: Loaded,
   all: readonly (readonly [ArchKey, Loaded | null])[],
+  art: Articulation | null,
+  centre: THREE.Vector3,
 ) {
+  if (art) {
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrixOf(art, arch));
+    // Recentre the articulated pair on the origin the camera orbits, without
+    // disturbing how the two arches sit against each other.
+    mesh.matrix.premultiply(
+      new THREE.Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z),
+    );
+    mesh.matrixWorldNeedsUpdate = true;
+    return;
+  }
+
   const lower = all.find(([a]) => a === "lower")?.[1] ?? null;
   const lowerTop = lower ? lower.hi.z - lower.lo.z : loaded.hi.z - loaded.lo.z;
 
@@ -198,6 +252,11 @@ export default function ArchViewer({
   const [measured, setMeasured] = useState<string | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [maxMove, setMaxMove] = useState(0);
+
+  // The bite the scans recorded, if the case has one that registers.
+  const art = simulation.articulation ?? null;
+  const artCentre = (results: readonly (readonly [ArchKey, Loaded | null])[]) =>
+    art ? articulatedCentre(results, art) : new THREE.Vector3();
 
   const ghosts = useRef<Record<ArchKey, THREE.Mesh | null>>({ upper: null, lower: null });
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -375,7 +434,7 @@ export default function ArchViewer({
           });
           const mesh = new THREE.Mesh(loaded.geometry, material);
           mesh.visible = show[arch];
-          place(mesh, arch, loaded, results);
+          place(mesh, arch, loaded, results, art, artCentre(results));
           scene.current!.add(mesh);
           meshes.current[arch] = mesh;
 
@@ -439,7 +498,7 @@ export default function ArchViewer({
               shininess: 5,
             }),
           );
-          place(mesh, arch, loaded, results);
+          place(mesh, arch, loaded, results, art, artCentre(results));
           mesh.visible = show[arch];
           scene.current!.add(mesh);
           ghosts.current[arch] = mesh;
@@ -721,6 +780,34 @@ export default function ArchViewer({
             </span>
           )}
         </div>
+
+        {/* Whether the occlusion on screen is the patient's own or a stand-in
+            is a clinical fact, not a detail — it decides whether the overjet
+            and overbite shown can be judged at all. */}
+        <p className="bite-note">
+          {art ? (
+            <>
+              <b>Bite from the patient's scans.</b>{" "}
+              {art.method === "bite-registered"
+                ? "Each arch was registered onto the bite registration scan."
+                : "The bite registration confirms the arch scans are in occlusion."}{" "}
+              Arches fitted to {art.rms_upper.toFixed(2)} mm (upper) and{" "}
+              {art.rms_lower.toFixed(2)} mm (lower).
+              {art.bite_median_mm !== null && (
+                <> Bite scan agrees to {art.bite_median_mm.toFixed(2)} mm.</>
+              )}
+            </>
+          ) : (
+            <>
+              <b>Nominal bite.</b> The arches are shown assembled with a {BITE_GAP_MM} mm
+              clearance. Movement within each arch is still exact; the overjet and
+              overbite are not.
+              {simulation.articulation_note && (
+                <> {simulation.articulation_note}</>
+              )}
+            </>
+          )}
+        </p>
       </div>
     </div>
   );

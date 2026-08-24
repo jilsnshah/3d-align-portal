@@ -11,7 +11,7 @@ export default defineConfig({
     host: true,
     // Vite refuses requests for hostnames it does not know, which blocks a
     // tunnelled demo outright ("Blocked request. This host is not allowed").
-    allowedHosts: [".trycloudflare.com", ".ngrok-free.app", ".ngrok.io", "localhost"],
+    allowedHosts: [".trycloudflare.com", ".devtunnels.ms", ".ngrok-free.app", ".ngrok.io", "localhost"],
     proxy: {
       "/api": {
         target: process.env.VITE_API_TARGET ?? "http://127.0.0.1:8000",

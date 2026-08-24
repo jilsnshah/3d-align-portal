@@ -21,6 +21,12 @@ from ..enums import (
     ALIGNER_CATEGORIES,
     AppointmentStatus,
     FileGroup,
+    PaymentKind,
+    PaymentStatus,
+    AWAITING_CLINIC,
+    PhaseIssueAnswer,
+    PhaseReviewOutcome,
+    PhaseStatus,
     InvoiceStatus,
     OrderStatus,
     PlanStatus,
@@ -41,13 +47,17 @@ from ..models import (
     Patient,
     Quote,
     QuoteLineItem,
+    PhaseIssueMessage,
     Shipment,
+    ShippingRate,
     TreatmentPlan,
     User,
     utcnow,
 )
 from ..serializers import order_detail, order_summary
 from ..services import billing, pricing, shipments
+from ..services import payments as payment_service
+from ..services import phases as phase_service
 from ..transitions import assert_status, transition
 
 CENTS = Decimal("0.01")
@@ -101,6 +111,7 @@ def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
 @router.get("/orders", response_model=list[schemas.OrderSummary])
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
+    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner)$"),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -116,6 +127,14 @@ def list_orders(
     query = db.query(Order)
     if order_status:
         query = query.filter(Order.status == order_status)
+    # Enquiries and production cases are different work with different urgency,
+    # so the two series are listed apart rather than interleaved by date. The
+    # AL number is what separates them: a case has one only once it reaches
+    # planning.
+    if series == "enquiry":
+        query = query.filter(Order.order_number.is_(None))
+    elif series == "aligner":
+        query = query.filter(Order.order_number.isnot(None))
 
     if search and search.strip():
         needle = f"%{search.strip().lower()}%"
@@ -141,7 +160,13 @@ def list_orders(
 
 @router.get("/orders/{order_id}", response_model=schemas.OrderDetail)
 def get_order(order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)):
-    return order_detail(any_order(order_id, db), UserRole.ADMIN)
+    order = any_order(order_id, db)
+    # Charges follow the plan and the phase split, so they are brought up to
+    # date on read. Anything already settled keeps the amount it was paid at.
+    payment_service.sync(db, order)
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
 
 
 # --------------------------------------------------------------------------
@@ -181,6 +206,36 @@ def request_records(
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.ADMIN)
+
+
+@router.get("/shipping-rates", response_model=list[schemas.ShippingRateOut])
+def read_shipping_rates(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
+    return db.query(ShippingRate).order_by(ShippingRate.city).all()
+
+
+@router.put("/shipping-rates", response_model=list[schemas.ShippingRateOut])
+def update_shipping_rates(
+    payload: list[schemas.ShippingRateIn],
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """What delivery costs to each city the lab ships to.
+
+    A city with no rate falls back to the default in settings, so an unlisted
+    destination still quotes rather than shipping free by accident.
+    """
+    for entry in payload:
+        city = entry.city.strip()
+        if not city:
+            continue
+        row = db.get(ShippingRate, city)
+        if row is None:
+            row = ShippingRate(city=city)
+            db.add(row)
+        row.amount = payment_service.money(entry.amount)
+        row.is_active = entry.is_active
+    db.commit()
+    return db.query(ShippingRate).order_by(ShippingRate.city).all()
 
 
 @router.get("/pricing", response_model=list[schemas.AlignerPriceOut])
@@ -334,7 +389,261 @@ def accept_scan(
         booking.status = AppointmentStatus.COMPLETED
         booking.completed_at = utcnow()
     order.records_request_note = ""
-    transition(db, order, OrderStatus.IN_PLANNING, staff, note=payload.note or "Scan accepted.")
+    # A refinement scan is not the start of a new plan. The treatment stands;
+    # what changes is the anatomy the remaining aligners are made against, so
+    # the case goes straight to a training aligner for the new fit.
+    if order.refinement_round > 0:
+        transition(
+            db,
+            order,
+            OrderStatus.TRAINING_ALIGNER_PRODUCTION,
+            staff,
+            note=payload.note
+            or (
+                "Scan accepted — the plan is unchanged, so this goes straight to a "
+                "training aligner."
+            ),
+        )
+    else:
+        transition(
+            db, order, OrderStatus.IN_PLANNING, staff, note=payload.note or "Scan accepted."
+        )
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
+@router.post(
+    "/orders/{order_id}/payments/{payment_id}/verify", response_model=schemas.OrderDetail
+)
+def verify_payment(
+    order_id: str,
+    payment_id: str,
+    payload: schemas.PaymentVerifyIn,
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """A person checks the receipt against the bank and says yes or no.
+
+    Approving is what unlocks whatever the charge was gating. Rejecting hands it
+    back to the clinic with a reason, so they can send the right screenshot
+    rather than guessing what was wrong.
+    """
+    order = any_order(order_id, db)
+    payment = next((p for p in order.payments if p.id == payment_id), None)
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Payment not found.")
+
+    if payload.approve:
+        payment.status = PaymentStatus.VERIFIED
+        payment.verified_at = utcnow()
+        payment.verified_by_id = staff.id
+        payment.rejected_reason = ""
+        title, body = "Payment confirmed", f"{order.reference} — {payment.total} received."
+    else:
+        if not payload.reason.strip():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Say why the receipt was not accepted, so the clinic can put it right.",
+            )
+        payment.status = PaymentStatus.REJECTED
+        payment.rejected_reason = payload.reason.strip()
+        payment.verified_at = None
+        payment.verified_by_id = None
+        title, body = (
+            "Payment receipt not accepted",
+            f"{order.reference} — {payload.reason.strip()}",
+        )
+
+    db.add(
+        Notification(
+            user_id=order.doctor.user_id,
+            order_id=order.id,
+            title=title,
+            body=body,
+        )
+    )
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
+@router.post(
+    "/orders/{order_id}/phase-fit-issue/resolve", response_model=schemas.OrderDetail
+)
+def resolve_phase_fit_issue(
+    order_id: str,
+    payload: schemas.PhaseFitIssueResolveIn,
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """The lab's answer to an aligner that did not fit inside a phase.
+
+    Three ways out, and they differ in how much is remade:
+
+      * comments — nothing is remade; the clinic is told what to do and carries
+        on with the batch it has;
+      * remake — the same phase is made again as its next round, over the same
+        aligners;
+      * rescan — the teeth are no longer where the plan expected, so a fresh
+        scan is taken, a training aligner confirms the new fit, and delivery
+        resumes at this same phase. Phases already completed are untouched.
+    """
+    order = any_order(order_id, db)
+    assert_status(order, OrderStatus.FIT_ISSUE)
+
+    issue = order.open_phase_issue
+    if issue is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "There is no open phase fit issue on this case."
+        )
+
+    if payload.resolution == PhaseIssueAnswer.COMMENTS and not payload.comments.strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Say what the clinic should do — that is the whole of this answer.",
+        )
+
+    where = f"phase {issue.phase_number}, {issue.arch.lower()} aligner {issue.aligner_number}"
+
+    if payload.resolution == PhaseIssueAnswer.COMMENTS:
+        # Advice does not close the issue. The clinic is the one wearing the
+        # aligner, so only they can say whether it worked — until then the
+        # phase stays unfinished and either side may say more.
+        db.add(
+            PhaseIssueMessage(
+                issue_id=issue.id,
+                author_id=staff.id,
+                from_lab=True,
+                body=payload.comments.strip(),
+            )
+        )
+        issue.lab_comments = payload.comments.strip()
+        issue.awaiting = AWAITING_CLINIC
+        db.add(
+            Notification(
+                user_id=order.doctor.user_id,
+                order_id=order.id,
+                title="3D Align replied about the fit issue",
+                body=f"{order.reference} — {payload.comments.strip()}",
+            )
+        )
+        transition(
+            db,
+            order,
+            OrderStatus.DISPATCHING,
+            staff,
+            note=f"Fit issue on {where} — advice sent to the clinic. "
+            f"{payload.comments.strip()}",
+        )
+        db.commit()
+        db.refresh(order)
+        return order_detail(order, UserRole.ADMIN)
+
+    # Remaking or rescanning does settle it: there is nothing left for the
+    # clinic to try.
+    issue.status = "RESOLVED"
+    issue.resolution = payload.resolution
+    issue.resolved_by_id = staff.id
+    issue.resolved_at = utcnow()
+    if payload.comments.strip():
+        db.add(
+            PhaseIssueMessage(
+                issue_id=issue.id,
+                author_id=staff.id,
+                from_lab=True,
+                body=payload.comments.strip(),
+            )
+        )
+        issue.lab_comments = payload.comments.strip()
+
+    if payload.resolution == PhaseIssueAnswer.REMAKE:
+        phase_service.remake(order, issue.phase_number)
+        phase = phase_service.get(order, issue.phase_number)
+        target, note = (
+            OrderStatus.ALIGNER_PRODUCTION,
+            f"Fit issue on {where} — phase {issue.phase_number} to be remade as "
+            f"round {phase.round if phase else issue.phase_round + 1}. "
+            + payload.comments.strip(),
+        )
+    else:
+        # A refinement: new scan, new training aligner, then this same phase.
+        order.refinement_round += 1
+        order.bump_revision(FileGroup.SCAN)
+        order.scan_route = None
+        order.scan_courier_tracking = ""
+        resumed = phase_service.resume_after_rescan(order)
+        target, note = (
+            OrderStatus.AWAITING_SCAN,
+            f"Fit issue on {where} — a fresh scan is needed. The plan is unchanged; "
+            f"delivery resumes at phase {resumed.phase_number if resumed else issue.phase_number}. "
+            + payload.comments.strip(),
+        )
+
+    db.add(
+        Notification(
+            user_id=order.doctor.user_id,
+            order_id=order.id,
+            title="3D Align answered your fit issue",
+            body=f"{order.reference} — {note}",
+        )
+    )
+    transition(db, order, target, staff, note=note)
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
+@router.post("/orders/{order_id}/phase-review", response_model=schemas.OrderDetail)
+def review_phase(
+    order_id: str,
+    payload: schemas.PhaseReviewIn,
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """The lab's verdict on a phase's progress photographs.
+
+    Either the teeth are tracking the plan and the next batch can be made, or
+    they are not and the case needs a fresh scan. A rescan does not reopen
+    planning: the treatment is unchanged, the remaining aligners are simply
+    rebuilt against where the teeth actually are.
+    """
+    order = any_order(order_id, db)
+    assert_status(order, OrderStatus.PHASE_REVIEW)
+
+    if payload.outcome == PhaseReviewOutcome.RESCAN:
+        if not payload.note.strip():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Say what the photographs show, so the clinic knows why a new scan is needed.",
+            )
+        order.refinement_round += 1
+        # Delivery resumes at the phase that was interrupted; everything already
+        # completed stays completed.
+        phase_service.resume_after_rescan(order)
+        # A refinement needs its own scan, not the one the plan was drawn from.
+        order.bump_revision(FileGroup.SCAN)
+        order.scan_route = None
+        order.scan_courier_tracking = ""
+        transition(
+            db,
+            order,
+            OrderStatus.AWAITING_SCAN,
+            staff,
+            note=f"Progress review — a fresh scan is needed before the next phase. {payload.note}",
+        )
+    else:
+        # The phase was completed when its photographs were sent. This review
+        # decides what happens next, not whether that phase happened.
+        transition(
+            db,
+            order,
+            OrderStatus.ALIGNER_PRODUCTION,
+            staff,
+            note=payload.note
+            or f"Progress reviewed — continuing from aligner {order.next_phase_range[0]}.",
+        )
+
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.ADMIN)
@@ -385,12 +694,21 @@ def share_plan(
     # alongside it for reporting but never gates anything.
     total_aligners = payload.aligners_upper + payload.aligners_lower
     final_price = money(payload.final_price)
+    final_discount = money(payload.final_discount)
     final_tax = money(payload.final_tax)
     if final_price <= 0:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Enter the final price for this case before sharing the plan.",
         )
+    # A discount larger than the price would invoice a negative amount, which
+    # Refrens rejects and nobody means.
+    if final_discount > final_price:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "The discount cannot be more than the price before discount.",
+        )
+    net_price = money(final_price - final_discount)
     # The clinic is being asked to approve movement it can only judge by seeing
     # it, so the staged models are a prerequisite rather than a nicety.
     if not any(
@@ -418,8 +736,10 @@ def share_plan(
         aligners_lower=payload.aligners_lower,
         final_category=final_category,
         final_price=final_price,
+        final_discount=final_discount,
+        final_discount_reason=payload.final_discount_reason.strip()[:160],
         final_tax=final_tax,
-        final_total=money(final_price + final_tax),
+        final_total=money(net_price + final_tax),
         ipr_required=payload.ipr_required,
         attachments_required=payload.attachments_required,
         summary=payload.summary,
@@ -437,10 +757,10 @@ def share_plan(
     if live_quote is not None:
         previous_total = live_quote.total
         # Both ends of the range collapse onto the one real figure.
-        live_quote.category_price = final_price
-        live_quote.category_price_max = final_price
-        live_quote.subtotal = final_price
-        live_quote.subtotal_max = final_price
+        live_quote.category_price = net_price
+        live_quote.category_price_max = net_price
+        live_quote.subtotal = net_price
+        live_quote.subtotal_max = net_price
         live_quote.tax = final_tax
         live_quote.total = plan.final_total
         live_quote.total_max = plan.final_total
@@ -449,10 +769,11 @@ def share_plan(
             if index == 0:
                 item.description = (
                     f"Clear aligner treatment — {total_aligners} aligners"
+                    + (f" (after {final_discount} discount)" if final_discount else "")
                 )
-                item.unit_price = final_price
+                item.unit_price = net_price
                 item.quantity = 1
-                item.amount = final_price
+                item.amount = net_price
             else:
                 db.delete(item)
     else:
@@ -464,7 +785,14 @@ def share_plan(
         OrderStatus.PLAN_SHARED,
         staff,
         note=f"Treatment plan v{plan.version} shared — {total_aligners} aligners. "
-        f"Price set to {plan.final_total}"
+        + (
+            f"Price {final_price} less {final_discount} discount"
+            + (f" ({plan.final_discount_reason})" if plan.final_discount_reason else "")
+            + ". "
+            if final_discount
+            else ""
+        )
+        + f"Price set to {plan.final_total}"
         + (f", replacing the estimated range from {previous_total}." if previous_total is not None else "."),
     )
     db.commit()
@@ -490,9 +818,19 @@ def resolve_fit_issue(
     if resolution == "rescan":
         scan_revision = order.bump_revision(FileGroup.SCAN)
         order.scan_route = None
+        order.scan_courier_tracking = ""
+        # The plan is not in question here — the fit is. So the new scan feeds
+        # straight back into making another training aligner, exactly as a
+        # mid-course refinement does, rather than reopening treatment planning.
+        order.refinement_round += 1
         target = OrderStatus.AWAITING_SCAN
-        note = f"Fresh scan requested (scan v{scan_revision}), training aligner round {fit_round}."
+        note = (
+            f"Fresh scan requested (scan v{scan_revision}) for training aligner round "
+            f"{fit_round}. The treatment plan is unchanged."
+        )
     elif resolution == "replan":
+        # The one route that does reopen the plan, because the plan itself is
+        # what is being changed.
         target = OrderStatus.IN_PLANNING
         note = f"Re-planning the case for training aligner round {fit_round}."
     else:
@@ -518,6 +856,11 @@ def create_shipment(
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db)
+    # Raise any charge that has become due since the case last moved, so the
+    # gates below are checked against an up-to-date ledger rather than an empty
+    # one.
+    payment_service.sync(db, order)
+    db.flush()
 
     range_from = None
     range_to = payload.aligner_range_to
@@ -526,6 +869,14 @@ def create_shipment(
     if payload.shipment_type == ShipmentType.TRAINING_ALIGNER:
         assert_status(order, OrderStatus.TRAINING_ALIGNER_PRODUCTION)
         next_status = OrderStatus.TRAINING_ALIGNER_SHIPPED
+        # Charged once per case: a refabricated or re-scanned training aligner
+        # ships against the payment already made.
+        blocker = payment_service.blocker_for(order, PaymentKind.TRAINING_FIT)
+        if blocker:
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"The training fit aligner has not been paid for. {blocker}",
+            )
     else:
         assert_status(order, OrderStatus.ALIGNER_PRODUCTION, OrderStatus.DISPATCHING)
         next_status = OrderStatus.DISPATCHING
@@ -552,10 +903,40 @@ def create_shipment(
             if ceiling and range_to > ceiling:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    f"The plan has {order.total_aligners} aligners; this phase cannot run past that.",
+                    f"The plan runs {order.aligner_steps} steps; this phase cannot run past that.",
                 )
+            # Payment runs one phase behind delivery. The first batch goes out
+            # on trust; every batch after it is released by the payment for the
+            # one before, so the clinic is never asked for money for aligners it
+            # has not seen.
+            if phase_number > 1:
+                previous = phase_number - 1
+                blocker = payment_service.blocker_for(
+                    order, PaymentKind.PRODUCTION_PHASE, previous
+                )
+                if blocker:
+                    raise HTTPException(
+                        status.HTTP_402_PAYMENT_REQUIRED,
+                        f"Phase {previous} has not been paid for, so phase {phase_number} "
+                        f"cannot ship yet. {blocker}",
+                    )
+
+            phase_service.mark_shipped(order, phase_number)
+
+            # Each phase collects its own set of progress photographs. Pointing
+            # the counter at this phase means the clinic's next upload lands
+            # against it rather than overwriting the previous phase's set.
+            order.progress_round = phase_number
         else:
-            # A full-case dispatch covers everything in one go.
+            # A full-case dispatch is the whole series in one parcel. There is
+            # no later batch to hold back, so unlike a first phase it is paid
+            # for before it goes — otherwise nothing would ever collect it.
+            blocker = payment_service.blocker_for(order, PaymentKind.PRODUCTION_PHASE, 1)
+            if blocker:
+                raise HTTPException(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    f"The production aligners have not been paid for. {blocker}",
+                )
             phase_number = phase_round = None
             range_from, range_to = 1, order.total_aligners or None
 

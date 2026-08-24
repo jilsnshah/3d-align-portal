@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { WEEKDAYS, api } from "../../api";
-import type { AlignerPrice, BookingSettings } from "../../api";
+import { WEEKDAYS, api, formatMoney } from "../../api";
+import type { AlignerPrice, BookingSettings, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
 type Knob = { key: keyof BookingSettings; label: string; hint: string; min: number; max: number; step?: number };
@@ -32,6 +32,9 @@ export default function AdminSettings() {
   const [pricesSaved, setPricesSaved] = useState(false);
   const [draft, setDraft] = useState<BookingSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const rates = useQuery({ queryKey: ["shipping-rates"], queryFn: api.shippingRates });
+  const [shipping, setShipping] = useState<ShippingRate[] | null>(null);
+  const [shippingSaved, setShippingSaved] = useState(false);
 
   useEffect(() => {
     if (settings.data) setDraft(settings.data);
@@ -40,6 +43,18 @@ export default function AdminSettings() {
   useEffect(() => {
     if (pricing.data) setPrices(pricing.data);
   }, [pricing.data]);
+
+  useEffect(() => {
+    if (rates.data) setShipping(rates.data);
+  }, [rates.data]);
+
+  const saveShipping = useMutation({
+    mutationFn: () => api.saveShippingRates(shipping ?? []),
+    onSuccess: () => {
+      setShippingSaved(true);
+      void queryClient.invalidateQueries({ queryKey: ["shipping-rates"] });
+    },
+  });
 
   const savePrices = useMutation({
     mutationFn: () =>
@@ -79,6 +94,129 @@ export default function AdminSettings() {
         </div>
       </div>
 
+      <h2 style={{ marginBottom: 12 }}>Payments</h2>
+      <div className="card stack-sm" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h4>UPI and fees</h4>
+          <span className="dim">
+            Clinics pay by UPI and send a screenshot. These details fill in their payment
+            app, so nothing is typed by hand.
+          </span>
+        </div>
+        <div className="grid-2">
+          <Field label="UPI ID">
+            <input
+              value={draft.upi_vpa ?? ""}
+              placeholder="3dalign@okhdfcbank"
+              onChange={(e) => setDraft({ ...draft, upi_vpa: e.target.value })}
+            />
+          </Field>
+          <Field label="Payee name">
+            <input
+              value={draft.upi_payee_name ?? ""}
+              onChange={(e) => setDraft({ ...draft, upi_payee_name: e.target.value })}
+            />
+          </Field>
+        </div>
+        <div className="grid-2">
+          <Field label="Treatment plan fee">
+            <input
+              type="number"
+              min={0}
+              value={draft.plan_fee ?? ""}
+              onChange={(e) => setDraft({ ...draft, plan_fee: e.target.value })}
+            />
+          </Field>
+          <Field label="Training fit aligner fee">
+            <input
+              type="number"
+              min={0}
+              value={draft.training_fit_fee ?? ""}
+              onChange={(e) => setDraft({ ...draft, training_fit_fee: e.target.value })}
+            />
+          </Field>
+        </div>
+        <p className="dim">
+          Both are charged once per case and are deducted from the quote, so production
+          phases never carry them again. Together they come to{" "}
+          {formatMoney(Number(draft.plan_fee ?? 0) + Number(draft.training_fit_fee ?? 0))}.
+        </p>
+      </div>
+
+      <div className="card stack-sm" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h4>Delivery charges</h4>
+          <span className="dim">Added to every production phase, by the clinic's city.</span>
+        </div>
+        {shippingSaved && <Banner tone="ok">Delivery charges saved.</Banner>}
+        <Field label="Default, for a city with no rate below">
+          <input
+            type="number"
+            min={0}
+            value={draft.default_shipping_fee ?? ""}
+            onChange={(e) => setDraft({ ...draft, default_shipping_fee: e.target.value })}
+          />
+        </Field>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>City</th>
+                <th>Charge</th>
+                <th>Active</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(shipping ?? []).map((row, index) => (
+                <tr key={row.city}>
+                  <td>{row.city}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      value={row.amount}
+                      onChange={(e) => {
+                        const next = [...(shipping ?? [])];
+                        next[index] = { ...row, amount: e.target.value };
+                        setShipping(next);
+                      }}
+                      style={{ maxWidth: 130 }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={row.is_active}
+                      onChange={(e) => {
+                        const next = [...(shipping ?? [])];
+                        next[index] = { ...row, is_active: e.target.checked };
+                        setShipping(next);
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <NewCityRow
+          onAdd={(city) =>
+            setShipping([...(shipping ?? []), { city, amount: "0", is_active: true }])
+          }
+        />
+        <div className="row">
+          <button
+            type="button"
+            className="btn-dark"
+            disabled={saveShipping.isPending}
+            onClick={() => saveShipping.mutate()}
+          >
+            {saveShipping.isPending ? "Saving…" : "Save delivery charges"}
+          </button>
+        </div>
+      </div>
+
+      <h2 style={{ marginBottom: 12 }}>Aligner pricing</h2>
       <div className="card stack-sm" style={{ marginBottom: 16 }}>
         <div className="card-head">
           <h4>Aligner pricing</h4>
@@ -308,4 +446,31 @@ export default function AdminSettings() {
     else next[String(index)] = [start, end];
     setDraft({ ...draft!, working_hours: next as BookingSettings["working_hours"] });
   }
+}
+
+/** Adding a city the lab has not priced yet. Kept separate so the table above
+    stays a plain list of what already exists. */
+function NewCityRow({ onAdd }: { onAdd: (city: string) => void }) {
+  const [city, setCity] = useState("");
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <input
+        placeholder="Add a city"
+        value={city}
+        onChange={(e) => setCity(e.target.value)}
+        style={{ maxWidth: 220 }}
+      />
+      <button
+        type="button"
+        className="btn-ghost"
+        disabled={!city.trim()}
+        onClick={() => {
+          onAdd(city.trim());
+          setCity("");
+        }}
+      >
+        Add
+      </button>
+    </div>
+  );
 }

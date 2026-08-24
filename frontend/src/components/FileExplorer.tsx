@@ -11,6 +11,7 @@ import { useState } from "react";
 
 import { api, formatBytes, formatDate } from "../api";
 import type { BinnedFile, OrderDetail, OrderFile, RecordSet, SlotState } from "../api";
+import SlotDiagram, { hasDiagram } from "./SlotDiagram";
 import { Banner, ConfirmButton, ErrorText, Loading } from "./ui";
 
 export default function FileExplorer({
@@ -288,7 +289,12 @@ function SlotTile({
           {busy && <span className="tile-busy">Uploading…</span>}
         </button>
         <figcaption>
-          <b>{state.label}</b>
+          <b>
+            {hasDiagram(state.slot) && (
+              <SlotDiagram slot={state.slot} className="slot-diagram-inline" />
+            )}
+            {state.label}
+          </b>
           <span className="dim">{formatBytes(file.size_bytes)}</span>
           <div className="tile-actions">
             <a href={api.downloadUrl(order.id, file.id)} className="btn-link">
@@ -320,7 +326,18 @@ function SlotTile({
 
   return (
     <div className={`tile-empty${state.required ? " required" : ""}`}>
-      <div className="tile-thumb placeholder">{state.required ? "Required" : "Optional"}</div>
+      <div className="tile-thumb placeholder">
+        {/* The diagram is the instruction. The word underneath only says
+            whether the set is incomplete without this view. */}
+        {hasDiagram(state.slot) ? (
+          <>
+            <SlotDiagram slot={state.slot} className="slot-diagram" />
+            <span className="slot-need">{state.required ? "Required" : "Optional"}</span>
+          </>
+        ) : (
+          state.required ? "Required" : "Optional"
+        )}
+      </div>
       <div>
         <b>{state.label}</b>
         {canEdit && (

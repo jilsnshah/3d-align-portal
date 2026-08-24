@@ -32,16 +32,49 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
     # The scan is either still coming (AWAITING_SCAN) or with the lab to verify
     # (SCAN_SUBMITTED). Rejecting a scan sends it back for another attempt.
     S.AWAITING_SCAN: {S.SCAN_SUBMITTED, S.CANCELLED},
-    S.SCAN_SUBMITTED: {S.IN_PLANNING, S.AWAITING_SCAN, S.CANCELLED},
+    # A refinement scan skips planning entirely: the plan is not being redrawn,
+    # so the case goes straight to making a training aligner against the new
+    # anatomy.
+    S.SCAN_SUBMITTED: {
+        S.IN_PLANNING,
+        S.AWAITING_SCAN,
+        S.TRAINING_ALIGNER_PRODUCTION,
+        S.CANCELLED,
+    },
     S.IN_PLANNING: {S.PLAN_SHARED, S.CANCELLED},
     S.PLAN_SHARED: {S.IN_PLANNING, S.TRAINING_ALIGNER_PRODUCTION, S.CANCELLED},
     S.TRAINING_ALIGNER_PRODUCTION: {S.TRAINING_ALIGNER_SHIPPED, S.CANCELLED},
     S.TRAINING_ALIGNER_SHIPPED: {S.FIT_REVIEW, S.CANCELLED},
     S.FIT_REVIEW: {S.ALIGNER_PRODUCTION, S.FIT_ISSUE, S.CANCELLED},
-    S.FIT_ISSUE: {S.AWAITING_SCAN, S.IN_PLANNING, S.TRAINING_ALIGNER_PRODUCTION, S.CANCELLED},
+    S.FIT_ISSUE: {
+        S.AWAITING_SCAN,
+        S.IN_PLANNING,
+        S.TRAINING_ALIGNER_PRODUCTION,
+        # Remaking the phase, or handing it back to the clinic with comments.
+        S.ALIGNER_PRODUCTION,
+        S.DISPATCHING,
+        S.CANCELLED,
+    },
     S.ALIGNER_PRODUCTION: {S.DISPATCHING, S.CANCELLED},
-    # A remade phase goes back to the bench before it can ship again.
-    S.DISPATCHING: {S.ALIGNER_PRODUCTION, S.COMPLETED, S.CANCELLED},
+    # A remade phase goes back to the bench before it can ship again. Accepting
+    # a phase hands it to the lab as a phase review instead of shipping the next
+    # batch straight away.
+    S.DISPATCHING: {
+        S.ALIGNER_PRODUCTION,
+        S.PHASE_REVIEW,
+        # An aligner inside the delivered phase does not fit.
+        S.FIT_ISSUE,
+        S.COMPLETED,
+        S.CANCELLED,
+    },
+    # The lab either carries on, or stops to take a fresh scan mid-course. A fit
+    # issue can also surface while the photographs are being looked at.
+    S.PHASE_REVIEW: {
+        S.ALIGNER_PRODUCTION,
+        S.AWAITING_SCAN,
+        S.FIT_ISSUE,
+        S.CANCELLED,
+    },
     S.COMPLETED: set(),
     S.CANCELLED: set(),
 }
@@ -64,6 +97,11 @@ DOCTOR_MOVES: set[tuple[OrderStatus, OrderStatus]] = {
     # clinic that confirms receipt.
     (S.DISPATCHING, S.COMPLETED),
     (S.DISPATCHING, S.ALIGNER_PRODUCTION),
+    # Sending the phase's progress photographs is what hands it to the lab.
+    (S.DISPATCHING, S.PHASE_REVIEW),
+    # The clinic is the one who finds an aligner that does not fit.
+    (S.DISPATCHING, S.FIT_ISSUE),
+    (S.PHASE_REVIEW, S.FIT_ISSUE),
     (S.DRAFT, S.CANCELLED),
 }
 
@@ -76,13 +114,16 @@ NOTICE: dict[OrderStatus, str] = {
     S.AWAITING_SCAN: "Quote accepted — scan required",
     S.SCAN_SUBMITTED: "Scan received, under review",
     S.IN_PLANNING: "Treatment planning started",
-    S.PLAN_SHARED: "Treatment plan ready for your approval",
+    # The plan fee comes before the approval, so the alert should not send the
+    # clinic looking for an approve button they cannot use yet.
+    S.PLAN_SHARED: "Treatment plan ready — unlock it to review",
     S.TRAINING_ALIGNER_PRODUCTION: "Training aligner in production",
     S.TRAINING_ALIGNER_SHIPPED: "Training aligner shipped",
     S.FIT_REVIEW: "Please confirm the training aligner fit",
     S.FIT_ISSUE: "Fit issue reported",
     S.ALIGNER_PRODUCTION: "Aligners in production",
     S.DISPATCHING: "Aligners dispatched",
+    S.PHASE_REVIEW: "Progress photographs to review",
     S.COMPLETED: "Case completed",
     S.CANCELLED: "Case cancelled",
 }

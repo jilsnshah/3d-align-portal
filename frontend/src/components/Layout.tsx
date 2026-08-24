@@ -64,12 +64,9 @@ export default function Layout() {
     <div className="shell">
       <header className="topbar">
         <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/orders"} className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>
-            3D Align
-            {isAdmin && <span className="brand-sub"> · Lab</span>}
-            {isTech && <span className="brand-sub"> · Scan team</span>}
-          </span>
+          <img className="brand-logo" src="/logo.png" alt="3D Aligners" />
+          {isAdmin && <span className="brand-sub">Lab</span>}
+          {isTech && <span className="brand-sub">Scan team</span>}
         </NavLink>
 
         <nav className="topnav">

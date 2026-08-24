@@ -84,6 +84,9 @@ export default function App() {
         <Route path="/orders" element={<DoctorOrders />} />
         <Route path="/orders/new" element={<NewOrder />} />
         <Route path="/orders/:orderId" element={<DoctorOrderDetail />} />
+        {/* The clinic reviews the planned movement here before approving the
+            plan, so the viewer has to be reachable from their side too. */}
+        <Route path="/viewer/:orderId" element={<Viewer />} />
         <Route path="/patients" element={<Patients />} />
         <Route path="/profile" element={<Profile />} />
       </Route>

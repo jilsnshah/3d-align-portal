@@ -19,12 +19,35 @@ const PILL_TONE: Record<OrderStatus, string> = {
   FIT_ISSUE: "pill pill-danger",
   ALIGNER_PRODUCTION: "pill pill-dark",
   DISPATCHING: "pill pill-dark",
+  PHASE_REVIEW: "pill pill-gold",
   COMPLETED: "pill pill-ok",
   CANCELLED: "pill pill-danger",
 };
 
 export function StatusPill({ status, label }: { status: OrderStatus; label: string }) {
   return <span className={PILL_TONE[status]}>{label}</span>;
+}
+
+/** The Align band a case is priced in. Rendered muted while it is still the
+ *  estimate read off the photographs, solid once the plan confirms it, so a
+ *  list distinguishes a guess from a commitment at a glance. */
+export function CategoryPill({
+  label,
+  confirmed,
+}: {
+  label: string;
+  confirmed: boolean;
+}) {
+  if (!label) return <span className="dim">—</span>;
+  return (
+    <span
+      className={confirmed ? "pill pill-dark" : "pill"}
+      title={confirmed ? "Confirmed by the treatment plan" : "Estimated — the plan will confirm it"}
+    >
+      {label}
+      {!confirmed && <span className="pill-est">est</span>}
+    </span>
+  );
 }
 
 export function Banner({

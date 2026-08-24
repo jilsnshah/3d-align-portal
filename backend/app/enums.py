@@ -33,6 +33,10 @@ class OrderStatus(str, Enum):
     FIT_ISSUE = "FIT_ISSUE"
     ALIGNER_PRODUCTION = "ALIGNER_PRODUCTION"
     DISPATCHING = "DISPATCHING"
+    # The clinic has sent progress photographs for the phase it just received
+    # and the lab is deciding whether treatment is tracking well enough to ship
+    # the next one, or whether the case needs a fresh scan first.
+    PHASE_REVIEW = "PHASE_REVIEW"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
 
@@ -65,6 +69,7 @@ STATUS_LABELS: dict[str, str] = {
     OrderStatus.FIT_ISSUE: "Fit issue reported",
     OrderStatus.ALIGNER_PRODUCTION: "Aligners in production",
     OrderStatus.DISPATCHING: "Dispatching",
+    OrderStatus.PHASE_REVIEW: "Phase review",
     OrderStatus.COMPLETED: "Completed",
     OrderStatus.CANCELLED: "Cancelled",
 }
@@ -97,6 +102,14 @@ class FileCategory(str, Enum):
     # These are the simulation: the clinic steps through them in the 3D viewer.
     SIMULATION_MODEL = "SIMULATION_MODEL"
     FIT_ISSUE_PHOTO = "FIT_ISSUE_PHOTO"
+    # Photographs taken at the end of each phase, with the aligners in and out,
+    # so the lab can see whether the teeth are where the plan expected.
+    PROGRESS_PHOTO = "PROGRESS_PHOTO"
+    # Screenshot of a completed UPI transfer, uploaded by the clinic as proof.
+    PAYMENT_PROOF = "PAYMENT_PROOF"
+    # The six views sent when an aligner inside a phase does not fit. Kept apart
+    # from the phase's progress set so neither overwrites the other.
+    PHASE_FIT_PHOTO = "PHASE_FIT_PHOTO"
     OTHER = "OTHER"
 
 
@@ -124,6 +137,16 @@ class Slot(str, Enum):
     OCCLUSAL_UPPER = "OCCLUSAL_UPPER"
     OCCLUSAL_LOWER = "OCCLUSAL_LOWER"
 
+    # Progress photographs, taken at the end of a phase. The same three views
+    # are shot twice — wearing the aligners and without them — because a tooth
+    # can look corrected while the tray is holding it there.
+    PROGRESS_UPPER_IN = "PROGRESS_UPPER_IN"
+    PROGRESS_LOWER_IN = "PROGRESS_LOWER_IN"
+    PROGRESS_FRONTAL_IN = "PROGRESS_FRONTAL_IN"
+    PROGRESS_UPPER_OUT = "PROGRESS_UPPER_OUT"
+    PROGRESS_LOWER_OUT = "PROGRESS_LOWER_OUT"
+    PROGRESS_FRONTAL_OUT = "PROGRESS_FRONTAL_OUT"
+
     # Extraoral photographs
     FACE_REST = "FACE_REST"
     FACE_SMILE = "FACE_SMILE"
@@ -141,6 +164,12 @@ SLOT_LABELS: dict[str, str] = {
     Slot.BUCCAL_LEFT: "Buccal left",
     Slot.OCCLUSAL_UPPER: "Occlusal upper",
     Slot.OCCLUSAL_LOWER: "Occlusal lower",
+    Slot.PROGRESS_UPPER_IN: "Upper, aligner in",
+    Slot.PROGRESS_LOWER_IN: "Lower, aligner in",
+    Slot.PROGRESS_FRONTAL_IN: "Frontal, aligner in",
+    Slot.PROGRESS_UPPER_OUT: "Upper, aligner out",
+    Slot.PROGRESS_LOWER_OUT: "Lower, aligner out",
+    Slot.PROGRESS_FRONTAL_OUT: "Frontal, aligner out",
     Slot.FACE_REST: "Face at rest",
     Slot.FACE_SMILE: "Face smiling",
     Slot.PROFILE: "Profile",
@@ -154,6 +183,25 @@ SLOT_SPEC: dict[str, list[tuple]] = {
         (Slot.UPPER_ARCH, True),
         (Slot.LOWER_ARCH, True),
         (Slot.BITE, True),
+    ],
+    # All six are required: the lab is comparing the arch against the step it
+    # should have reached, and three views is the minimum that shows it.
+    FileCategory.PROGRESS_PHOTO: [
+        (Slot.PROGRESS_UPPER_IN, True),
+        (Slot.PROGRESS_LOWER_IN, True),
+        (Slot.PROGRESS_FRONTAL_IN, True),
+        (Slot.PROGRESS_UPPER_OUT, True),
+        (Slot.PROGRESS_LOWER_OUT, True),
+        (Slot.PROGRESS_FRONTAL_OUT, True),
+    ],
+    # A fit issue inside a phase is judged from the same six views as progress.
+    FileCategory.PHASE_FIT_PHOTO: [
+        (Slot.PROGRESS_UPPER_IN, True),
+        (Slot.PROGRESS_LOWER_IN, True),
+        (Slot.PROGRESS_FRONTAL_IN, True),
+        (Slot.PROGRESS_UPPER_OUT, True),
+        (Slot.PROGRESS_LOWER_OUT, True),
+        (Slot.PROGRESS_FRONTAL_OUT, True),
     ],
     FileCategory.RECORD_PHOTO: [
         (Slot.INTRAORAL_FRONTAL, True),
@@ -187,6 +235,9 @@ CATEGORY_TITLES: dict[str, str] = {
     FileCategory.INTRAORAL_SCAN: "Intraoral scan",
     FileCategory.TREATMENT_PLAN: "Treatment plan",
     FileCategory.FIT_ISSUE_PHOTO: "Fit issue photographs",
+    FileCategory.PROGRESS_PHOTO: "Progress photographs",
+    FileCategory.PAYMENT_PROOF: "Payment receipts",
+    FileCategory.PHASE_FIT_PHOTO: "Phase fit issue photographs",
     FileCategory.OTHER: "Other",
 }
 
@@ -208,12 +259,29 @@ CATEGORY_FOLDER: dict[str, str] = {
     FileCategory.TREATMENT_PLAN: "planning",
     FileCategory.SIMULATION_MODEL: "planning",
     FileCategory.FIT_ISSUE_PHOTO: "records",
+    FileCategory.PROGRESS_PHOTO: "records",
+    FileCategory.PAYMENT_PROOF: "records",
+    FileCategory.PHASE_FIT_PHOTO: "records",
     FileCategory.OTHER: "records",
 }
 
 # The plan document is the lab's working paper; the staged models it produces
 # are shared, because the clinic is asked to approve what they show.
 STAFF_ONLY_CATEGORIES = {FileCategory.TREATMENT_PLAN}
+
+# The staged models are the lab's working geometry. The clinic reviews the
+# movement they describe in the 3D simulation, which is generated from them and
+# open to everyone; the STL files themselves are not handed over.
+DOCTOR_HIDDEN_CATEGORIES = {FileCategory.SIMULATION_MODEL}
+
+# Held back from the clinic until the treatment plan fee is settled. The plan
+# document and the staged models *are* the plan — releasing either before it is
+# paid for gives away the thing the fee is for.
+PLAN_GATED_CATEGORIES = {FileCategory.TREATMENT_PLAN, FileCategory.SIMULATION_MODEL}
+
+# A phase shorter than this is not worth dispatching on its own. The last phase
+# is exempt, because the treatment length rarely divides exactly.
+MIN_STEPS_PER_PHASE = 5
 
 
 class FileGroup(str, Enum):
@@ -224,6 +292,10 @@ class FileGroup(str, Enum):
     SCAN = "SCAN"
     PLANNING = "PLANNING"
     FIT = "FIT"
+    # One set per phase, so phase two's photographs do not overwrite phase one's.
+    PROGRESS = "PROGRESS"
+    # One set per fit issue raised inside a phase.
+    PHASE_FIT = "PHASE_FIT"
 
 
 FILE_GROUP: dict[str, FileGroup] = {
@@ -238,6 +310,12 @@ FILE_GROUP: dict[str, FileGroup] = {
     # and superseded together when it is replanned.
     FileCategory.SIMULATION_MODEL: FileGroup.PLANNING,
     FileCategory.FIT_ISSUE_PHOTO: FileGroup.FIT,
+    FileCategory.PROGRESS_PHOTO: FileGroup.PROGRESS,
+    # Receipts accumulate over the life of the case and are never re-requested
+    # as a set, so they sit with the records rather than carrying their own
+    # revision counter.
+    FileCategory.PAYMENT_PROOF: FileGroup.RECORDS,
+    FileCategory.PHASE_FIT_PHOTO: FileGroup.PHASE_FIT,
 }
 
 # Staff uploads are gated too. A treatment plan cannot exist before there is an
@@ -360,6 +438,97 @@ class ShipmentStatus(str, Enum):
     PENDING = "PENDING"
     SHIPPED = "SHIPPED"
     DELIVERED = "DELIVERED"
+
+
+class PhaseStatus(str, Enum):
+    """Where one phase of a phased dispatch has got to.
+
+    Held per phase rather than inferred from the last shipment, because a
+    mid-course rescan has to resume at the earliest phase that is *not* finished
+    while leaving the finished ones alone.
+    """
+
+    NOT_STARTED = "NOT_STARTED"
+    # Made and sent; the patient is wearing it.
+    ACTIVE = "ACTIVE"
+    # An aligner inside it did not fit, so the phase is unfinished again.
+    ISSUE = "ISSUE"
+    COMPLETED = "COMPLETED"
+
+
+PHASE_STATUS_LABELS: dict[str, str] = {
+    PhaseStatus.NOT_STARTED: "Not started",
+    PhaseStatus.ACTIVE: "With the clinic",
+    PhaseStatus.ISSUE: "Fit issue reported",
+    PhaseStatus.COMPLETED: "Completed",
+}
+
+
+class PhaseIssueResolution(str, Enum):
+    """How a fit issue raised inside a phase ends.
+
+    Instructions are deliberately absent: answering with advice does not close
+    the issue. The clinic is the one wearing the aligner, so only they can say
+    whether the advice worked, and until they do the issue stays open and the
+    two sides can keep talking.
+    """
+
+    REMAKE = "REMAKE"
+    RESCAN = "RESCAN"
+    # The clinic tried what the lab suggested and it is fine now.
+    CLINIC_CONFIRMED = "CLINIC_CONFIRMED"
+
+
+class PhaseIssueAnswer(str, Enum):
+    """What the lab does with a fit issue that is in front of it."""
+
+    COMMENTS = "COMMENTS"
+    REMAKE = "REMAKE"
+    RESCAN = "RESCAN"
+
+
+# Whose turn it is on an open fit issue.
+AWAITING_LAB = "LAB"
+AWAITING_CLINIC = "CLINIC"
+
+
+class PaymentKind(str, Enum):
+    """What a payment is for. One row per kind per case, so a revision, a
+    rescan or a refit never charges the clinic a second time."""
+
+    TREATMENT_PLAN = "TREATMENT_PLAN"
+    TRAINING_FIT = "TRAINING_FIT"
+    PRODUCTION_PHASE = "PRODUCTION_PHASE"
+
+
+PAYMENT_KIND_LABELS: dict[str, str] = {
+    PaymentKind.TREATMENT_PLAN: "Treatment plan",
+    PaymentKind.TRAINING_FIT: "Training fit aligner",
+    PaymentKind.PRODUCTION_PHASE: "Production aligners",
+}
+
+
+class PaymentStatus(str, Enum):
+    DUE = "DUE"
+    # The clinic has paid and sent a screenshot; the lab has not checked it yet.
+    SUBMITTED = "SUBMITTED"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+PAYMENT_STATUS_LABELS: dict[str, str] = {
+    PaymentStatus.DUE: "Awaiting payment",
+    PaymentStatus.SUBMITTED: "Receipt under review",
+    PaymentStatus.VERIFIED: "Paid",
+    PaymentStatus.REJECTED: "Receipt not accepted",
+}
+
+
+class PhaseReviewOutcome(str, Enum):
+    """What the lab concludes from a phase's progress photographs."""
+
+    CONTINUE = "CONTINUE"
+    RESCAN = "RESCAN"
 
 
 class PhaseDecision(str, Enum):
