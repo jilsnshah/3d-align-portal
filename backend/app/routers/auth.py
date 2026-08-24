@@ -39,6 +39,7 @@ def _me(user: User) -> schemas.MeOut:
         id=user.id,
         email=user.email,
         role=user.role,
+        full_name=user.full_name or "",
         doctor=schemas.DoctorOut.model_validate(user.doctor) if user.doctor else None,
     )
 

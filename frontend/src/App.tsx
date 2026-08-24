@@ -49,7 +49,7 @@ export default function App() {
     );
   }
 
-  if (me.role === "ADMIN") {
+  if (me.role === "ADMIN" || me.role === "ORTHODONTIST") {
     return (
       <Routes>
         <Route element={<Layout />}>

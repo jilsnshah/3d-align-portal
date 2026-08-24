@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..db import get_db
-from ..deps import any_order, current_admin
+from ..deps import any_order, current_admin, current_owner, visible_orders
+from ..security import hash_password
 from ..enums import (
     FileCategory,
     ALIGNER_CATEGORIES,
@@ -81,11 +82,15 @@ READY_TO_INVOICE_STATUSES = (OrderStatus.DISPATCHING, OrderStatus.COMPLETED)
 @router.get("/queue", response_model=schemas.QueueOut)
 def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
     def count(*statuses: OrderStatus) -> int:
-        return db.query(Order).filter(Order.status.in_(statuses)).count()
+        return visible_orders(
+            db.query(Order).filter(Order.status.in_(statuses)), staff
+        ).count()
 
     ready_to_invoice = sum(
         1
-        for order in db.query(Order).filter(Order.status.in_(READY_TO_INVOICE_STATUSES)).all()
+        for order in visible_orders(
+            db.query(Order).filter(Order.status.in_(READY_TO_INVOICE_STATUSES)), staff
+        ).all()
         if order.invoice is None and _all_delivered(order)
     )
 
@@ -112,6 +117,7 @@ def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
     series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner)$"),
+    assigned_to: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -124,7 +130,13 @@ def list_orders(
     filtering in Python after a cap means a lab with 500 cases can search for a
     case and be told it does not exist.
     """
-    query = db.query(Order)
+    # Narrowed to what this account may see before anything else is applied,
+    # so searching and paging cannot reach outside it.
+    query = visible_orders(db.query(Order), staff)
+    if assigned_to == "unassigned":
+        query = query.filter(Order.assigned_to_id.is_(None))
+    elif assigned_to:
+        query = query.filter(Order.assigned_to_id == assigned_to)
     if order_status:
         query = query.filter(Order.status == order_status)
     # Enquiries and production cases are different work with different urgency,
@@ -158,9 +170,136 @@ def list_orders(
     return [order_summary(o) for o in orders]
 
 
+# --------------------------------------------------------------------------
+# Orthodontists, and who is planning what
+# --------------------------------------------------------------------------
+
+
+def _staff_out(user: User) -> schemas.StaffUserOut:
+    return schemas.StaffUserOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name or "",
+        role=user.role,
+        is_active=user.is_active,
+    )
+
+
+@router.get("/orthodontists", response_model=list[schemas.StaffUserOut])
+def list_orthodontists(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
+    rows = (
+        db.query(User)
+        .filter(User.role == UserRole.ORTHODONTIST)
+        .order_by(User.full_name, User.email)
+        .all()
+    )
+    return [_staff_out(u) for u in rows]
+
+
+@router.post(
+    "/orthodontists",
+    response_model=schemas.StaffUserOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_orthodontist(
+    payload: schemas.StaffUserIn,
+    admin: User = Depends(current_owner),
+    db: Session = Depends(get_db),
+):
+    """Admin only. An orthodontist cannot make a colleague, because making one
+    is the same as being able to hand cases around."""
+    email = payload.email.lower().strip()
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
+    user = User(
+        email=email,
+        password_hash=hash_password(payload.password),
+        full_name=payload.full_name.strip(),
+        role=UserRole.ORTHODONTIST,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return _staff_out(user)
+
+
+@router.patch("/orthodontists/{user_id}", response_model=schemas.StaffUserOut)
+def update_orthodontist(
+    user_id: str,
+    payload: schemas.StaffUserPatch,
+    admin: User = Depends(current_owner),
+    db: Session = Depends(get_db),
+):
+    user = db.get(User, user_id)
+    if user is None or user.role != UserRole.ORTHODONTIST:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Orthodontist not found.")
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if payload.password:
+        user.password_hash = hash_password(payload.password)
+    db.commit()
+    db.refresh(user)
+    return _staff_out(user)
+
+
+@router.post("/orders/{order_id}/assign", response_model=schemas.OrderDetail)
+def assign_case(
+    order_id: str,
+    payload: schemas.AssignIn,
+    admin: User = Depends(current_owner),
+    db: Session = Depends(get_db),
+):
+    """Hand a case to an orthodontist, or take it back.
+
+    Admin only: an orthodontist giving themselves work would defeat the point
+    of the board being divided in the first place. Any case in the aligner
+    series can be moved, at any stage of it and as often as needed — planning,
+    production and dispatch all outlive a single person's involvement.
+    """
+    order = any_order(order_id, db, admin)
+    # Only cases in the aligner series are handed over, at any stage of it. An
+    # enquiry has not been taken on yet — there is no treatment to plan, and it
+    # has not even spent an AL number.
+    if not order.in_production:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{order.reference} is still an enquiry. A case is handed to an orthodontist "
+            f"once it reaches planning and takes its AL number.",
+        )
+
+    if payload.user_id is None:
+        order.assigned_to_id = None
+        db.commit()
+        db.refresh(order)
+        return order_detail(order, UserRole.ADMIN)
+
+    target = db.get(User, payload.user_id)
+    if target is None or target.role != UserRole.ORTHODONTIST:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Orthodontist not found.")
+    if not target.is_active:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "That orthodontist's account is not active."
+        )
+
+    order.assigned_to_id = target.id
+    db.add(
+        Notification(
+            user_id=target.id,
+            order_id=order.id,
+            title="Case assigned to you",
+            body=f"{order.reference} — {order.patient.full_name if order.patient else ''}",
+        )
+    )
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
 @router.get("/orders/{order_id}", response_model=schemas.OrderDetail)
 def get_order(order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     # Charges follow the plan and the phase split, so they are brought up to
     # date on read. Anything already settled keeps the amount it was paid at.
     payment_service.sync(db, order)
@@ -176,7 +315,7 @@ def get_order(order_id: str, staff: User = Depends(current_admin), db: Session =
 
 @router.post("/orders/{order_id}/start-review", response_model=schemas.OrderDetail)
 def start_review(order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.SUBMITTED)
     transition(db, order, OrderStatus.UNDER_REVIEW, staff)
     db.commit()
@@ -191,7 +330,7 @@ def request_records(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.UNDER_REVIEW)
     order.records_request_note = payload.note
     revision = order.bump_revision(FileGroup.RECORDS)
@@ -284,7 +423,7 @@ def send_quote(
     """The expected quote. The lab reads the clinical photographs, picks the
     aligner band it thinks the case falls into, and that band's fixed price is
     the estimate the clinic approves before any scan happens."""
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.UNDER_REVIEW, OrderStatus.QUOTED)
 
     pricing.ensure_prices(db)
@@ -375,7 +514,7 @@ def accept_scan(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.SCAN_SUBMITTED)
     if not order.has_intraoral_scan:
         raise HTTPException(
@@ -429,7 +568,7 @@ def verify_payment(
     back to the clinic with a reason, so they can send the right screenshot
     rather than guessing what was wrong.
     """
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     payment = next((p for p in order.payments if p.id == payment_id), None)
     if payment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Payment not found.")
@@ -489,7 +628,7 @@ def resolve_phase_fit_issue(
         scan is taken, a training aligner confirms the new fit, and delivery
         resumes at this same phase. Phases already completed are untouched.
     """
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.FIT_ISSUE)
 
     issue = order.open_phase_issue
@@ -608,7 +747,7 @@ def review_phase(
     planning: the treatment is unchanged, the remaining aligners are simply
     rebuilt against where the teeth actually are.
     """
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.PHASE_REVIEW)
 
     if payload.outcome == PhaseReviewOutcome.RESCAN:
@@ -657,7 +796,7 @@ def reject_scan(
     db: Session = Depends(get_db),
 ):
     """Sends the case back for another scan attempt."""
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.SCAN_SUBMITTED)
     order.records_request_note = payload.note
     order.scan_route = None
@@ -682,7 +821,7 @@ def share_plan(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.IN_PLANNING)
 
     for existing in order.plans:
@@ -810,7 +949,7 @@ def resolve_fit_issue(
     """Three ways out of a fit issue. All of them produce a fresh training
     aligner, so the fit round advances and the next one is distinguishable from
     the one that did not fit."""
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.FIT_ISSUE)
 
     fit_round = order.bump_revision(FileGroup.FIT)
@@ -855,7 +994,7 @@ def create_shipment(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     # Raise any charge that has become due since the case last moved, so the
     # gates below are checked against an up-to-date ledger rather than an empty
     # one.
@@ -1019,7 +1158,7 @@ def update_shipment(
 def complete_order(
     order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     assert_status(order, OrderStatus.DISPATCHING)
     if not _all_delivered(order):
         raise HTTPException(
@@ -1038,7 +1177,7 @@ def cancel_order(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     order.cancel_reason = payload.reason
     transition(db, order, OrderStatus.CANCELLED, staff, note=payload.reason)
     db.commit()
@@ -1055,7 +1194,7 @@ def cancel_order(
 def generate_invoice(
     order_id: str, staff: User = Depends(current_admin), db: Session = Depends(get_db)
 ):
-    order = any_order(order_id, db)
+    order = any_order(order_id, db, staff)
     if order.invoice is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "This order already has an invoice.")
     if order.status not in READY_TO_INVOICE_STATUSES:

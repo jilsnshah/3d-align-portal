@@ -1,4 +1,4 @@
-export type Role = "DOCTOR" | "ADMIN" | "TECHNICIAN";
+export type Role = "DOCTOR" | "ADMIN" | "ORTHODONTIST" | "TECHNICIAN";
 export type VerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 
 export type OrderStatus =
@@ -52,6 +52,8 @@ export interface Me {
   id: string;
   email: string;
   role: Role;
+  /** Lab-side accounts carry their own name. */
+  full_name: string;
   doctor: Doctor | null;
 }
 
@@ -266,6 +268,9 @@ export interface OrderDetail extends OrderSummary {
   charges: ChargeLine[];
   /** True while the clinic has not paid the plan fee — plans arrive empty. */
   plan_locked: boolean;
+  /** Which orthodontist is planning this case. Blank for the clinic. */
+  assigned_to_id: string | null;
+  assigned_to_name: string;
   phase_issues: PhaseFitIssue[];
   open_phase_issue: string | null;
   phases_divided: boolean;
@@ -483,6 +488,14 @@ export interface ShippingRate {
 }
 
 export type PhaseStatus = "NOT_STARTED" | "ACTIVE" | "ISSUE" | "COMPLETED";
+
+export interface StaffUser {
+  id: string;
+  email: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+}
 
 export interface Leave {
   id: string;
@@ -968,6 +981,15 @@ export const api = {
     post<OrderDetail>(`/orders/${id}/phase-fit-issue/reply`, { message }),
   closePhaseFitIssue: (id: string) =>
     post<OrderDetail>(`/orders/${id}/phase-fit-issue/resolve`, {}),
+  orthodontists: () => get<StaffUser[]>("/staff/orthodontists"),
+  createOrthodontist: (body: { email: string; password: string; full_name: string }) =>
+    post<StaffUser>("/staff/orthodontists", body),
+  updateOrthodontist: (
+    id: string,
+    body: { full_name?: string; is_active?: boolean; password?: string },
+  ) => patch<StaffUser>(`/staff/orthodontists/${id}`, body),
+  assignCase: (orderId: string, userId: string | null) =>
+    post<OrderDetail>(`/staff/orders/${orderId}/assign`, { user_id: userId }),
   requestLeave: (body: { starts_at: string; ends_at: string; reason: string }) =>
     post<Leave>("/tech/leave", body),
   myLeave: () => get<Leave[]>("/tech/leave"),

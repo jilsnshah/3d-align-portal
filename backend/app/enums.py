@@ -4,11 +4,18 @@ from enum import Enum
 class UserRole(str, Enum):
     DOCTOR = "DOCTOR"
     ADMIN = "ADMIN"
+    # Plans cases for the lab. Works the same tools as the admin — settings,
+    # bookings, technicians — but only on the cases assigned to them.
+    ORTHODONTIST = "ORTHODONTIST"
     TECHNICIAN = "TECHNICIAN"
 
 
-# Both lab roles share the case tools; only ADMIN gets the admin furniture.
-LAB_ROLES = {UserRole.ADMIN, UserRole.TECHNICIAN}
+# Everyone on the lab's side of the case. Drives what the clinic is not shown.
+LAB_ROLES = {UserRole.ADMIN, UserRole.ORTHODONTIST, UserRole.TECHNICIAN}
+
+# The lab office: the case board, the diary, the settings. A technician is on
+# the lab's side but does not plan, so they are not here.
+OFFICE_ROLES = {UserRole.ADMIN, UserRole.ORTHODONTIST}
 
 
 class VerificationStatus(str, Enum):

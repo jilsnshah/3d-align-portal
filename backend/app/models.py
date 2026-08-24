@@ -91,6 +91,10 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[enums.UserRole] = mapped_column(_enum(enums.UserRole, "user_role"))
+    # Lab-side accounts carry their own name. A doctor's lives on their Doctor
+    # record and a technician's on theirs, so this is only filled for the
+    # office: the admin and the orthodontists who plan for them.
+    full_name: Mapped[str] = mapped_column(String(200), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
@@ -230,6 +234,11 @@ class Order(Base, TimestampMixin):
     # One photograph set per fit issue raised inside a phase.
     phase_fit_round: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Which orthodontist is planning this case. Null means it sits with the
+    # lab office, which is where every case starts and where anything nobody
+    # has picked up stays.
+    assigned_to_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"), index=True)
+
     submitted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     approved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
     completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
@@ -250,6 +259,7 @@ class Order(Base, TimestampMixin):
     shipments: Mapped[list[Shipment]] = relationship(
         back_populates="order", cascade="all, delete-orphan", order_by="Shipment.created_at"
     )
+    assigned_to: Mapped[Optional["User"]] = relationship(foreign_keys=[assigned_to_id])
     phases: Mapped[list["OrderPhase"]] = relationship(
         back_populates="order",
         cascade="all, delete-orphan",

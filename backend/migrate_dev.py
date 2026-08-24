@@ -14,6 +14,7 @@ from app.db import engine
 # Tables introduced later are created by create_all(); this only patches columns
 # added to tables that already exist.
 ADDITIONS = {
+    "users": [("full_name", "VARCHAR(200) NOT NULL DEFAULT ''")],
     "addresses": [
         ("latitude", "FLOAT"),
         ("longitude", "FLOAT"),
@@ -71,6 +72,7 @@ ADDITIONS = {
         ("fit_round", "INTEGER NOT NULL DEFAULT 1"),
         ("phase_count", "INTEGER"),
         ("phase_fit_round", "INTEGER NOT NULL DEFAULT 1"),
+        ("assigned_to_id", "VARCHAR(36)"),
         ("progress_round", "INTEGER NOT NULL DEFAULT 1"),
         ("refinement_round", "INTEGER NOT NULL DEFAULT 0"),
     ],

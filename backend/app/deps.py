@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .enums import LAB_ROLES, UserRole, VerificationStatus
+from typing import Optional
+
+from .enums import LAB_ROLES, OFFICE_ROLES, UserRole, VerificationStatus
 from .models import Doctor, Order, User
 from .security import SLOT_HEADER, cookie_name_for, read_session_token
 
@@ -27,7 +29,24 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def current_admin(user: User = Depends(current_user)) -> User:
-    """The lab's own account. Bookings, technicians, settings, verification."""
+    """The lab office: the admin and the orthodontists who plan for them.
+
+    Both work the same tools. What separates them is which cases they can
+    reach, which is enforced at the order lookup rather than here — an
+    orthodontist has every screen, on their own cases only.
+    """
+    if user.role not in OFFICE_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Lab office access only.")
+    return user
+
+
+def current_owner(user: User = Depends(current_user)) -> User:
+    """The lab's own account, and nobody else.
+
+    For the few things that decide who does what: handing a case to an
+    orthodontist, and creating or closing their accounts. An orthodontist
+    cannot give themselves work or make a colleague.
+    """
     if user.role != UserRole.ADMIN:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access only.")
     return user
@@ -80,8 +99,32 @@ def owned_order(order_id: str, db: Session, doctor: Doctor) -> Order:
     return order
 
 
-def any_order(order_id: str, db: Session) -> Order:
+def any_order(order_id: str, db: Session, user: Optional[User] = None) -> Order:
+    """Single choke point for lab-side order access.
+
+    An orthodontist reaches only the cases assigned to them. A case they do not
+    have reads as missing rather than forbidden: telling them it exists but is
+    someone else's would leak the board they are not meant to see, and knowing
+    an id would be enough to confirm a patient is a client.
+    """
     order = db.get(Order, order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found.")
+    if (
+        user is not None
+        and user.role == UserRole.ORTHODONTIST
+        and order.assigned_to_id != user.id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found.")
     return order
+
+
+def visible_orders(query, user: User):
+    """Narrow a case query to what this account may see.
+
+    The admin sees the whole board. An orthodontist sees their own assignments,
+    and nothing else — searching, paging and filtering all run inside that.
+    """
+    if user.role == UserRole.ORTHODONTIST:
+        return query.filter(Order.assigned_to_id == user.id)
+    return query

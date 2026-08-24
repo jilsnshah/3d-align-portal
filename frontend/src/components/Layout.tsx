@@ -29,7 +29,8 @@ export default function Layout() {
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const isAdmin = me?.role === "ADMIN";
+  const isAdmin = me?.role === "ADMIN" || me?.role === "ORTHODONTIST";
+  const isOrtho = me?.role === "ORTHODONTIST";
   const isTech = me?.role === "TECHNICIAN";
   const nav = isAdmin ? ADMIN_NAV : isTech ? TECH_NAV : DOCTOR_NAV;
 
@@ -65,7 +66,7 @@ export default function Layout() {
       <header className="topbar">
         <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/orders"} className="brand">
           <img className="brand-logo" src="/logo.png" alt="3D Aligners" />
-          {isAdmin && <span className="brand-sub">Lab</span>}
+          {isAdmin && <span className="brand-sub">{isOrtho ? "Planning" : "Lab"}</span>}
           {isTech && <span className="brand-sub">Scan team</span>}
         </NavLink>
 
@@ -90,7 +91,11 @@ export default function Layout() {
             )}
           </button>
           <div className="who">
-            <b>{me?.doctor?.full_name ?? (isTech ? "Scan technician" : "3D Align Lab")}</b>
+            <b>
+              {me?.doctor?.full_name ??
+                me?.full_name ??
+                (isTech ? "Scan technician" : "3D Align Lab")}
+            </b>
             {me?.email}
           </div>
           <button

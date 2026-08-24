@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { WEEKDAYS, api, formatMoney } from "../../api";
 import type { AlignerPrice, BookingSettings, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
+import OrthodontistRoster from "../../components/OrthodontistRoster";
+import { useAuth } from "../../auth";
 
 type Knob = { key: keyof BookingSettings; label: string; hint: string; min: number; max: number; step?: number };
 
@@ -25,6 +27,7 @@ const ROUTING: Knob[] = [
 ];
 
 export default function AdminSettings() {
+  const { me } = useAuth();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["booking-settings"], queryFn: api.bookingSettings });
   const pricing = useQuery({ queryKey: ["pricing"], queryFn: api.pricing });
@@ -93,6 +96,13 @@ export default function AdminSettings() {
           <p className="sub">Aligner pricing and the scan booking calendar.</p>
         </div>
       </div>
+
+      {me?.role === "ADMIN" && (
+        <>
+          <h2 style={{ marginBottom: 12 }}>People</h2>
+          <OrthodontistRoster />
+        </>
+      )}
 
       <h2 style={{ marginBottom: 12 }}>Payments</h2>
       <div className="card stack-sm" style={{ marginBottom: 16 }}>

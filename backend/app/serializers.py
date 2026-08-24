@@ -450,6 +450,14 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
         quotes=[_quote_out(q) for q in order.quotes],
         plans=[] if plan_locked else [_plan_out(p) for p in order.plans],
         plan_locked=plan_locked,
+        # The clinic deals with the lab, not with which of its people is
+        # holding the file, so this is only filled in for the lab's own side.
+        assigned_to_id=order.assigned_to_id if viewer_role in LAB_ROLES else None,
+        assigned_to_name=(
+            (order.assigned_to.full_name or order.assigned_to.email)
+            if viewer_role in LAB_ROLES and order.assigned_to is not None
+            else ""
+        ),
         payments=[_payment_out(order, p, settings) for p in order.payments],
         charges=charge_lines(order, settings),
         shipments=[_shipment_out(order, s) for s in order.shipments],

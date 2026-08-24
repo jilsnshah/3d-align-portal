@@ -75,6 +75,8 @@ class MeOut(BaseModel):
     id: str
     email: str
     role: enums.UserRole
+    # Lab-side accounts carry their own name; a doctor's lives on their record.
+    full_name: str = ""
     doctor: Optional[DoctorOut] = None
 
 
@@ -328,6 +330,32 @@ class ShippingRateIn(BaseModel):
     city: str
     amount: Decimal = Field(default=Decimal("0"), ge=0)
     is_active: bool = True
+
+
+class StaffUserIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: str = ""
+
+
+class StaffUserPatch(BaseModel):
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = Field(default=None, min_length=8)
+
+
+class StaffUserOut(BaseModel):
+    id: str
+    email: str
+    full_name: str = ""
+    role: enums.UserRole
+    is_active: bool = True
+
+
+class AssignIn(BaseModel):
+    """Null hands the case back to the lab office."""
+
+    user_id: Optional[str] = None
 
 
 class LeaveRequestIn(BaseModel):
@@ -878,6 +906,10 @@ class OrderDetail(OrderSummary):
     payments: list = []
     charges: list = []
     plan_locked: bool = False
+    # Who is planning this case. Blank for the clinic — they deal with the lab,
+    # not with which of its people is holding the file.
+    assigned_to_id: Optional[str] = None
+    assigned_to_name: str = ""
     # Every fit issue raised inside a phase, newest last, and the one still open.
     phase_issues: list = []
     open_phase_issue: Optional[str] = None

@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     # The single staff account, seeded at startup.
     staff_email: str = "staff@3dalign.com"
     staff_password: str = "changeme"
+    # Shown on the board and in the timeline as the lab's own name.
+    staff_full_name: str = "Dr. Sagar Hirani"
     staff_name: str = "3D Align Lab"
 
     # "local" writes under storage_local_root. "drive" uses a Google service account.

@@ -19,11 +19,16 @@ def ensure_staff_account(db: Session) -> User:
     email = settings.staff_email.lower().strip()
     existing = db.query(User).filter(User.email == email).one_or_none()
     if existing:
+        # Backfill for accounts created before lab-side names existed.
+        if not existing.full_name:
+            existing.full_name = settings.staff_full_name
+            db.commit()
         return existing
 
     staff = User(
         email=email,
         password_hash=hash_password(settings.staff_password),
+        full_name=settings.staff_full_name,
         role=UserRole.ADMIN,
     )
     db.add(staff)
