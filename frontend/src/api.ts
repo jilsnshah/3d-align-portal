@@ -244,6 +244,9 @@ export interface OrderSummary {
   category_label: string;
   /** False while the band is still the estimate read off the photographs. */
   category_confirmed: boolean;
+  /** Which orthodontist is planning it. Lab-side only. */
+  assigned_to_id: string | null;
+  assigned_to_name: string;
   patient_name: string;
   doctor_name: string;
   clinic_name: string;
@@ -268,9 +271,6 @@ export interface OrderDetail extends OrderSummary {
   charges: ChargeLine[];
   /** True while the clinic has not paid the plan fee — plans arrive empty. */
   plan_locked: boolean;
-  /** Which orthodontist is planning this case. Blank for the clinic. */
-  assigned_to_id: string | null;
-  assigned_to_name: string;
   phase_issues: PhaseFitIssue[];
   open_phase_issue: string | null;
   phases_divided: boolean;

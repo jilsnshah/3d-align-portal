@@ -167,7 +167,7 @@ def list_orders(
     orders = (
         query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
     )
-    return [order_summary(o) for o in orders]
+    return [order_summary(o, staff.role) for o in orders]
 
 
 # --------------------------------------------------------------------------

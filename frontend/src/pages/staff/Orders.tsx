@@ -1,10 +1,12 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
+import { useAuth } from "../../auth";
+import type { OrderSummary } from "../../api";
 
 const STATUSES = [
   "SUBMITTED",
@@ -52,6 +54,8 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
 
 export default function StaffOrders() {
   const navigate = useNavigate();
+  const { me } = useAuth();
+  const canAssign = me?.role === "ADMIN";
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "";
   const series: CaseSeries = params.get("series") === "enquiry" ? "enquiry" : "aligner";
@@ -150,6 +154,7 @@ export default function StaffOrders() {
                 <th>Patient</th>
                 <th>Doctor</th>
                 <th>Align category</th>
+                {series === "aligner" && <th>Orthodontist</th>}
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -180,6 +185,12 @@ export default function StaffOrders() {
                       confirmed={order.category_confirmed}
                     />
                   </td>
+                  {series === "aligner" && (
+                    // Stops the click reaching the row, which would open the case.
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <AssigneeCell order={order} canAssign={canAssign} />
+                    </td>
+                  )}
                   <td>
                     <StatusPill status={order.status} label={order.status_label} />
                   </td>
@@ -193,5 +204,64 @@ export default function StaffOrders() {
         </>
       )}
     </main>
+  );
+}
+
+/** Who is planning a case, changed from the board itself.
+ *
+ *  The admin picks from the list; an orthodontist sees the name and cannot
+ *  move it, because handing cases around is what divides the board in the
+ *  first place. The roster is fetched once for the whole table rather than per
+ *  row.
+ */
+function AssigneeCell({
+  order,
+  canAssign,
+}: {
+  order: OrderSummary;
+  canAssign: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const people = useQuery({
+    queryKey: ["orthodontists"],
+    queryFn: api.orthodontists,
+    enabled: canAssign,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const assign = useMutation({
+    mutationFn: (userId: string | null) => api.assignCase(order.id, userId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["queue"] });
+    },
+  });
+
+  if (!canAssign) {
+    return order.assigned_to_name ? (
+      <span>{order.assigned_to_name}</span>
+    ) : (
+      <span className="dim">3D Align</span>
+    );
+  }
+
+  return (
+    <select
+      className="assignee-select"
+      value={order.assigned_to_id ?? ""}
+      disabled={assign.isPending}
+      onChange={(e) => assign.mutate(e.target.value || null)}
+      title={assign.error ? String(assign.error) : undefined}
+    >
+      <option value="">3D Align</option>
+      {(people.data ?? [])
+        .filter((p) => p.is_active || p.id === order.assigned_to_id)
+        .map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.full_name || p.email}
+            {p.is_active ? "" : " (inactive)"}
+          </option>
+        ))}
+    </select>
   );
 }

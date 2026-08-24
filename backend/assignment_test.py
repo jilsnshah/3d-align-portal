@@ -303,6 +303,26 @@ with TestClient(app) as boot:
         str([x["id"] for x in r.json()]),
     )
 
+    # The board carries the assignee, so it can be seen and changed from there.
+    row = next(x for x in admin.get("/api/staff/orders").json() if x["id"] == case_a)
+    check(
+        "the board shows who is planning each case",
+        row["assigned_to_id"] == ortho_a_id and row["assigned_to_name"] == "Dr. Kavita Rao",
+        str((row["assigned_to_id"], row["assigned_to_name"])),
+    )
+    unowned = next(x for x in admin.get("/api/staff/orders").json() if x["id"] == early)
+    check(
+        "and leaves it blank for anything nobody holds",
+        unowned["assigned_to_id"] is None and unowned["assigned_to_name"] == "",
+        str(unowned["assigned_to_name"]),
+    )
+    clinic_row = next(x for x in doctor.get("/api/orders").json() if x["id"] == case_a)
+    check(
+        "the clinic's own list says nothing about it",
+        clinic_row["assigned_to_id"] is None and clinic_row["assigned_to_name"] == "",
+        str((clinic_row["assigned_to_id"], clinic_row["assigned_to_name"])),
+    )
+
     # -- searching and paging obey the same scope --------------------------
     r = ortho_a.get("/api/staff/orders?search=Arjun")
     check(

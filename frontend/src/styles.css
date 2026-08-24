@@ -1956,3 +1956,11 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   background: var(--danger-soft);
 }
 .phase-list li .pill { flex: none; }
+
+/* Changing who is planning a case from the board itself. Sized to sit in a
+   table row without stretching it. */
+.assignee-select {
+  max-width: 170px;
+  padding: 5px 8px;
+  font-size: 0.82rem;
+}

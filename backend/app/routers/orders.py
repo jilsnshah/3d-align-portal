@@ -101,7 +101,7 @@ def list_orders(
             )
         )
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
-    return [order_summary(o) for o in orders]
+    return [order_summary(o, UserRole.DOCTOR) for o in orders]
 
 
 @router.post("", response_model=schemas.OrderDetail, status_code=status.HTTP_201_CREATED)

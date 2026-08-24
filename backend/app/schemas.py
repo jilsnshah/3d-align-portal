@@ -879,6 +879,10 @@ class OrderSummary(BaseModel):
     category: Optional[str] = None
     category_label: str = ""
     category_confirmed: bool = False
+    # Who is planning it. Lab-side only — the clinic deals with 3D Align, not
+    # with which of its people is holding the file.
+    assigned_to_id: Optional[str] = None
+    assigned_to_name: str = ""
     patient_name: str
     doctor_name: str
     clinic_name: str
@@ -906,10 +910,6 @@ class OrderDetail(OrderSummary):
     payments: list = []
     charges: list = []
     plan_locked: bool = False
-    # Who is planning this case. Blank for the clinic — they deal with the lab,
-    # not with which of its people is holding the file.
-    assigned_to_id: Optional[str] = None
-    assigned_to_name: str = ""
     # Every fit issue raised inside a phase, newest last, and the one still open.
     phase_issues: list = []
     open_phase_issue: Optional[str] = None
