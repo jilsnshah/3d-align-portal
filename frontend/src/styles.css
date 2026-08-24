@@ -1964,3 +1964,32 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: 5px 8px;
   font-size: 0.82rem;
 }
+
+/* How far a case has got, beside what it is doing. The status names the stage;
+   the bar says how much of the journey is behind it. */
+.case-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 148px;
+}
+.case-progress-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.case-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gold);
+  transition: width var(--mid) var(--ease-out);
+}
+.case-progress-bar.done span { background: var(--ok); }
+.case-progress-bar.stuck span { background: var(--danger); }
+.case-progress-note {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}

@@ -20,6 +20,7 @@ from .enums import (
     PAYMENT_STATUS_LABELS,
     PaymentKind,
     PaymentStatus,
+    PhaseStatus,
     REQUIRED_SUBMIT_CATEGORIES,
     SLOT_LABELS,
     STATUS_LABELS,
@@ -242,10 +243,14 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         category=category,
         category_label=category_label(category) if category else "",
         category_confirmed=False if locked else order.aligner_category_confirmed,
+        # The clinic is shown their orthodontist by name so they know who to
+        # ask about the case. The id is lab-side plumbing and stays there.
+        phases_total=len(order.phases),
+        phases_done=sum(1 for p in order.phases if p.status == PhaseStatus.COMPLETED),
         assigned_to_id=order.assigned_to_id if viewer_role in LAB_ROLES else None,
         assigned_to_name=(
             (order.assigned_to.full_name or order.assigned_to.email)
-            if viewer_role in LAB_ROLES and order.assigned_to is not None
+            if order.assigned_to is not None
             else ""
         ),
         patient_name=order.patient.full_name,

@@ -189,6 +189,32 @@ with TestClient(app) as client:
     r = staff.put("/api/staff/shipping-rates", json=[{"city": "Ahmedabad", "amount": "150"}])
     check("shipping is priced per city", r.status_code == 200, r.text[:140])
 
+    # A rate is matched against the city the clinic typed. One spelled even
+    # slightly differently reaches nobody and quietly bills the default, so the
+    # coverage is counted rather than assumed.
+    r = staff.put("/api/staff/shipping-rates", json=[{"city": "Ahmedabaad", "amount": "999"}])
+    rows = {x["city"]: x for x in staff.get("/api/staff/shipping-rates").json()}
+    check(
+        "a rate that matches no clinic says so",
+        rows["Ahmedabaad"]["clinics"] == 0,
+        str(rows["Ahmedabaad"]),
+    )
+    check(
+        "while a real one shows what it covers",
+        rows["Ahmedabad"]["clinics"] >= 1,
+        str(rows["Ahmedabad"]),
+    )
+    cities = {c["city"]: c for c in staff.get("/api/staff/delivery-cities").json()}
+    check(
+        "and the cities offered are the ones clinics are really in",
+        "Ahmedabad" in cities and "Ahmedabaad" not in cities,
+        str(list(cities)),
+    )
+    staff.put(
+        "/api/staff/shipping-rates",
+        json=[{"city": "Ahmedabaad", "amount": "999", "is_active": False}],
+    )
+
     pending = staff.get("/api/staff/doctors?pending_only=true").json()
     check("doctor is in the verification queue", len(pending) == 1, str(pending))
     doctor_id = pending[0]["id"]

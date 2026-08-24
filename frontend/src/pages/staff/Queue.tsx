@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import CaseProgress from "../../components/CaseProgress";
 import { useNavigate } from "react-router-dom";
 
 import { api, formatDate } from "../../api";
-import { Empty, Loading, StatusPill } from "../../components/ui";
+import { Empty, Loading } from "../../components/ui";
 
 const BUCKETS: { key: keyof ReturnType<typeof bucketKeys>; label: string; status?: string }[] = [
   { key: "new_submissions", label: "New submissions", status: "SUBMITTED" },
@@ -81,6 +82,7 @@ export default function StaffQueue() {
                 <th>Case</th>
                 <th>Patient</th>
                 <th>Doctor</th>
+                <th>Orthodontist</th>
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -106,7 +108,15 @@ export default function StaffQueue() {
                     {order.clinic_name && <div className="dim">{order.clinic_name}</div>}
                   </td>
                   <td>
-                    <StatusPill status={order.status} label={order.status_label} />
+                    {order.assigned_to_name || <span className="dim">3D Align</span>}
+                  </td>
+                  <td>
+                    <CaseProgress
+                      status={order.status}
+                      label={order.status_label}
+                      phaseDone={order.phases_done}
+                      phaseTotal={order.phases_total}
+                    />
                   </td>
                   <td className="dim">{formatDate(order.updated_at)}</td>
                 </tr>

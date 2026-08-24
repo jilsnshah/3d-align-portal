@@ -5,7 +5,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
-import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
+import { CategoryPill, Empty, Loading } from "../../components/ui";
+import CaseProgress from "../../components/CaseProgress";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -141,6 +142,7 @@ function Section({
                 <th>Case</th>
                 <th>Patient</th>
                 <th>Align category</th>
+                <th>Your orthodontist</th>
                 <th>Status</th>
                 <th>Updated</th>
               </tr>
@@ -164,7 +166,15 @@ function Section({
                     />
                   </td>
                   <td>
-                    <StatusPill status={order.status} label={order.status_label} />
+                    {order.assigned_to_name || <span className="dim">3D Align</span>}
+                  </td>
+                  <td>
+                    <CaseProgress
+                      status={order.status}
+                      label={order.status_label}
+                      phaseDone={order.phases_done}
+                      phaseTotal={order.phases_total}
+                    />
                   </td>
                   <td className="dim">{formatDate(order.updated_at)}</td>
                 </tr>

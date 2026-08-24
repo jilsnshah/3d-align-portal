@@ -318,9 +318,14 @@ with TestClient(app) as boot:
     )
     clinic_row = next(x for x in doctor.get("/api/orders").json() if x["id"] == case_a)
     check(
-        "the clinic's own list says nothing about it",
-        clinic_row["assigned_to_id"] is None and clinic_row["assigned_to_name"] == "",
-        str((clinic_row["assigned_to_id"], clinic_row["assigned_to_name"])),
+        "the clinic is told who is planning their case, by name",
+        clinic_row["assigned_to_name"] == "Dr. Kavita Rao",
+        str(clinic_row["assigned_to_name"]),
+    )
+    check(
+        "but not the account behind it",
+        clinic_row["assigned_to_id"] is None,
+        str(clinic_row["assigned_to_id"]),
     )
 
     # -- searching and paging obey the same scope --------------------------
@@ -417,8 +422,8 @@ with TestClient(app) as boot:
     )
     seen = doctor.get(f"/api/orders/{case_b}").json()
     check(
-        "and is told nothing about who is planning them",
-        seen["assigned_to_id"] is None and seen["assigned_to_name"] == "",
+        "and knows the orthodontist to ask about each one",
+        seen["assigned_to_name"] == "Dr. Sameer Joshi" and seen["assigned_to_id"] is None,
         f"{seen['assigned_to_id']} {seen['assigned_to_name']}",
     )
 

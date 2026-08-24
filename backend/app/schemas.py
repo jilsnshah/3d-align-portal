@@ -324,6 +324,18 @@ class ShippingRateOut(ORMModel):
     city: str
     amount: Decimal
     is_active: bool = True
+    # How many clinics this rate actually reaches. Zero means it matches
+    # nothing — almost always a spelling that does not exist.
+    clinics: int = 0
+
+
+class DeliveryCityOut(BaseModel):
+    """A city clinics are actually in, and what delivery there costs."""
+
+    city: str
+    clinics: int
+    amount: Optional[Decimal] = None
+    is_active: bool = True
 
 
 class ShippingRateIn(BaseModel):
@@ -891,6 +903,10 @@ class OrderSummary(BaseModel):
     # with which of its people is holding the file.
     assigned_to_id: Optional[str] = None
     assigned_to_name: str = ""
+    # How far through its phases a case in delivery has got, so a board can
+    # show progress rather than only which stage a case is sitting in.
+    phases_done: int = 0
+    phases_total: int = 0
     patient_name: str
     doctor_name: str
     clinic_name: str

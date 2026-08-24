@@ -4,8 +4,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
-import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
+import { CategoryPill, Empty, Loading } from "../../components/ui";
 import { useAuth } from "../../auth";
+import CaseProgress from "../../components/CaseProgress";
 import type { OrderSummary } from "../../api";
 
 const STATUSES = [
@@ -192,7 +193,12 @@ export default function StaffOrders() {
                     </td>
                   )}
                   <td>
-                    <StatusPill status={order.status} label={order.status_label} />
+                    <CaseProgress
+                      status={order.status}
+                      label={order.status_label}
+                      phaseDone={order.phases_done}
+                      phaseTotal={order.phases_total}
+                    />
                   </td>
                   <td className="dim">{formatDate(order.updated_at)}</td>
                 </tr>

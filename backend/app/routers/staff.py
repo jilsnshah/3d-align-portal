@@ -40,6 +40,7 @@ from ..enums import (
     category_label,
 )
 from ..models import (
+    Address,
     AlignerPrice,
     Doctor,
     Invoice,
@@ -347,9 +348,61 @@ def request_records(
     return order_detail(order, UserRole.ADMIN)
 
 
+def _clinic_cities(db: Session) -> dict:
+    """Every city a clinic is actually in, and how many are there.
+
+    Delivery is priced by city name, and the name is matched against what the
+    clinic typed. A rate spelled even slightly differently reaches nobody and
+    quietly bills the default instead, so both sides of that match are counted
+    and shown rather than assumed to line up.
+    """
+    counts: dict = {}
+    for (city,) in db.query(Address.city).filter(Address.city != "").all():
+        key = (city or "").strip()
+        if key:
+            counts[key.casefold()] = counts.get(key.casefold(), 0) + 1
+    names: dict = {}
+    for (city,) in db.query(Address.city).filter(Address.city != "").all():
+        key = (city or "").strip()
+        if key:
+            names.setdefault(key.casefold(), key)
+    return {names[k]: v for k, v in counts.items()}
+
+
 @router.get("/shipping-rates", response_model=list[schemas.ShippingRateOut])
 def read_shipping_rates(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
-    return db.query(ShippingRate).order_by(ShippingRate.city).all()
+    cities = {k.casefold(): v for k, v in _clinic_cities(db).items()}
+    out = []
+    for row in db.query(ShippingRate).order_by(ShippingRate.city).all():
+        item = schemas.ShippingRateOut.model_validate(row)
+        item.clinics = cities.get((row.city or "").strip().casefold(), 0)
+        out.append(item)
+    return out
+
+
+@router.get("/delivery-cities", response_model=list[schemas.DeliveryCityOut])
+def delivery_cities(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
+    """The cities that actually need pricing, whether or not they have a rate.
+
+    Typing a city by hand is how a rate ends up reaching nobody, so the lab
+    picks from the places clinics really are.
+    """
+    rates = {
+        (r.city or "").strip().casefold(): r
+        for r in db.query(ShippingRate).all()
+    }
+    out = []
+    for city, count in sorted(_clinic_cities(db).items()):
+        rate = rates.get(city.casefold())
+        out.append(
+            schemas.DeliveryCityOut(
+                city=city,
+                clinics=count,
+                amount=rate.amount if rate is not None else None,
+                is_active=rate.is_active if rate is not None else True,
+            )
+        )
+    return out
 
 
 @router.put("/shipping-rates", response_model=list[schemas.ShippingRateOut])

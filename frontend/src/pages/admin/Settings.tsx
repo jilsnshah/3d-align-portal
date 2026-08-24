@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { WEEKDAYS, api, formatMoney } from "../../api";
-import type { AlignerPrice, BookingSettings, ShippingRate } from "../../api";
+import type { AlignerPrice, BookingSettings, DeliveryCity, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 import OrthodontistRoster from "../../components/OrthodontistRoster";
 import LocationPicker from "../../components/LocationPicker";
@@ -37,6 +37,9 @@ export default function AdminSettings() {
   const [draft, setDraft] = useState<BookingSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const rates = useQuery({ queryKey: ["shipping-rates"], queryFn: api.shippingRates });
+  // The cities clinics are actually in. Delivery is matched on the name, so a
+  // rate typed by hand can miss every clinic and quietly bill the default.
+  const cities = useQuery({ queryKey: ["delivery-cities"], queryFn: api.deliveryCities });
   const [shipping, setShipping] = useState<ShippingRate[] | null>(null);
   const [shippingSaved, setShippingSaved] = useState(false);
 
@@ -174,6 +177,7 @@ export default function AdminSettings() {
               <tr>
                 <th>City</th>
                 <th>Charge</th>
+                <th>Clinics</th>
                 <th>Active</th>
               </tr>
             </thead>
@@ -195,6 +199,15 @@ export default function AdminSettings() {
                     />
                   </td>
                   <td>
+                    {row.clinics > 0 ? (
+                      <span className="dim">{row.clinics}</span>
+                    ) : (
+                      <span className="pill pill-danger" title="No clinic is in a city spelled this way, so this rate is never used.">
+                        reaches none
+                      </span>
+                    )}
+                  </td>
+                  <td>
                     <input
                       type="checkbox"
                       checked={row.is_active}
@@ -210,9 +223,28 @@ export default function AdminSettings() {
             </tbody>
           </table>
         </div>
+        {/* Cities with clinics but no rate. Each one is silently billing the
+            default until it is priced, which is the same failure a misspelled
+            rate causes from the other direction. */}
+        {(cities.data ?? []).filter((c) => c.amount === null).length > 0 && (
+          <Banner tone="warn">
+            <span>
+              No delivery charge set for{" "}
+              {(cities.data ?? [])
+                .filter((c) => c.amount === null)
+                .map((c) => `${c.city} (${c.clinics} clinic${c.clinics === 1 ? "" : "s"})`)
+                .join(", ")}
+              . They are billed the default until priced.
+            </span>
+          </Banner>
+        )}
         <NewCityRow
+          cities={(cities.data ?? []).filter((c) => c.amount === null)}
           onAdd={(city) =>
-            setShipping([...(shipping ?? []), { city, amount: "0", is_active: true }])
+            setShipping([
+              ...(shipping ?? []),
+              { city, amount: "0", is_active: true, clinics: 0 },
+            ])
           }
         />
         <div className="row">
@@ -492,22 +524,39 @@ export default function AdminSettings() {
 
 /** Adding a city the lab has not priced yet. Kept separate so the table above
     stays a plain list of what already exists. */
-function NewCityRow({ onAdd }: { onAdd: (city: string) => void }) {
+/** Adding a city the lab has not priced yet.
+ *
+ *  Chosen from the places clinics really are rather than typed: delivery is
+ *  matched on the name, and a rate spelled even slightly differently reaches
+ *  nobody and bills the default instead, with nothing to show for it.
+ */
+function NewCityRow({
+  cities,
+  onAdd,
+}: {
+  cities: DeliveryCity[];
+  onAdd: (city: string) => void;
+}) {
   const [city, setCity] = useState("");
+  if (cities.length === 0) {
+    return <p className="dim">Every city with a clinic in it has a rate.</p>;
+  }
   return (
     <div className="row" style={{ gap: 8 }}>
-      <input
-        placeholder="Add a city"
-        value={city}
-        onChange={(e) => setCity(e.target.value)}
-        style={{ maxWidth: 220 }}
-      />
+      <select value={city} onChange={(e) => setCity(e.target.value)} style={{ maxWidth: 260 }}>
+        <option value="">Add a city…</option>
+        {cities.map((c) => (
+          <option key={c.city} value={c.city}>
+            {c.city} — {c.clinics} clinic{c.clinics === 1 ? "" : "s"}
+          </option>
+        ))}
+      </select>
       <button
         type="button"
         className="btn-ghost"
-        disabled={!city.trim()}
+        disabled={!city}
         onClick={() => {
-          onAdd(city.trim());
+          onAdd(city);
           setCity("");
         }}
       >

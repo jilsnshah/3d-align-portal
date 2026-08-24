@@ -247,6 +247,9 @@ export interface OrderSummary {
   /** Which orthodontist is planning it. Lab-side only. */
   assigned_to_id: string | null;
   assigned_to_name: string;
+  /** How far through its phases a case in delivery has got. */
+  phases_done: number;
+  phases_total: number;
   patient_name: string;
   doctor_name: string;
   clinic_name: string;
@@ -484,6 +487,15 @@ export interface ChargeLine {
 export interface ShippingRate {
   city: string;
   amount: string;
+  is_active: boolean;
+  /** How many clinics this rate actually reaches. Zero means it matches none. */
+  clinics: number;
+}
+
+export interface DeliveryCity {
+  city: string;
+  clinics: number;
+  amount: string | null;
   is_active: boolean;
 }
 
@@ -963,6 +975,7 @@ export const api = {
       reason,
     }),
   shippingRates: () => get<ShippingRate[]>("/staff/shipping-rates"),
+  deliveryCities: () => get<DeliveryCity[]>("/staff/delivery-cities"),
   saveShippingRates: (rows: ShippingRate[]) =>
     request<ShippingRate[]>("/staff/shipping-rates", {
       method: "PUT",
