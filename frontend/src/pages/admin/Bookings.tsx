@@ -4,6 +4,8 @@ import RouteMap from "../../components/RouteMap";
 import RouteSheet from "../../components/RouteSheet";
 
 import { api, formatDay, formatTime, toISODate } from "../../api";
+import AttentionQueue from "../../components/AttentionQueue";
+import LeaveQueue from "../../components/LeaveQueue";
 import type { Booking } from "../../api";
 import { Empty, ErrorText, Field, Loading } from "../../components/ui";
 
@@ -17,10 +19,11 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function AdminBookings() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<"week" | "list" | "routes" | "requests">("week");
+  const [view, setView] = useState<"week" | "list" | "routes" | "requests" | "leave">("week");
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [statusFilter, setStatusFilter] = useState("");
   const pending = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
+  const leavePending = useQuery({ queryKey: ["leave-queue"], queryFn: () => api.leaveQueue(true) });
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -72,6 +75,18 @@ export default function AdminBookings() {
           </button>
           <button
             type="button"
+            className={view === "leave" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
+            onClick={() => setView("leave")}
+          >
+            Leave
+            {(leavePending.data?.length ?? 0) > 0 && (
+              <span className="bell-count" style={{ marginLeft: 6 }}>
+                {leavePending.data?.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             className={view === "requests" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
             onClick={() => setView("requests")}
           >
@@ -85,7 +100,15 @@ export default function AdminBookings() {
         </div>
       </div>
 
-      {view === "requests" ? (
+      {/* A stranded visit is somebody expecting a technician who is not coming,
+          so it sits above whatever view is open rather than behind a tab. */}
+      <div style={{ marginBottom: 16 }}>
+        <AttentionQueue />
+      </div>
+
+      {view === "leave" ? (
+        <LeaveQueue />
+      ) : view === "requests" ? (
         <RequestsView />
       ) : view === "routes" ? (
         <RoutesView />

@@ -440,6 +440,35 @@ class ShipmentStatus(str, Enum):
     DELIVERED = "DELIVERED"
 
 
+class LeaveStatus(str, Enum):
+    """A technician's request to be off.
+
+    Leave only takes effect once the lab has approved it — a request on its own
+    must not quietly close the diary, or a technician could strand their own
+    bookings simply by asking.
+    """
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    DECLINED = "DECLINED"
+
+
+LEAVE_STATUS_LABELS: dict[str, str] = {
+    LeaveStatus.PENDING: "Awaiting approval",
+    LeaveStatus.APPROVED: "Approved",
+    LeaveStatus.DECLINED: "Declined",
+}
+
+
+class AttentionAction(str, Enum):
+    """What the lab does with a visit nobody could cover."""
+
+    # Cancel it and ask the clinic to pick another slot.
+    RESCHEDULE = "RESCHEDULE"
+    # Leave it standing — the lab will sort it out off-system.
+    IGNORE = "IGNORE"
+
+
 class PhaseStatus(str, Enum):
     """Where one phase of a phased dispatch has got to.
 

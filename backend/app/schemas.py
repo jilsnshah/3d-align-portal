@@ -330,6 +330,45 @@ class ShippingRateIn(BaseModel):
     is_active: bool = True
 
 
+class LeaveRequestIn(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = ""
+
+
+class LeaveDecisionIn(BaseModel):
+    approve: bool
+    note: str = ""
+
+
+class LeaveOut(BaseModel):
+    id: str
+    technician_id: str
+    technician_name: str = ""
+    starts_at: datetime
+    ends_at: datetime
+    reason: str
+    status: str
+    status_label: str = ""
+    decision_note: str = ""
+    decided_at: Optional[datetime] = None
+    # Visits that fall inside the window, so the lab sees the cost of approving
+    # before it approves.
+    affected_visits: int = 0
+
+
+class LeaveDecisionOut(BaseModel):
+    leave: LeaveOut
+    # What happened to the visits the leave took away.
+    covered: list = []
+    stranded: list = []
+
+
+class AttentionIn(BaseModel):
+    action: enums.AttentionAction
+    note: str = ""
+
+
 class PhaseFitIssueIn(BaseModel):
     """An aligner inside a delivered phase that does not fit."""
 
@@ -469,6 +508,9 @@ class AppointmentOut(BaseModel):
     cancel_reason: str
     outcome_notes: str
     location: str
+    # Set when approved leave took the technician away and nobody could cover.
+    needs_attention: bool = False
+    attention_reason: str = ""
 
 
 # ---- booking -------------------------------------------------------------

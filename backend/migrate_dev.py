@@ -49,7 +49,16 @@ ADDITIONS = {
         ("bucket", "VARCHAR(10) NOT NULL DEFAULT ''"),
         ("expires_at", "TIMESTAMP"),
     ],
+    "time_off": [
+        ("status", "VARCHAR(20) NOT NULL DEFAULT 'APPROVED'"),
+        ("requested_by_id", "VARCHAR(36)"),
+        ("decided_by_id", "VARCHAR(36)"),
+        ("decided_at", "DATETIME"),
+        ("decision_note", "VARCHAR(300) NOT NULL DEFAULT ''"),
+    ],
     "appointments": [
+        ("needs_attention_at", "DATETIME"),
+        ("attention_reason", "VARCHAR(300) NOT NULL DEFAULT ''"),
         ("is_day_visit", "BOOLEAN NOT NULL DEFAULT 0"),
     ],
     "orders": [

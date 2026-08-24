@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, formatDay, formatTime } from "../../api";
+import LeavePanel from "../../components/LeavePanel";
 import type { Job } from "../../api";
 import RouteSheet from "../../components/RouteSheet";
 import { Empty, ErrorText, Loading } from "../../components/ui";
@@ -69,6 +70,10 @@ export default function TechSchedule() {
                   : "No scan visits assigned to you yet."}
           </p>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 18 }}>
+        <LeavePanel />
       </div>
 
       <div className="steps" style={{ marginBottom: 18 }}>

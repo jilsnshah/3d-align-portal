@@ -848,6 +848,15 @@ class TimeOff(Base):
     ends_at: Mapped[datetime] = mapped_column(UTCDateTime())
     reason: Mapped[str] = mapped_column(String(200), default="")
 
+    # Leave the lab enters is in force immediately; leave a technician asks for
+    # waits for approval. Until then it must not close the diary, or a
+    # technician could strand their own bookings just by asking.
+    status: Mapped[str] = mapped_column(String(20), default=enums.LeaveStatus.APPROVED)
+    requested_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+    decided_by_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    decision_note: Mapped[str] = mapped_column(String(300), default="")
+
     technician: Mapped[Technician] = relationship(back_populates="time_off")
 
 
@@ -1168,6 +1177,12 @@ class Appointment(Base, TimestampMixin):
         _enum(enums.AppointmentStatus, "appointment_status"),
         default=enums.AppointmentStatus.ASSIGNED,
     )
+
+    # Set when approved leave took the technician away and nobody else could
+    # cover the visit. The booking still stands — it is the lab's to answer,
+    # either by asking the clinic for another slot or by letting it be.
+    needs_attention_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    attention_reason: Mapped[str] = mapped_column(String(300), default="")
 
     address_id: Mapped[Optional[str]] = mapped_column(ForeignKey("addresses.id"))
     contact_name: Mapped[str] = mapped_column(String(200), default="")

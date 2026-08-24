@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from .. import enums
 from ..enums import LIVE_APPOINTMENT_STATUSES
 from ..models import Address, Appointment, BookingSettings, Technician
 from .geo import LAB_DEFAULT, LAB_DEFAULT_ADDRESS
@@ -212,10 +213,15 @@ def _time_off_blocks(
     technician: Technician, day: date_type, settings: BookingSettings
 ) -> list[tuple[datetime, datetime]]:
     day_start, day_end = local_day_bounds(day, settings)
+    # Only approved leave closes the diary. A request that is still with the lab
+    # must not block bookings, or a technician could strand their own visits
+    # simply by asking for a day off.
     return [
         (_as_utc(off.starts_at), _as_utc(off.ends_at))
         for off in technician.time_off
-        if _as_utc(off.starts_at) < day_end and day_start < _as_utc(off.ends_at)
+        if off.status == enums.LeaveStatus.APPROVED
+        and _as_utc(off.starts_at) < day_end
+        and day_start < _as_utc(off.ends_at)
     ]
 
 
@@ -680,3 +686,56 @@ def next_available_day(
         if any(s.available for s in slots_for_day(db, day, settings, clinic, travel)):
             return day
     return None
+
+
+def cover_leave(
+    db: Session,
+    technician: Technician,
+    starts_at: datetime,
+    ends_at: datetime,
+    settings: BookingSettings,
+) -> tuple:
+    """Find someone else for every visit approved leave takes away.
+
+    Each visit is offered to the rest of the team on its own merits — the same
+    cheapest-insertion the original booking used, with the technician going on
+    leave excluded and their booking ignored so it does not block whoever picks
+    it up. Kept at the time the clinic already agreed to: moving the person is
+    invisible to the patient, moving the appointment is not.
+
+    Returns (covered, stranded) where each entry is (appointment, technician or
+    reason).
+    """
+    covered: list = []
+    stranded: list = []
+
+    live = [
+        a
+        for a in technician.appointments
+        if a.status in LIVE_APPOINTMENT_STATUSES
+        and _as_utc(a.starts_at) < ends_at
+        and starts_at < _as_utc(a.ends_at)
+    ]
+    # Earliest first, so the fullest diaries are competed for in the order the
+    # day actually runs.
+    live.sort(key=lambda a: _as_utc(a.starts_at))
+
+    travel = TravelService(db, settings)
+    for appointment in live:
+        try:
+            chosen, reason = assign_technician(
+                db,
+                _as_utc(appointment.starts_at),
+                _as_utc(appointment.ends_at),
+                settings,
+                clinic=address_point(appointment.address),
+                travel=travel,
+                exclude_ids={technician.id},
+                ignore_appointment_id=appointment.id,
+            )
+        except SlotUnavailable as exc:
+            stranded.append((appointment, str(exc)))
+            continue
+        covered.append((appointment, chosen, reason))
+
+    return covered, stranded

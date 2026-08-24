@@ -326,6 +326,9 @@ export interface Appointment {
   cancel_reason: string;
   outcome_notes: string;
   location: string;
+  /** Approved leave took the technician away and nobody could cover it. */
+  needs_attention: boolean;
+  attention_reason: string;
 }
 
 export interface JobOrder {
@@ -480,6 +483,26 @@ export interface ShippingRate {
 }
 
 export type PhaseStatus = "NOT_STARTED" | "ACTIVE" | "ISSUE" | "COMPLETED";
+
+export interface Leave {
+  id: string;
+  technician_id: string;
+  technician_name: string;
+  starts_at: string;
+  ends_at: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "DECLINED";
+  status_label: string;
+  decision_note: string;
+  decided_at: string | null;
+  affected_visits: number;
+}
+
+export interface LeaveDecision {
+  leave: Leave;
+  covered: { appointment_id: string; order_reference: string; starts_at: string; technician_name: string; reason: string }[];
+  stranded: { appointment_id: string; order_reference: string; starts_at: string; reason: string }[];
+}
 
 export interface PhaseSpan {
   phase: number;
@@ -945,6 +968,16 @@ export const api = {
     post<OrderDetail>(`/orders/${id}/phase-fit-issue/reply`, { message }),
   closePhaseFitIssue: (id: string) =>
     post<OrderDetail>(`/orders/${id}/phase-fit-issue/resolve`, {}),
+  requestLeave: (body: { starts_at: string; ends_at: string; reason: string }) =>
+    post<Leave>("/tech/leave", body),
+  myLeave: () => get<Leave[]>("/tech/leave"),
+  leaveQueue: (pendingOnly = false) =>
+    get<Leave[]>(`/admin/leave${pendingOnly ? "?pending_only=true" : ""}`),
+  decideLeave: (id: string, approve: boolean, note = "") =>
+    post<LeaveDecision>(`/admin/leave/${id}/decide`, { approve, note }),
+  bookingsNeedingAttention: () => get<Booking[]>("/admin/bookings/attention"),
+  settleAttention: (id: string, action: "RESCHEDULE" | "IGNORE", note = "") =>
+    post<Booking>(`/admin/bookings/${id}/attention`, { action, note }),
   reviewPhase: (id: string, outcome: "CONTINUE" | "RESCAN", note: string) =>
     post<OrderDetail>(`/staff/orders/${id}/phase-review`, { outcome, note }),
   resolveFitIssue: (id: string, resolution: "rescan" | "replan" | "refabricate") =>

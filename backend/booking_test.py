@@ -649,6 +649,169 @@ with TestClient(app) as boot:
     r = doctor.get(f"/api/appointments/availability?from={day['date']}&to={day['date']}&detail=true")
     check("time off empties the day", r.json()[0]["free_count"] == 0, f"{free_before} -> {r.json()[0]['free_count']}")
 
+    # ---------------------------------------------------------------------
+    # Leave: asking, approving, and covering what it takes away
+    # ---------------------------------------------------------------------
+    def book_a_visit(patient):
+        """A fresh case with a visit on the books, on whatever day still has
+        room after everything above."""
+        case = case_awaiting_scan(patient)
+        horizon = doctor.get(
+            f"/api/appointments/availability?from={today}&to={today + timedelta(days=13)}"
+        ).json()
+        # Latest day first: the earlier ones are congested by everything above,
+        # and this needs a day where a colleague is genuinely free to take over.
+        for candidate in reversed([d for d in horizon if d["technicians_free"] > 0]):
+            detail = slots_on(candidate["date"])
+            free = [x for x in detail["slots"] if x["available"]]
+            if not free:
+                continue
+            r = doctor.post(f"/api/orders/{case}/appointment", json={
+                "starts_at": free[0]["starts_at"],
+                "contact_name": "Front desk",
+                "contact_phone": "+919812345678",
+            })
+            if r.status_code == 200:
+                return case
+        raise AssertionError("no bookable slot left for the leave tests")
+
+    # Clear the blanket time off the previous block added, or nothing is free.
+    for row in admin.get("/api/admin/technicians").json():
+        for off in row.get("time_off", []):
+            admin.delete(f"/api/admin/time-off/{off['id']}")
+
+    oid = book_a_visit("Leave Patient One")
+    booking = admin.get("/api/admin/bookings").json()
+    visit = next(b for b in booking if b["order"]["id"] == oid)
+    holder = visit["technician_name"]
+    starts = visit["starts_at"]
+    day_of = starts[:10]
+
+    tech = tech_a if holder == "Anil Rathod" else tech_b
+    other = tech_b if tech is tech_a else tech_a
+
+    # Asking is not the same as being off: the diary must not close on a
+    # request, or a technician could strand their own visits by asking.
+    r = tech.post("/api/tech/leave", json={
+        "starts_at": f"{day_of}T00:00:00Z", "ends_at": f"{day_of}T23:59:00Z", "reason": "Family",
+    })
+    check("a technician can ask for leave", r.status_code == 201, r.text[:140])
+    leave_id = r.json()["id"]
+    check("which starts out pending", r.json()["status"] == "PENDING", r.json()["status"])
+    check(
+        "and says how many visits it would affect",
+        r.json()["affected_visits"] >= 1,
+        str(r.json()["affected_visits"]),
+    )
+    r = doctor.get(f"/api/appointments/availability?from={day_of}&to={day_of}&detail=true")
+    check(
+        "a pending request does not close the diary",
+        r.status_code == 200 and r.json() and r.json()[0]["free_count"] > 0,
+        r.text[:160],
+    )
+
+    r = admin.get("/api/admin/leave?pending_only=true")
+    check("the lab sees it in the queue", any(x["id"] == leave_id for x in r.json()), r.text[:140])
+
+    r = admin.post(f"/api/admin/leave/{leave_id}/decide", json={"approve": True})
+    check("the lab can approve it", r.status_code == 200, r.text[:160])
+    check("which records it as approved", r.json()["leave"]["status"] == "APPROVED", r.text[:140])
+    moved = r.json()["covered"]
+    stranded = r.json()["stranded"]
+    check(
+        "and the booked visit is handed to somebody else",
+        len(moved) == 1 and moved[0]["technician_name"] != holder,
+        str(moved) + str(stranded),
+    )
+    check("with nothing stranded while a colleague is free", stranded == [], str(stranded))
+
+    after = admin.get("/api/admin/bookings").json()
+    moved_visit = next(b for b in after if b["order"]["id"] == oid)
+    check(
+        "the visit keeps its slot — only the person changed",
+        moved_visit["starts_at"] == starts and moved_visit["technician_name"] != holder,
+        f"{moved_visit['starts_at']} {moved_visit['technician_name']}",
+    )
+    check("and is not flagged for the lab", moved_visit["needs_attention"] is False, str(moved_visit))
+
+    r = admin.post(f"/api/admin/leave/{leave_id}/decide", json={"approve": True})
+    check("a request cannot be answered twice", r.status_code == 409, r.text[:120])
+
+    # Now the one nobody can cover: the colleague who took it goes off too.
+    r = other.post("/api/tech/leave", json={
+        "starts_at": f"{day_of}T00:00:00Z", "ends_at": f"{day_of}T23:59:00Z", "reason": "Also away",
+    })
+    second = r.json()["id"]
+    r = admin.post(f"/api/admin/leave/{second}/decide", json={"approve": True})
+    check("approving the second leave strands the visit", len(r.json()["stranded"]) == 1, r.text[:200])
+    check("and nothing is silently moved", r.json()["covered"] == [], str(r.json()["covered"]))
+
+    r = admin.get("/api/admin/bookings/attention")
+    check("which puts it in front of the lab", len(r.json()) == 1, r.text[:200])
+    stranded_id = r.json()[0]["id"]
+    check(
+        "with the reason it could not be covered",
+        bool(r.json()[0]["attention_reason"]),
+        r.json()[0]["attention_reason"],
+    )
+
+    # The lab can leave it standing.
+    r = admin.post(f"/api/admin/bookings/{stranded_id}/attention", json={
+        "action": "IGNORE", "note": "Anil will go anyway.",
+    })
+    check("the lab can let it stand", r.status_code == 200, r.text[:140])
+    check("which clears the flag", r.json()["needs_attention"] is False, str(r.json()["needs_attention"]))
+    check(
+        "and the visit is still live",
+        r.json()["status"] != "CANCELLED",
+        r.json()["status"],
+    )
+    check("with the queue emptied", admin.get("/api/admin/bookings/attention").json() == [], "")
+
+    r = admin.post(f"/api/admin/bookings/{stranded_id}/attention", json={"action": "IGNORE"})
+    check("a settled visit cannot be settled again", r.status_code == 409, r.text[:120])
+
+    # Or ask the clinic for another slot, which cancels this one.
+    third = book_a_visit("Leave Patient Two")
+    after = admin.get("/api/admin/bookings").json()
+    third_visit = next(b for b in after if b["order"]["id"] == third)
+    holder3 = third_visit["technician_name"]
+    day3 = third_visit["starts_at"][:10]
+    # Both away, so there is genuinely nobody to hand it to.
+    for who in (tech_a, tech_b):
+        r = who.post("/api/tech/leave", json={
+            "starts_at": f"{day3}T00:00:00Z", "ends_at": f"{day3}T23:59:00Z", "reason": "Away",
+        })
+        admin.post(f"/api/admin/leave/{r.json()['id']}/decide", json={"approve": True})
+    pending = admin.get("/api/admin/bookings/attention").json()
+    check("a second stranding reaches the lab too", len(pending) >= 1, str(len(pending)))
+    target = next(b for b in pending if b["order"]["id"] == third)
+    r = admin.post(f"/api/admin/bookings/{target['id']}/attention", json={
+        "action": "RESCHEDULE", "note": "Nobody free that day.",
+    })
+    check("the lab can ask the clinic for another slot", r.status_code == 200, r.text[:140])
+    check("which cancels the visit", r.json()["status"] == "CANCELLED", r.json()["status"])
+    check(
+        "and says why on the booking",
+        "Nobody free" in r.json()["cancel_reason"],
+        r.json()["cancel_reason"],
+    )
+    check(
+        "so the case can be booked again",
+        doctor.get(f"/api/orders/{third}").json()["status"] == "AWAITING_SCAN",
+        doctor.get(f"/api/orders/{third}").json()["status"],
+    )
+
+    # Declining changes nothing.
+    r = tech_a.post("/api/tech/leave", json={
+        "starts_at": f"{day_of}T09:00:00Z", "ends_at": f"{day_of}T10:00:00Z", "reason": "Errand",
+    })
+    r = admin.post(f"/api/admin/leave/{r.json()['id']}/decide", json={
+        "approve": False, "note": "Too short notice.",
+    })
+    check("the lab can decline leave", r.json()["leave"]["status"] == "DECLINED", r.text[:140])
+    check("and nothing is moved by a declined request", r.json()["covered"] == [], str(r.json()["covered"]))
+
 print()
 if failures:
     print(f"{len(failures)} check(s) failed:")

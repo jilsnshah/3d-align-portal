@@ -26,6 +26,9 @@ from ..deps import (
     verified_doctor,
 )
 from ..enums import (
+    AttentionAction,
+    LEAVE_STATUS_LABELS,
+    LeaveStatus,
     ReassignmentStatus,
     LIVE_APPOINTMENT_STATUSES,
     AppointmentStatus,
@@ -579,6 +582,288 @@ def request_reassignment(
     db.commit()
     db.refresh(request)
     return _reassignment_out(request)
+
+
+# --------------------------------------------------------------------------
+# Leave
+# --------------------------------------------------------------------------
+
+
+def _leave_out(row, affected: int = 0) -> schemas.LeaveOut:
+    return schemas.LeaveOut(
+        id=row.id,
+        technician_id=row.technician_id,
+        technician_name=row.technician.full_name if row.technician else "",
+        starts_at=row.starts_at,
+        ends_at=row.ends_at,
+        reason=row.reason,
+        status=row.status,
+        status_label=LEAVE_STATUS_LABELS.get(row.status, row.status),
+        decision_note=row.decision_note,
+        decided_at=row.decided_at,
+        affected_visits=affected,
+    )
+
+
+def _visits_in_window(technician, starts_at, ends_at) -> list:
+    return [
+        a
+        for a in technician.appointments
+        if a.status in LIVE_APPOINTMENT_STATUSES
+        and _as_utc(a.starts_at) < _as_utc(ends_at)
+        and _as_utc(starts_at) < _as_utc(a.ends_at)
+    ]
+
+
+@router.post("/tech/leave", response_model=schemas.LeaveOut, status_code=status.HTTP_201_CREATED)
+def request_leave(
+    payload: schemas.LeaveRequestIn,
+    technician: Technician = Depends(current_technician),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """A technician asks to be off for a window.
+
+    Asking does not close the diary — the lab has to approve it first, or a
+    technician could strand their own bookings simply by requesting a day.
+    """
+    starts_at, ends_at = _as_utc(payload.starts_at), _as_utc(payload.ends_at)
+    if ends_at <= starts_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Leave has to end after it starts.")
+
+    row = TimeOff(
+        technician_id=technician.id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        reason=payload.reason.strip()[:200],
+        status=LeaveStatus.PENDING,
+        requested_by_id=user.id,
+    )
+    db.add(row)
+
+    affected = len(_visits_in_window(technician, starts_at, ends_at))
+    for member in db.query(User).filter(User.role == UserRole.ADMIN, User.is_active.is_(True)):
+        db.add(
+            Notification(
+                user_id=member.id,
+                title="Leave requested",
+                body=f"{technician.full_name} — {starts_at:%d %b %H:%M} to {ends_at:%d %b %H:%M}"
+                + (f", {affected} visit(s) booked in it." if affected else ", no visits booked."),
+            )
+        )
+    db.commit()
+    db.refresh(row)
+    return _leave_out(row, affected)
+
+
+@router.get("/tech/leave", response_model=list[schemas.LeaveOut])
+def my_leave(
+    technician: Technician = Depends(current_technician), db: Session = Depends(get_db)
+):
+    rows = sorted(technician.time_off, key=lambda r: _as_utc(r.starts_at), reverse=True)
+    return [_leave_out(r) for r in rows]
+
+
+@router.get("/admin/leave", response_model=list[schemas.LeaveOut])
+def list_leave(
+    pending_only: bool = False,
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    query = db.query(TimeOff)
+    if pending_only:
+        query = query.filter(TimeOff.status == LeaveStatus.PENDING)
+    rows = query.order_by(TimeOff.starts_at.desc()).limit(200).all()
+    return [
+        _leave_out(
+            r,
+            len(_visits_in_window(r.technician, r.starts_at, r.ends_at)) if r.technician else 0,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/admin/leave/{leave_id}/decide", response_model=schemas.LeaveDecisionOut)
+def decide_leave(
+    leave_id: str,
+    payload: schemas.LeaveDecisionIn,
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Approve or decline a technician's leave.
+
+    Approving is the moment the diary actually closes, so it is also the moment
+    every visit inside the window has to find another technician. Whatever
+    nobody can cover is handed to the lab rather than left silently double
+    booked against someone who will not be there.
+    """
+    row = db.get(TimeOff, leave_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Leave request not found.")
+    if row.status != LeaveStatus.PENDING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That request has already been answered.")
+
+    row.decided_by_id = admin.id
+    row.decided_at = utcnow()
+    row.decision_note = payload.note.strip()[:300]
+
+    if not payload.approve:
+        row.status = LeaveStatus.DECLINED
+        db.add(
+            Notification(
+                user_id=row.technician.user_id,
+                title="Leave declined",
+                body=payload.note.strip() or "3D Align could not approve that leave.",
+            )
+        )
+        db.commit()
+        db.refresh(row)
+        return schemas.LeaveDecisionOut(leave=_leave_out(row), covered=[], stranded=[])
+
+    row.status = LeaveStatus.APPROVED
+    settings = scheduling.get_settings(db)
+    covered, stranded = scheduling.cover_leave(
+        db, row.technician, _as_utc(row.starts_at), _as_utc(row.ends_at), settings
+    )
+
+    covered_out = []
+    for appointment, technician, reason in covered:
+        _hand_over(
+            db,
+            appointment,
+            technician,
+            note=f"{row.technician.full_name} is on approved leave.",
+        )
+        appointment.needs_attention_at = None
+        appointment.attention_reason = ""
+        covered_out.append(
+            {
+                "appointment_id": appointment.id,
+                "order_reference": appointment.order.reference,
+                "starts_at": _as_utc(appointment.starts_at).isoformat(),
+                "technician_name": technician.full_name,
+                "reason": reason,
+            }
+        )
+
+    stranded_out = []
+    for appointment, why in stranded:
+        appointment.needs_attention_at = utcnow()
+        appointment.attention_reason = why[:300]
+        stranded_out.append(
+            {
+                "appointment_id": appointment.id,
+                "order_reference": appointment.order.reference,
+                "starts_at": _as_utc(appointment.starts_at).isoformat(),
+                "reason": why,
+            }
+        )
+
+    db.add(
+        Notification(
+            user_id=row.technician.user_id,
+            title="Leave approved",
+            body=f"{len(covered_out)} visit(s) moved to someone else"
+            + (f", {len(stranded_out)} still with the lab." if stranded_out else "."),
+        )
+    )
+    if stranded_out:
+        for member in db.query(User).filter(
+            User.role == UserRole.ADMIN, User.is_active.is_(True)
+        ):
+            db.add(
+                Notification(
+                    user_id=member.id,
+                    title="Visits need a decision",
+                    body=f"{len(stranded_out)} visit(s) could not be covered for "
+                    f"{row.technician.full_name}'s leave.",
+                )
+            )
+
+    db.commit()
+    db.refresh(row)
+    return schemas.LeaveDecisionOut(
+        leave=_leave_out(row), covered=covered_out, stranded=stranded_out
+    )
+
+
+@router.get("/admin/bookings/attention", response_model=list[schemas.BookingOut])
+def bookings_needing_attention(
+    admin: User = Depends(current_admin), db: Session = Depends(get_db)
+):
+    """Visits approved leave stranded, which only a person can settle."""
+    rows = (
+        db.query(Appointment)
+        .filter(
+            Appointment.needs_attention_at.isnot(None),
+            Appointment.status.in_(list(LIVE_APPOINTMENT_STATUSES)),
+        )
+        .order_by(Appointment.starts_at)
+        .all()
+    )
+    return [
+        schemas.BookingOut(
+            **appointment_out(a).model_dump(),
+            order=_job_order(a),
+            address=schemas.AddressOut.model_validate(a.address) if a.address else None,
+        )
+        for a in rows
+    ]
+
+
+@router.post("/admin/bookings/{appointment_id}/attention", response_model=schemas.BookingOut)
+def settle_attention(
+    appointment_id: str,
+    payload: schemas.AttentionIn,
+    admin: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """What the lab does with a visit nobody could cover.
+
+    Either the clinic is asked for another slot — which cancels this one through
+    the ordinary path, so the case goes back to awaiting a scan exactly as any
+    other cancellation would — or it is left standing, because the lab has
+    arranged something the portal cannot see.
+    """
+    appointment = db.get(Appointment, appointment_id)
+    if appointment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found.")
+    if appointment.needs_attention_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That booking is not waiting on a decision.")
+
+    if payload.action == AttentionAction.RESCHEDULE:
+        reason = payload.note.strip() or "The technician is on leave and nobody else was free."
+        appointment.status = AppointmentStatus.CANCELLED
+        appointment.cancelled_at = utcnow()
+        appointment.cancel_reason = reason
+        appointment.needs_attention_at = None
+        appointment.attention_reason = ""
+        db.add(
+            Notification(
+                user_id=appointment.order.doctor.user_id,
+                order_id=appointment.order_id,
+                title="Scan visit cancelled — please pick another slot",
+                body=f"{appointment.order.reference} — {reason}",
+            )
+        )
+    else:
+        appointment.needs_attention_at = None
+        appointment.attention_reason = ""
+        appointment.assignment_reason = (
+            (appointment.assignment_reason or "")
+            + f" Left standing by the lab despite approved leave."
+            + (f" {payload.note.strip()}" if payload.note.strip() else "")
+        ).strip()
+
+    db.commit()
+    db.refresh(appointment)
+    return schemas.BookingOut(
+        **appointment_out(appointment).model_dump(),
+        order=_job_order(appointment),
+        address=schemas.AddressOut.model_validate(appointment.address)
+        if appointment.address
+        else None,
+    )
 
 
 @router.get("/admin/reassignments", response_model=list[schemas.ReassignmentOut])

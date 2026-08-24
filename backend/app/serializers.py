@@ -487,6 +487,8 @@ def appointment_out(appointment: Appointment) -> schemas.AppointmentOut:
     )
     technician = appointment.technician
     return schemas.AppointmentOut(
+        needs_attention=appointment.needs_attention_at is not None,
+        attention_reason=appointment.attention_reason or "",
         is_day_visit=bool(getattr(appointment, "is_day_visit", False)),
         id=appointment.id,
         starts_at=appointment.starts_at,
