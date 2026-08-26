@@ -109,6 +109,15 @@ ADDITIONS = {
 # Roles were renamed when technicians arrived.
 ROLE_RENAMES = [("STAFF", "ADMIN")]
 
+# Everything below is SQLite: sqlite_master, "?" placeholders, and the
+# rebuild-the-table trick SQLite needs for changes it cannot ALTER. A Postgres
+# deployment has no dev database to patch — create_all() builds the current
+# schema on first boot — so leaving early is the whole job there. The container
+# runs this on every start, so this must return quietly rather than fail.
+if engine.dialect.name != "sqlite":
+    print(f"{engine.dialect.name}: nothing to patch, the schema is created whole.")
+    raise SystemExit(0)
+
 inspector = inspect(engine)
 applied = 0
 

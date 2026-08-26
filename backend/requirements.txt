@@ -25,3 +25,12 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 rapidfuzz==3.11.0
 email-validator==2.2.0
+
+# 3D viewer: STL parsing and the A3DM conversion (meshes.py), plus the trimmed
+# ICP that registers staged arches into the patient's bite (articulation.py).
+# Pinned to versions with wheels for both 3.9 (local) and 3.11 (the image).
+numpy==2.0.2
+scipy==1.13.1
+
+# S3-compatible object storage (Supabase Storage, R2, B2) — STORAGE_BACKEND=s3.
+boto3==1.35.92

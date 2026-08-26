@@ -9,7 +9,11 @@ import struct
 import tempfile
 
 TMP = tempfile.mkdtemp(prefix="align-viewer-")
-os.environ["DATABASE_URL"] = f"sqlite:///{TMP}/viewer.db"
+# TEST_DATABASE_URL runs the same walk against Postgres, which is what a
+# deployment uses. SQLite by default so the suite needs no server.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", f"sqlite:///{TMP}/viewer.db"
+)
 os.environ["STORAGE_LOCAL_ROOT"] = f"{TMP}/storage"
 os.environ["STAFF_EMAIL"] = "staff@3dalign.example.com"
 os.environ["STAFF_PASSWORD"] = "staffpassword"

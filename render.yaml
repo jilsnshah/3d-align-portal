@@ -1,0 +1,74 @@
+# Render Blueprint: one Docker service, no disk.
+#
+# Free instances are wiped and restarted at will, so nothing durable may live on
+# the container filesystem. The database is a managed Postgres elsewhere (Neon)
+# and case files are in object storage (Supabase), both handed in as secrets —
+# neither is defined here, so neither can be lost with the service.
+#
+# Every push to main rebuilds and redeploys.
+#
+# First run:
+#   1. Render dashboard - New - Blueprint - pick this repo.
+#   2. Fill the values marked sync:false. They are prompted for once.
+#   3. Add the service URL to the Maps browser key's referrer list.
+
+services:
+  - type: web
+    name: 3d-align
+    runtime: docker
+    plan: free
+    # Closest free region to Ahmedabad. Oregon and Frankfurt are the others.
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+
+      # Signs the session cookie. Generated once by Render and never shown, so
+      # it cannot be leaked by a repo that is public.
+      - key: SECRET_KEY
+        generateValue: true
+
+      # The lab's own account, seeded on first boot. The app refuses to start
+      # if this is left as the development default.
+      - key: STAFF_EMAIL
+        sync: false
+      - key: STAFF_PASSWORD
+        sync: false
+
+      # Same origin serves the app and the API, so the cookie needs no
+      # relaxation — only HTTPS, which Render terminates.
+      - key: COOKIE_SECURE
+        value: "true"
+
+      # Neon Postgres. Include ?sslmode=require, and use the pooled host so a
+      # cold start does not open a fresh connection per request.
+      - key: DATABASE_URL
+        sync: false
+
+      # Supabase Storage over its S3 API. Files outlive the container.
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
+      # Server key: Routes + Geocoding + Places. Render's egress IP is not
+      # fixed on the free plan, so restrict this one by API rather than by IP.
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # Browser key: Maps JavaScript only, restricted by HTTP referrer to the
+      # service URL. It reaches the page by design; the referrer is the guard.
+      - key: GOOGLE_MAPS_BROWSER_KEY
+        sync: false

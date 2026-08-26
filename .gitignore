@@ -23,6 +23,8 @@ dist/
 .env
 .env.*
 !.env.example
+# The deploy template too: it is a list of blank names, no values.
+!.env.deploy.example
 
 # Editors / OS
 .DS_Store

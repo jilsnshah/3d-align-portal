@@ -48,11 +48,21 @@ class Settings(BaseSettings):
     staff_full_name: str = "Dr. Sagar Hirani"
     staff_name: str = "3D Align Lab"
 
-    # "local" writes under storage_local_root. "drive" uses a Google service account.
+    # "local" writes under storage_local_root. "drive" uses a Google service
+    # account. "s3" is any S3-compatible bucket, which is what a deployment on a
+    # host with a throwaway filesystem needs.
     storage_backend: str = "local"
     storage_local_root: str = str(BACKEND_ROOT / "storage")
     drive_service_account_file: str = ""
     drive_root_folder_id: str = ""
+
+    # S3-compatible storage. Supabase wants the project's S3 endpoint and its
+    # own region; R2 and B2 want theirs. Blank unless storage_backend is "s3".
+    s3_endpoint_url: str = ""
+    s3_bucket: str = ""
+    s3_region: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
 
     # Refrens invoicing. Left blank, invoicing stays disabled and says so.
     refrens_app_id: str = ""
