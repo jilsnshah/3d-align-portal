@@ -158,10 +158,22 @@ import datetime  # noqa: E402
 
 today = datetime.date.today()
 horizon = today + datetime.timedelta(days=13)
-days = check(
-    doctor.get(f"{BASE}/appointments/availability?from={today}&to={horizon}"), "read availability"
-)
-free_slots = [s["starts_at"] for d in days for s in d["slots"] if s["available"]]
+# The month view deliberately returns no slot times — working them out means
+# asking the routing provider about every leg of every technician's day, which
+# a doctor flicking through a calendar should not be billed for. Real times
+# come from detail=true, which is capped at a week, so ask a week at a time.
+free_slots = []
+window = today
+while window <= horizon:
+    upto = min(window + datetime.timedelta(days=6), horizon)
+    days = check(
+        doctor.get(
+            f"{BASE}/appointments/availability?from={window}&to={upto}&detail=true"
+        ),
+        f"read availability {window} to {upto}",
+    )
+    free_slots += [s["starts_at"] for d in days for s in d["slots"] if s["available"]]
+    window = upto + datetime.timedelta(days=1)
 
 if not free_slots:
     die("No free slots in the booking window. Check working hours and notice period.")

@@ -248,7 +248,9 @@ def staged_stl(step: int) -> io.BytesIO:
     """
     import struct
 
-    out = bytearray(f"stage {step}".encode() + b"\0" * 70)
+    # The header is exactly 80 bytes; the triangle count is read straight
+    # after it, so a header even one byte short is parsed as garbage.
+    out = bytearray(f"stage {step}".encode().ljust(80, b"\0"))
     out += struct.pack("<I", 1)
     out += struct.pack("<3f", 0.0, 0.0, 1.0)
     for point in ((0, 0, 0), (1, 0, 0), (0, 1, 0)):
