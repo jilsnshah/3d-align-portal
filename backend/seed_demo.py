@@ -8,14 +8,20 @@ the same demo doctor rather than replacing them — to start clean, stop the
 server and delete backend/dev.db.
 """
 
+import os
 import io
 import sys
 from typing import Optional
 
 import requests
 
-BASE = "http://127.0.0.1:8000/api"
-STAFF = {"email": "staff@3dalign.com", "password": "changeme"}
+# SEED_BASE and SEED_STAFF_PASSWORD point these at a deployed portal;
+# without them they target the local dev server as before.
+BASE = os.environ.get("SEED_BASE", "http://127.0.0.1:8000") + "/api"
+STAFF = {
+    "email": os.environ.get("SEED_STAFF_EMAIL", "staff@3dalign.com"),
+    "password": os.environ.get("SEED_STAFF_PASSWORD", "changeme"),
+}
 DOCTOR = {"email": "dr.mehta@clinic.example.com", "password": "alignerdemo123"}
 
 
@@ -206,10 +212,68 @@ def upload_scan(order_id: str) -> None:
         )
 
 
+def settle(order_id: str, kind: str, phase: int = 0) -> None:
+    """Walk one charge through: the clinic pays by UPI, uploads the receipt,
+    the lab checks it. Nothing downstream unlocks until this has happened."""
+    detail = doctor.get(f"{BASE}/orders/{order_id}").json()
+    row = next(
+        (
+            p
+            for p in detail.get("payments", [])
+            if p["kind"] == kind and p.get("phase_number", 0) == phase
+        ),
+        None,
+    )
+    if row is None:
+        return
+    doctor.post(
+        f"{BASE}/orders/{order_id}/payments/{row['id']}/proof",
+        data={"reference": "UPI" + order_id[:8].upper()},
+        files={"upload": ("receipt.jpg", io.BytesIO(b"x" * 800), "image/jpeg")},
+    )
+    check(
+        staff.post(
+            f"{BASE}/staff/orders/{order_id}/payments/{row['id']}/verify",
+            json={"approve": True},
+        ),
+        f"verify the {kind.lower().replace('_', ' ')} payment",
+    )
+
+
+def staged_stl(step: int) -> io.BytesIO:
+    """A minimal valid binary STL standing in for one staged arch.
+
+    Deliberately synthetic. The real scans under demo-data belong to a named
+    patient, and seeding pushes files to internet-facing storage.
+    """
+    import struct
+
+    out = bytearray(f"stage {step}".encode() + b"\0" * 70)
+    out += struct.pack("<I", 1)
+    out += struct.pack("<3f", 0.0, 0.0, 1.0)
+    for point in ((0, 0, 0), (1, 0, 0), (0, 1, 0)):
+        out += struct.pack("<3f", *point)
+    out += b"\0\0"
+    return io.BytesIO(bytes(out))
+
+
 def share_plan(order_id: str, upper: int, lower: int, final_price: int = 60000) -> None:
     check(
         staff.post(f"{BASE}/staff/orders/{order_id}/scan/accept", json={"note": "Scan is clean."}),
         "accept the scan",
+    )
+    # A plan cannot be shared until the clinic has something to look at: the
+    # staged movement in 3D, and the plan document itself.
+    for step in range(3):
+        staff.post(
+            f"{BASE}/orders/{order_id}/files",
+            data={"category": "SIMULATION_MODEL"},
+            files={"upload": (f"{step}-S-3D_ALIGN_PA.stl", staged_stl(step), "model/stl")},
+        )
+    staff.post(
+        f"{BASE}/orders/{order_id}/files",
+        data={"category": "TREATMENT_PLAN"},
+        files={"upload": ("plan.pdf", io.BytesIO(b"%PDF-1.4 demo plan"), "application/pdf")},
     )
     check(
         staff.post(
@@ -226,6 +290,8 @@ def share_plan(order_id: str, upper: int, lower: int, final_price: int = 60000) 
         ),
         "share the plan",
     )
+    # The plan and its 3D simulation stay sealed until the fee is paid.
+    settle(order_id, "TREATMENT_PLAN")
 
 
 print("\nBuilding demo cases…")
@@ -260,6 +326,8 @@ check(doctor.post(f"{BASE}/orders/{case5}/quote/accept"), "accept a quote")
 upload_scan(case5)
 share_plan(case5, 18, 16, final_price=58000)
 check(doctor.post(f"{BASE}/orders/{case5}/plan/respond", json={"approve": True}), "approve a plan")
+# The training fit aligner is charged separately, before it can ship.
+settle(case5, "TRAINING_FIT")
 shipped = check(
     staff.post(
         f"{BASE}/staff/orders/{case5}/shipments",
@@ -285,6 +353,8 @@ check(doctor.post(f"{BASE}/orders/{case6}/quote/accept"), "accept a quote")
 upload_scan(case6)
 share_plan(case6, 16, 14, final_price=46000)
 check(doctor.post(f"{BASE}/orders/{case6}/plan/respond", json={"approve": True}), "approve a plan")
+# The training fit aligner is charged separately, before it can ship.
+settle(case6, "TRAINING_FIT")
 shipped = check(
     staff.post(
         f"{BASE}/staff/orders/{case6}/shipments",
@@ -302,17 +372,24 @@ check(
     "mark delivered",
 )
 check(
-    doctor.post(f"{BASE}/orders/{case6}/fit-review", json={"fits": True, "dispatch_mode": "PHASED"}),
+    doctor.post(
+        f"{BASE}/orders/{case6}/fit-review",
+        # 16 upper aligners, so at most four batches of five. Three is a
+        # realistic choice a clinic would make.
+        json={"fits": True, "dispatch_mode": "PHASED", "phase_count": 3},
+    ),
     "confirm the fit",
 )
-# Phases chain — each one has to be received and accepted before the next
-# can ship, so the seed walks it the way a real case does.
+# Phase 1 goes out. The span is not passed in: the clinic's choice of three
+# batches over 16 steps already decides it, and the lab deriving it is the
+# point — nobody retypes aligner ranges per shipment.
 first = check(
     staff.post(
         f"{BASE}/staff/orders/{case6}/shipments",
         json={
             "shipment_type": "ALIGNER_PHASE",
-            "aligner_range_to": 8,
+            # 16 steps over three batches: 6, 6, 4.
+            "aligner_range_to": 6,
             "carrier": "Shree Tirupati",
             "tracking_number": "125600005001",
         },
@@ -321,26 +398,7 @@ first = check(
 )
 phase1 = [s for s in first["shipments"] if s["shipment_type"] == "ALIGNER_PHASE"][-1]
 check(doctor.post(f"{BASE}/orders/{case6}/shipments/{phase1['id']}/delivered"), "receive phase 1")
-check(
-    doctor.post(
-        f"{BASE}/orders/{case6}/shipments/{phase1['id']}/phase-decision",
-        json={"decision": "CONTINUE"},
-    ),
-    "ask for the next phase",
-)
-check(
-    staff.post(
-        f"{BASE}/staff/orders/{case6}/shipments",
-        json={
-            "shipment_type": "ALIGNER_PHASE",
-            "aligner_range_to": 20,
-            "carrier": "Shree Tirupati",
-            "tracking_number": "125600005002",
-        },
-    ),
-    "dispatch phase 2",
-)
-print("  AL…  dispatching — phase 1 received, phase 2 out, 10 aligners still to come")
+print("  AL…  dispatching — phase 1 with the clinic, two batches still to come")
 
 print(f"""
 Done.
@@ -348,5 +406,5 @@ Done.
   Staff    {STAFF['email']} / {STAFF['password']}
   Doctor   {DOCTOR['email']} / {DOCTOR['password']}
 
-Open http://localhost:5173
+Open {os.environ.get("SEED_BASE", "http://localhost:5173")}
 """)

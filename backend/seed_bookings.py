@@ -11,6 +11,7 @@ validation as real traffic. Re-running adds more; to start clean, stop the serve
 and delete backend/dev.db.
 """
 
+import os
 import io
 import sys
 from collections import defaultdict
@@ -36,8 +37,13 @@ OPGS = cycle(["radiographs/Basic_panoramic_radiograph.jpg", "radiographs/Mixed_d
 def asset(relative: str) -> bytes:
     return (DEMO / relative).read_bytes()
 
-BASE = "http://127.0.0.1:8000/api"
-ADMIN = {"email": "staff@3dalign.com", "password": "changeme"}
+# SEED_BASE and SEED_STAFF_PASSWORD point these at a deployed portal;
+# without them they target the local dev server as before.
+BASE = os.environ.get("SEED_BASE", "http://127.0.0.1:8000") + "/api"
+ADMIN = {
+    "email": os.environ.get("SEED_STAFF_EMAIL", "staff@3dalign.com"),
+    "password": os.environ.get("SEED_STAFF_PASSWORD", "changeme"),
+}
 DOCTOR = {"email": "dr.mehta@clinic.example.com", "password": "alignerdemo123"}
 TECH_PASSWORD = "technician1"
 
