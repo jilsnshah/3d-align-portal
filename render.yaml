@@ -19,6 +19,7 @@ services:
     plan: free
     # Closest free region to Ahmedabad. Oregon and Frankfurt are the others.
     region: singapore
+    repo: https://github.com/jilsnshah/3d-align-portal
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
@@ -62,6 +63,10 @@ services:
       - key: S3_ACCESS_KEY_ID
         sync: false
       - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # Supabase signs with the project ref and anon key, and carries the
+      # service_role JWT here. Left blank for R2, B2 and plain S3.
+      - key: S3_SESSION_TOKEN
         sync: false
 
       # Server key: Routes + Geocoding + Places. Render's egress IP is not

@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     s3_region: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
+    # Supabase can be reached either with S3 access keys, which its dashboard
+    # mints, or by signing with the project ref and anon key and carrying the
+    # service_role JWT as a session token. Blank for R2, B2 and plain S3.
+    s3_session_token: str = ""
 
     # Refrens invoicing. Left blank, invoicing stays disabled and says so.
     refrens_app_id: str = ""

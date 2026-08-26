@@ -297,7 +297,15 @@ class S3Storage:
 
     backend = "s3"
 
-    def __init__(self, endpoint_url: str, bucket: str, region: str, key_id: str, secret: str):
+    def __init__(
+        self,
+        endpoint_url: str,
+        bucket: str,
+        region: str,
+        key_id: str,
+        secret: str,
+        session_token: str = "",
+    ):
         if not (endpoint_url and bucket and key_id and secret):
             raise StorageError(
                 "STORAGE_BACKEND=s3 needs S3_ENDPOINT_URL, S3_BUCKET, "
@@ -308,6 +316,7 @@ class S3Storage:
         self._region = region or "us-east-1"
         self._key_id = key_id
         self._secret = secret
+        self._session_token = session_token
         self._client = None
 
     @property
@@ -322,6 +331,8 @@ class S3Storage:
                 region_name=self._region,
                 aws_access_key_id=self._key_id,
                 aws_secret_access_key=self._secret,
+                # Empty for a bucket reached with ordinary S3 access keys.
+                aws_session_token=self._session_token or None,
                 # Supabase and B2 serve the bucket in the path, not as a
                 # subdomain of the endpoint; R2 accepts either.
                 config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
@@ -438,6 +449,7 @@ def get_storage() -> Union[LocalStorage, DriveStorage, S3Storage]:
                 settings.s3_region,
                 settings.s3_access_key_id,
                 settings.s3_secret_access_key,
+                settings.s3_session_token,
             )
         else:
             _storage = LocalStorage(settings.storage_local_root)
