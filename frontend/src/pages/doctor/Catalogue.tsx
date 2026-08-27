@@ -6,7 +6,7 @@
    one button to order it for a patient the clinic already has on file. */
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../../api";
@@ -80,7 +80,26 @@ export default function Catalogue() {
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
-  const ready = Boolean(sizeId) && (patientId || newPatientName.trim().length > 1);
+  const blocker = !sizeId
+    ? "Choose a thickness."
+    : !patientId && newPatientName.trim().length < 2
+      ? "Name the patient."
+      : "";
+
+  // Escape closes it, and the page behind must not scroll while it is open.
+  useEffect(() => {
+    if (!ordering) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOrdering(null);
+    }
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [ordering]);
 
   if (products.isLoading) return <Loading what="the catalogue" />;
 
@@ -131,7 +150,21 @@ export default function Catalogue() {
       </div>
 
       {ordering && (
-        <div className="card stack-sm">
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={(e) => {
+            // Only a click on the backdrop itself, not one that bubbled up
+            // out of the dialog.
+            if (e.target === e.currentTarget) setOrdering(null);
+          }}
+        >
+        <div
+          className="modal stack-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Order a ${ordering.name}`}
+        >
           <div className="row-between">
             <h2 style={{ margin: 0 }}>Order a {ordering.name}</h2>
             <button type="button" className="btn-ghost btn-sm" onClick={() => setOrdering(null)}>
@@ -214,16 +247,20 @@ export default function Catalogue() {
           )}
 
           <ErrorText error={create.error} />
-          <div>
+          <div className="row-between">
+            {/* A grey button that will not say why is the thing that makes a
+                form feel broken. */}
+            <span className="dim">{blocker}</span>
             <button
               type="button"
               className="btn-primary"
-              disabled={!ready || create.isPending}
+              disabled={Boolean(blocker) || create.isPending}
               onClick={() => create.mutate()}
             >
               {create.isPending ? "Creating…" : "Start this order"}
             </button>
           </div>
+        </div>
         </div>
       )}
     </div>

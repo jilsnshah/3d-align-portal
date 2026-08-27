@@ -2085,3 +2085,43 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: 0.82rem;
   color: var(--ink-3);
 }
+
+/* --- Modal ---------------------------------------------------------------
+   A form that opens below a long grid is a form nobody sees: the state
+   changes, the page does not appear to react, and the control reads as
+   broken. Anything raised from a card opens over it instead. */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(11, 11, 12, 0.45);
+  backdrop-filter: blur(2px);
+  animation: modal-in 0.12s ease-out;
+}
+
+.modal {
+  width: min(560px, 100%);
+  /* Tall on a short screen scrolls inside itself rather than pushing the
+     buttons off the bottom. */
+  max-height: min(88vh, 780px);
+  overflow-y: auto;
+  padding: 22px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(11, 11, 12, 0.28);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop { animation: none; }
+}

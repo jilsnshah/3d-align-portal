@@ -111,6 +111,11 @@ def describe(order: Order) -> str:
     parts = [order.product.name]
     if order.product_size is not None and order.product.has_choice_of_size:
         parts.append(order.product_size.label)
+    if (order.extra_teeth or 0) > 0:
+        # Part of the price, so it belongs in the line the board shows rather
+        # than only in the total.
+        parts.append(f"+{order.extra_teeth} tooth" if order.extra_teeth == 1
+                     else f"+{order.extra_teeth} teeth")
     if (order.quantity or 1) > 1:
         parts.append(f"x{order.quantity}")
     return " · ".join(parts)
