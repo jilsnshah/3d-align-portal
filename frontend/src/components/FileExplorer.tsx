@@ -6,6 +6,7 @@
    that slot. Photographs preview inline, because opening a case should not mean
    downloading eight JPEGs to see them. */
 
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -494,7 +495,13 @@ function Lightbox({
   file: OrderFile;
   onClose: () => void;
 }) {
-  return (
+  // Into the body, for the same reason the catalogue's dialog is: `.page`
+  // carries an entrance animation on transform with fill-mode "both", which
+  // keeps filling for good, and a filling transform animation makes an element
+  // the containing block for position:fixed inside it. Left in place, a
+  // full-screen preview is trapped in the page and opens wherever the middle
+  // of a long case happens to be.
+  return createPortal(
     <div
       className="lightbox"
       role="dialog"
@@ -528,6 +535,7 @@ function Lightbox({
           </p>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

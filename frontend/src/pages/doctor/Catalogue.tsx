@@ -7,6 +7,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
@@ -168,7 +169,13 @@ export default function Catalogue() {
         ))}
       </div>
 
-      {ordering && (
+      {ordering && createPortal(
+        /* Into the body, not into the page. `.page` carries an entrance
+           animation on transform with fill-mode "both", which keeps it filling
+           for good — and an element with a filling transform animation becomes
+           the containing block for position:fixed inside it. The backdrop was
+           therefore sizing to the page rather than the viewport, and centring
+           the dialog in a very tall box put it near the bottom. */
         <div
           className="modal-backdrop"
           role="presentation"
@@ -280,7 +287,8 @@ export default function Catalogue() {
             </button>
           </div>
         </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </main>
   );
