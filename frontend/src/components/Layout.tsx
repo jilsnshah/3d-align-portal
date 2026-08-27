@@ -6,9 +6,9 @@ import { api, formatDate, openFreshTab } from "../api";
 import { useAuth } from "../auth";
 
 const DOCTOR_NAV = [
+  { to: "/", label: "Home" },
   { to: "/orders", label: "Cases" },
-  { to: "/orders/new", label: "New case" },
-  { to: "/catalogue", label: "Other products" },
+  { to: "/catalogue", label: "Products" },
   { to: "/patients", label: "Patients" },
   { to: "/profile", label: "Profile" },
 ];
@@ -65,7 +65,7 @@ export default function Layout() {
   return (
     <div className="shell">
       <header className="topbar">
-        <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/orders"} className="brand">
+        <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/"} className="brand">
           <img className="brand-logo" src="/logo.png" alt="3D Aligners" />
           {isAdmin && <span className="brand-sub">{isOrtho ? "Planning" : "Lab"}</span>}
           {isTech && <span className="brand-sub">Scan team</span>}
@@ -76,7 +76,7 @@ export default function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/staff" || item.to === "/orders" || item.to === "/tech"}
+              end={item.to === "/staff" || item.to === "/" || item.to === "/tech"}
               className={({ isActive }) => (isActive ? "active" : "")}
             >
               {item.label}

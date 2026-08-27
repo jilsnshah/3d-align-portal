@@ -7,7 +7,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
 import type { Product } from "../../api";
@@ -45,6 +45,7 @@ export default function Catalogue() {
     queryFn: () => api.patients({ limit: 200 }),
   });
 
+  const [params, setParams] = useSearchParams();
   const [ordering, setOrdering] = useState<Product | null>(null);
   const [patientId, setPatientId] = useState("");
   const [newPatientName, setNewPatientName] = useState("");
@@ -85,6 +86,18 @@ export default function Catalogue() {
     : !patientId && newPatientName.trim().length < 2
       ? "Name the patient."
       : "";
+
+  // Arriving from the home page with ?order=<id> opens that product straight
+  // away, so the strip there is a real shortcut and not just a link to a list.
+  const wanted = params.get("order");
+  useEffect(() => {
+    if (!wanted || ordering || !products.data) return;
+    const match = products.data.find((p) => p.id === wanted);
+    if (match) open(match);
+    // The query is consumed: a refresh should not reopen a dialog the clinic
+    // has already closed.
+    setParams({}, { replace: true });
+  }, [wanted, ordering, products.data, setParams]);
 
   // Escape closes it, and the page behind must not scroll while it is open.
   useEffect(() => {

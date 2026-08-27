@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import PendingVerification from "./pages/PendingVerification";
 import Catalogue from "./pages/doctor/Catalogue";
+import DoctorHome from "./pages/doctor/Home";
 import DoctorOrders from "./pages/doctor/Orders";
 import NewOrder from "./pages/doctor/NewOrder";
 import DoctorOrderDetail from "./pages/doctor/OrderDetail";
@@ -82,6 +83,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
+        <Route path="/" element={<DoctorHome />} />
         <Route path="/orders" element={<DoctorOrders />} />
         <Route path="/orders/new" element={<NewOrder />} />
         <Route path="/orders/:orderId" element={<DoctorOrderDetail />} />
@@ -92,7 +94,7 @@ export default function App() {
         <Route path="/patients" element={<Patients />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
-      <Route path="*" element={<Navigate to="/orders" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
