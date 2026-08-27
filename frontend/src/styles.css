@@ -2053,7 +2053,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 .product-sizes {
-  margin: 0;
+  margin: 0 0 auto;
   padding: 0;
   list-style: none;
   border-top: 1px solid var(--rule);
@@ -2130,8 +2130,26 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
    A case table is the right screen for auditing forty cases and the wrong one
    to land on. This page leads with what a doctor came to do. */
 
+/* The home page is a stack of sections; without a gap they read as one long
+   undifferentiated column. */
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.home h2 {
+  margin: 0;
+  font-size: 1.12rem;
+}
+
 .welcome {
-  padding: 26px 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 40px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30px 32px;
   background: linear-gradient(135deg, var(--black) 0%, var(--black-3) 100%);
   border-radius: 16px;
   color: var(--white);
@@ -2150,6 +2168,27 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   letter-spacing: 0.01em;
 }
 
+.welcome-stats {
+  display: flex;
+  gap: 36px;
+  margin: 0;
+}
+
+.welcome-stats dt {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.welcome-stats dd {
+  margin: 4px 0 0;
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: var(--gold-lift);
+  font-variant-numeric: tabular-nums;
+}
+
 .start-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -2160,9 +2199,12 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 20px;
+  padding: 22px;
   text-align: left;
   font: inherit;
+  /* These are cards that happen to be buttons, and the base button rule sets
+     nowrap — which clipped the description mid-word at the card edge. */
+  white-space: normal;
   background: var(--white);
   border: 1px solid var(--rule);
   border-radius: 14px;
@@ -2194,6 +2236,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 .waiting-list {
+  margin-top: 2px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--rule);
@@ -2210,6 +2253,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: 14px 18px;
   text-align: left;
   font: inherit;
+  white-space: normal;
   background: none;
   border: 0;
   border-bottom: 1px solid var(--rule);
@@ -2242,6 +2286,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: 14px;
   text-align: left;
   font: inherit;
+  white-space: normal;
   background: var(--white);
   border: 1px solid var(--rule);
   border-radius: 12px;

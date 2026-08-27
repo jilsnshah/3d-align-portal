@@ -31,3 +31,6 @@ dist/
 .vscode/
 .idea/
 frontend/tsconfig.tsbuildinfo
+
+# Screenshots taken by screenshot.mjs for checking UI work.
+frontend/shots/

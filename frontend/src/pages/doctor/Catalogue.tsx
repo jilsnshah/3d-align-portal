@@ -13,6 +13,11 @@ import { api } from "../../api";
 import type { Product } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
+/** "an Essix Retainer", not "a Essix Retainer". */
+function article(name: string): string {
+  return /^[aeiou]/i.test(name) ? "an" : "a";
+}
+
 function rupees(value: string | number): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
@@ -117,12 +122,13 @@ export default function Catalogue() {
   if (products.isLoading) return <Loading what="the catalogue" />;
 
   return (
-    <div className="stack">
+    <main className="page stack">
       <div>
-        <h1>Other products</h1>
+        <h1>Retainers &amp; appliances</h1>
         <p className="muted">
-          Made from an intraoral scan, with no treatment plan or simulation stage. If we
-          already hold a scan for the patient, you can reuse it instead of taking another.
+          Made from an intraoral scan — no treatment plan or simulation stage, so they are
+          quick. If we already hold a scan for the patient, you can reuse it rather than
+          taking another.
         </p>
       </div>
 
@@ -176,10 +182,10 @@ export default function Catalogue() {
           className="modal stack-sm"
           role="dialog"
           aria-modal="true"
-          aria-label={`Order a ${ordering.name}`}
+          aria-label={`Order ${article(ordering.name)} ${ordering.name}`}
         >
           <div className="row-between">
-            <h2 style={{ margin: 0 }}>Order a {ordering.name}</h2>
+            <h2 style={{ margin: 0 }}>Order {article(ordering.name)} {ordering.name}</h2>
             <button type="button" className="btn-ghost btn-sm" onClick={() => setOrdering(null)}>
               Cancel
             </button>
@@ -276,6 +282,6 @@ export default function Catalogue() {
         </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

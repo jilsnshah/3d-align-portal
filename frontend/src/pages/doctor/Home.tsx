@@ -60,12 +60,33 @@ export default function DoctorHome() {
   });
   const products = useQuery({ queryKey: ["products"], queryFn: api.products });
 
+  // A case that is waiting on the clinic is already the first thing on the
+  // page; listing it again under "In progress" reads as two different cases
+  // with the same number.
+  // Everything open, not just the handful the page lists, so the count on the
+  // panel is the clinic's real book of work.
+  const openCases = useQuery({
+    queryKey: ["orders", "open-count"],
+    queryFn: () => api.orders(false, { limit: 200 }),
+  });
+  const withLab =
+    openCases.data === undefined
+      ? null
+      : openCases.data.filter(
+          (o) =>
+            !o.needs_doctor_action &&
+            o.status !== "COMPLETED" &&
+            o.status !== "CANCELLED",
+        ).length;
+
+  const waitingIds = new Set((waiting.data ?? []).map((o) => o.id));
   const open = (recent.data ?? []).filter(
-    (o) => o.status !== "COMPLETED" && o.status !== "CANCELLED",
+    (o) =>
+      o.status !== "COMPLETED" && o.status !== "CANCELLED" && !waitingIds.has(o.id),
   );
 
   return (
-    <main className="page">
+    <main className="page home">
       <section className="welcome">
         <div>
           <h1>
@@ -73,6 +94,18 @@ export default function DoctorHome() {
           </h1>
           <p className="sub">{me?.doctor?.clinic_name}</p>
         </div>
+        {/* The panel was a large dark rectangle saying only the time of day.
+            These are the two numbers a clinic opens the portal to check. */}
+        <dl className="welcome-stats">
+          <div>
+            <dt>Waiting on you</dt>
+            <dd>{waiting.data?.length ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>With 3D Align</dt>
+            <dd>{withLab === null ? "—" : withLab}</dd>
+          </div>
+        </dl>
       </section>
 
       <div className="start-grid">
@@ -142,7 +175,7 @@ export default function DoctorHome() {
 
       <section className="stack-sm">
         <div className="row-between">
-          <h2 style={{ margin: 0 }}>Order again</h2>
+          <h2 style={{ margin: 0 }}>Retainers &amp; appliances</h2>
           <Link to="/catalogue" className="btn-link">
             The full range
           </Link>
