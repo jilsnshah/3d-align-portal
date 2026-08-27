@@ -29,6 +29,7 @@ from ..enums import (
     PhaseReviewOutcome,
     PhaseStatus,
     InvoiceStatus,
+    OrderKind,
     OrderStatus,
     PlanStatus,
     QuoteStatus,
@@ -117,7 +118,7 @@ def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
 @router.get("/orders", response_model=list[schemas.OrderSummary])
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
-    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner)$"),
+    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner|product)$"),
     assigned_to: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -147,7 +148,13 @@ def list_orders(
     if series == "enquiry":
         query = query.filter(Order.order_number.is_(None))
     elif series == "aligner":
-        query = query.filter(Order.order_number.isnot(None))
+        query = query.filter(
+            Order.order_number.isnot(None), Order.kind == OrderKind.ALIGNER
+        )
+    elif series == "product":
+        # Retainers, splints and the rest. Different work on a different clock
+        # from a two-year aligner case, so they get their own board.
+        query = query.filter(Order.kind == OrderKind.PRODUCT)
 
     if search and search.strip():
         needle = f"%{search.strip().lower()}%"
@@ -596,10 +603,21 @@ def accept_scan(
                 "training aligner."
             ),
         )
+    elif order.kind == OrderKind.PRODUCT:
+        # Nothing to plan. A retainer or a splint is made from the scan as it
+        # stands, so an accepted scan goes straight to the bench.
+        transition(
+            db,
+            order,
+            OrderStatus.PRODUCT_FABRICATION,
+            staff,
+            note=payload.note or "Scan accepted — into fabrication.",
+        )
     else:
         transition(
             db, order, OrderStatus.IN_PLANNING, staff, note=payload.note or "Scan accepted."
         )
+    payment_service.sync(db, order)
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.ADMIN)
@@ -1068,6 +1086,17 @@ def create_shipment(
             raise HTTPException(
                 status.HTTP_402_PAYMENT_REQUIRED,
                 f"The training fit aligner has not been paid for. {blocker}",
+            )
+    elif payload.shipment_type == ShipmentType.PRODUCT:
+        assert_status(order, OrderStatus.PRODUCT_FABRICATION, OrderStatus.DISPATCHING)
+        next_status = OrderStatus.DISPATCHING
+        # One charge covers the whole order, and it is paid before the appliance
+        # leaves the lab — there is no phase behind which to collect it later.
+        blocker = payment_service.blocker_for(order, PaymentKind.PRODUCT_ORDER)
+        if blocker:
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"This order has not been paid for. {blocker}",
             )
     else:
         assert_status(order, OrderStatus.ALIGNER_PRODUCTION, OrderStatus.DISPATCHING)

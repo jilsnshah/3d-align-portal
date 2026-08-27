@@ -30,7 +30,7 @@ from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
-from ..enums import DispatchMode, PaymentKind, PaymentStatus
+from ..enums import DispatchMode, OrderKind, PaymentKind, PaymentStatus
 from ..models import Order, Payment, ShippingRate
 
 CENTS = Decimal("0.01")
@@ -161,6 +161,24 @@ def sync(db: Session, order: Order) -> list:
     becomes payable and never before.
     """
     settings = _settings(db)
+
+    # A product is one charge and nothing else. There is no plan to unlock and
+    # no training fit to make, so neither fee is ever raised against it — and
+    # its price is only knowable once the clinic has chosen a size and how many.
+    if order.kind == OrderKind.PRODUCT:
+        from . import catalogue
+
+        total = catalogue.line_total(order)
+        if total > 0:
+            _ensure(
+                db,
+                order,
+                PaymentKind.PRODUCT_ORDER,
+                0,
+                total,
+                shipping_for(db, settings, delivery_city(order)),
+            )
+        return order.payments
 
     # The plan fee becomes payable as soon as there is a plan to release.
     if order.plans:

@@ -193,6 +193,25 @@ class Order(Base, TimestampMixin):
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"))
     parent_order_id: Mapped[Optional[str]] = mapped_column(ForeignKey("orders.id"))
 
+    # What the lab is making. Everything that differs between an aligner case
+    # and a product order branches off this one field.
+    kind: Mapped[enums.OrderKind] = mapped_column(
+        _enum(enums.OrderKind, "order_kind"), default=enums.OrderKind.ALIGNER, index=True
+    )
+    # Only set on a product order.
+    product_id: Mapped[Optional[str]] = mapped_column(ForeignKey("products.id"))
+    product_size_id: Mapped[Optional[str]] = mapped_column(ForeignKey("product_sizes.id"))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # Set when the clinic chose an existing scan rather than giving a new one.
+    # The files are attached to this order too, so nothing here is load-bearing
+    # for reading them — it records where they came from.
+    scan_reused_from_id: Mapped[Optional[str]] = mapped_column(ForeignKey("orders.id"))
+    scan_received_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+    # Teeth beyond the number the base price covers, charged per tooth. The old
+    # system announced this surcharge to the clinic and then never asked for the
+    # count, so every multi-pontic retainer was billed short.
+    extra_teeth: Mapped[int] = mapped_column(Integer, default=0)
+
     status: Mapped[enums.OrderStatus] = mapped_column(
         _enum(enums.OrderStatus, "order_status"), default=enums.OrderStatus.DRAFT, index=True
     )
@@ -246,6 +265,8 @@ class Order(Base, TimestampMixin):
 
     doctor: Mapped[Doctor] = relationship()
     patient: Mapped[Patient] = relationship(back_populates="orders")
+    product: Mapped[Optional[Product]] = relationship(foreign_keys=[product_id])
+    product_size: Mapped[Optional[ProductSize]] = relationship(foreign_keys=[product_size_id])
     shipping_address: Mapped[Optional[Address]] = relationship()
     files: Mapped[list[OrderFile]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -1154,6 +1175,65 @@ class TravelEstimate(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(20), default="estimate")
     # Traffic patterns drift; an entry is refreshed once it is older than this.
     expires_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+
+class Product(Base, TimestampMixin):
+    """Something the lab makes that is not a staged aligner series.
+
+    Retainers, splints, bleaching trays, bite plates and the rest. Kept in the
+    database rather than a dictionary in the code, because the last system held
+    the catalogue in two places — a products dict and the list the assistant was
+    told about — and they drifted: three items were orderable but unlisted.
+    """
+
+    __tablename__ = "products"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # Short lab code, used in the order reference: ER, TMJ, NG.
+    code: Mapped[str] = mapped_column(String(12), unique=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(400), default="")
+    # Some products are priced per extra tooth on top of the base price — a
+    # pediatric retainer includes one pontic and charges for the rest.
+    per_tooth_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    included_teeth: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    sizes: Mapped[list[ProductSize]] = relationship(
+        back_populates="product", cascade="all, delete-orphan", order_by="ProductSize.sort_order"
+    )
+
+    @property
+    def priced_sizes(self) -> list:
+        return [s for s in self.sizes if s.is_active]
+
+    @property
+    def has_choice_of_size(self) -> bool:
+        """Whether the clinic is asked which one. A single size is not a choice
+        worth putting in front of anyone."""
+        return len(self.priced_sizes) > 1
+
+
+class ProductSize(Base, TimestampMixin):
+    """One thickness or variant of a product, with its price.
+
+    Priced per size rather than per product because that is how the lab sells:
+    a 0.8 mm Essix costs twice a 1.0 mm one.
+    """
+
+    __tablename__ = "product_sizes"
+    __table_args__ = (UniqueConstraint("product_id", "label", name="uq_product_size"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
+    # "0.8 mm", "2 mm", or "standard" when the product has only one form.
+    label: Mapped[str] = mapped_column(String(40))
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    product: Mapped[Product] = relationship(back_populates="sizes")
 
 
 class AlignerPrice(Base, TimestampMixin):

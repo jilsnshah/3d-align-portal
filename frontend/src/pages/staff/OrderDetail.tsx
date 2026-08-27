@@ -307,6 +307,16 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       }),
     onSuccess: onDone,
   });
+  const shipProduct = useMutation({
+    mutationFn: () =>
+      api.createShipment(order.id, {
+        shipment_type: "PRODUCT",
+        carrier: shipment.carrier,
+        tracking_number: shipment.tracking_number,
+        tracking_url: shipment.tracking_url,
+      }),
+    onSuccess: onDone,
+  });
   const shipAligners = useMutation({
     mutationFn: () =>
       api.createShipment(order.id, {
@@ -933,6 +943,44 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             className="btn-primary"
             disabled={shipTraining.isPending}
             onClick={() => shipTraining.mutate()}
+          >
+            Mark shipped
+          </button>
+        </ActionPanel>
+      );
+
+    case "PRODUCT_FABRICATION":
+      return (
+        <ActionPanel
+          title={`Make the ${order.product_label || "appliance"}`}
+          why="Nothing to plan — this is made from the scan as it stands. It ships once the clinic has paid for it."
+        >
+          <div className="grid-2">
+            <Field label="Carrier">
+              <input
+                value={shipment.carrier}
+                onChange={(e) => setShipment({ ...shipment, carrier: e.target.value })}
+              />
+            </Field>
+            <Field label="Tracking number">
+              <input
+                value={shipment.tracking_number}
+                onChange={(e) => setShipment({ ...shipment, tracking_number: e.target.value })}
+              />
+            </Field>
+          </div>
+          <Field label="Tracking URL">
+            <input
+              value={shipment.tracking_url}
+              onChange={(e) => setShipment({ ...shipment, tracking_url: e.target.value })}
+            />
+          </Field>
+          <ErrorText error={shipProduct.error} />
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={shipProduct.isPending}
+            onClick={() => shipProduct.mutate()}
           >
             Mark shipped
           </button>

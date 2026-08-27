@@ -113,6 +113,40 @@ class PatientOut(ORMModel, PatientIn):
 # --------------------------------------------------------------------------
 
 
+class ProductSizeOut(ORMModel):
+    id: str
+    label: str
+    price: Decimal
+
+
+class ProductOut(ORMModel):
+    id: str
+    code: str
+    name: str
+    description: str
+    per_tooth_price: Decimal
+    included_teeth: int
+    sizes: list[ProductSizeOut]
+    has_choice_of_size: bool
+
+
+class ScanSourceOut(BaseModel):
+    """An earlier case of this patient's whose scan could be reused."""
+
+    order_id: str
+    reference: str
+    kind: enums.OrderKind
+    status: enums.OrderStatus
+    status_label: str
+    taken_at: datetime
+
+
+class ScanReuseIn(BaseModel):
+    """Which earlier case of this patient's to take the scan from."""
+
+    source_order_id: str
+
+
 class OrderCreateIn(BaseModel):
     patient_id: Optional[str] = None
     new_patient: Optional[PatientIn] = None
@@ -122,8 +156,18 @@ class OrderCreateIn(BaseModel):
     clinical_notes: str = ""
     shipping_address_id: Optional[str] = None
 
+    # A product order names what it wants made. Left unset, this is an aligner
+    # case and the rest of these are ignored.
+    product_id: Optional[str] = None
+    product_size_id: Optional[str] = None
+    quantity: int = Field(default=1, ge=1, le=50)
+    extra_teeth: int = Field(default=0, ge=0, le=32)
+
 
 class OrderUpdateIn(BaseModel):
+    product_size_id: Optional[str] = None
+    quantity: Optional[int] = Field(default=None, ge=1, le=50)
+    extra_teeth: Optional[int] = Field(default=None, ge=0, le=32)
     arch: Optional[enums.Arch] = None
     priority: Optional[enums.Priority] = None
     chief_complaint: Optional[str] = None
@@ -893,6 +937,10 @@ class EventOut(BaseModel):
 class OrderSummary(BaseModel):
     id: str
     order_number: str
+    # Aligner case or product order. Boards list them apart.
+    kind: enums.OrderKind = enums.OrderKind.ALIGNER
+    # What was ordered, already spelled out: "Essix Retainer · 0.8 mm · x3".
+    product_label: str = ""
     status: enums.OrderStatus
     status_label: str
     # The Align band, so a list can be read without opening every case.
@@ -918,6 +966,9 @@ class OrderSummary(BaseModel):
 
 
 class OrderDetail(OrderSummary):
+    # So a repeat order for the same patient can be raised, and the scans they
+    # have already given offered back instead of asked for again.
+    patient_id: str = ""
     # Whether the lab has uploaded staged models to view in 3D.
     has_simulation: bool = False
     # The ref the case carried before it reached planning. Kept visible so a

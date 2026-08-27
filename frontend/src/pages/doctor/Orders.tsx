@@ -15,6 +15,11 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     hint: "Cases in planning or production, carrying an AL number.",
   },
   {
+    key: "product",
+    label: "Other products",
+    hint: "Retainers, splints, trays and guards — made from a scan, no planning stage.",
+  },
+  {
     key: "enquiry",
     label: "Enquiries",
     hint: "Submitted for assessment, still on an EN reference.",
@@ -160,10 +165,15 @@ function Section({
                   </td>
                   <td>{order.patient_name}</td>
                   <td>
-                    <CategoryPill
-                      label={order.category_label}
-                      confirmed={order.category_confirmed}
-                    />
+                    {order.kind === "PRODUCT" ? (
+                      // A product has no Align band — what it is *is* the answer.
+                      <span>{order.product_label}</span>
+                    ) : (
+                      <CategoryPill
+                        label={order.category_label}
+                        confirmed={order.category_confirmed}
+                      />
+                    )}
                   </td>
                   <td>
                     {order.assigned_to_name || <span className="dim">3D Align</span>}

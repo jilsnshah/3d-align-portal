@@ -47,6 +47,11 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     hint: "AL numbers — cases in planning or production.",
   },
   {
+    key: "product",
+    label: "Other products",
+    hint: "Retainers, splints, trays and guards — made from the scan, no planning.",
+  },
+  {
     key: "enquiry",
     label: "Enquiries",
     hint: "EN numbers — not yet through planning, no AL number spent.",
@@ -181,10 +186,15 @@ export default function StaffOrders() {
                     {order.clinic_name && <div className="dim">{order.clinic_name}</div>}
                   </td>
                   <td>
-                    <CategoryPill
-                      label={order.category_label}
-                      confirmed={order.category_confirmed}
-                    />
+                    {order.kind === "PRODUCT" ? (
+                      // A product has no Align band — what it is *is* the answer.
+                      <span>{order.product_label}</span>
+                    ) : (
+                      <CategoryPill
+                        label={order.category_label}
+                        confirmed={order.category_confirmed}
+                      />
+                    )}
                   </td>
                   {series === "aligner" && (
                     // Stops the click reaching the row, which would open the case.

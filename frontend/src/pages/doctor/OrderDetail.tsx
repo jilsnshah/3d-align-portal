@@ -280,6 +280,16 @@ function DoctorActions({
     mutationFn: () => api.submitFitReview(order.id, { fits: false, issue_notes: issueNotes }),
     onSuccess: onDone,
   });
+  const scanSources = useQuery({
+    queryKey: ["scan-sources", order.id],
+    queryFn: () => api.scanSources(order.id),
+    // Only worth asking while the case is actually waiting for a scan.
+    enabled: order.status === "AWAITING_SCAN",
+  });
+  const reuseScan = useMutation({
+    mutationFn: (sourceOrderId: string) => api.reuseScan(order.id, sourceOrderId),
+    onSuccess: onDone,
+  });
   const saveScanRoute = useMutation({
     mutationFn: () =>
       api.chooseScanRoute(order.id, {
@@ -429,6 +439,36 @@ function DoctorActions({
               Impression couriered — tracking {order.scan_courier_tracking}. The lab will confirm
               when it arrives.
             </Banner>
+          )}
+
+          {scanSources.data && scanSources.data.length > 0 && (
+            <div className="card stack-sm">
+              <h4 style={{ margin: 0 }}>Use a scan you have already sent</h4>
+              <p className="muted" style={{ margin: 0 }}>
+                We still hold this patient&rsquo;s arches from an earlier case. Reusing them
+                saves taking the impression again — 3D Align will check the scan is still
+                current before working from it.
+              </p>
+              <ErrorText error={reuseScan.error} />
+              {scanSources.data.map((source) => (
+                <div key={source.order_id} className="row-between">
+                  <div>
+                    <span className="mono">{source.reference}</span>{" "}
+                    <span className="muted">
+                      — {source.status_label}, scanned {formatDate(source.taken_at)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={reuseScan.isPending}
+                    onClick={() => reuseScan.mutate(source.order_id)}
+                  >
+                    Use this scan
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           <Field label="How will you send it?">

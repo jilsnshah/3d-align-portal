@@ -24,6 +24,19 @@ class VerificationStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class OrderKind(str, Enum):
+    """What the lab is being asked to make.
+
+    An aligner case is planned: scans become a treatment plan, a simulation, a
+    training fit and then a staged series delivered in phases. A product is
+    fabricated: scans become the appliance. They share a doctor, a patient, a
+    scan, an address, a shipment and an invoice — everything except the middle.
+    """
+
+    ALIGNER = "ALIGNER"
+    PRODUCT = "PRODUCT"
+
+
 class OrderStatus(str, Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
@@ -39,6 +52,9 @@ class OrderStatus(str, Enum):
     FIT_REVIEW = "FIT_REVIEW"
     FIT_ISSUE = "FIT_ISSUE"
     ALIGNER_PRODUCTION = "ALIGNER_PRODUCTION"
+    # A product order skips planning entirely: there is nothing to stage and
+    # nothing to simulate, so an accepted scan goes straight to the bench.
+    PRODUCT_FABRICATION = "PRODUCT_FABRICATION"
     DISPATCHING = "DISPATCHING"
     # The clinic has sent progress photographs for the phase it just received
     # and the lab is deciding whether treatment is tracking well enough to ship
@@ -75,6 +91,7 @@ STATUS_LABELS: dict[str, str] = {
     OrderStatus.FIT_REVIEW: "Fit review",
     OrderStatus.FIT_ISSUE: "Fit issue reported",
     OrderStatus.ALIGNER_PRODUCTION: "Aligners in production",
+    OrderStatus.PRODUCT_FABRICATION: "In fabrication",
     OrderStatus.DISPATCHING: "Dispatching",
     OrderStatus.PHASE_REVIEW: "Phase review",
     OrderStatus.COMPLETED: "Completed",
@@ -437,6 +454,7 @@ APPOINTMENT_LABELS: dict[str, str] = {
 
 class ShipmentType(str, Enum):
     TRAINING_ALIGNER = "TRAINING_ALIGNER"
+    PRODUCT = "PRODUCT"
     ALIGNER_PHASE = "ALIGNER_PHASE"
     FULL_CASE = "FULL_CASE"
 
@@ -535,12 +553,17 @@ class PaymentKind(str, Enum):
     TREATMENT_PLAN = "TREATMENT_PLAN"
     TRAINING_FIT = "TRAINING_FIT"
     PRODUCTION_PHASE = "PRODUCTION_PHASE"
+    # A product is one charge: its price times the quantity, plus delivery.
+    # There is no plan to unlock and no training fit to make, so neither of
+    # those fees is ever raised against a product order.
+    PRODUCT_ORDER = "PRODUCT_ORDER"
 
 
 PAYMENT_KIND_LABELS: dict[str, str] = {
     PaymentKind.TREATMENT_PLAN: "Treatment plan",
     PaymentKind.TRAINING_FIT: "Training fit aligner",
     PaymentKind.PRODUCTION_PHASE: "Production aligners",
+    PaymentKind.PRODUCT_ORDER: "Product order",
 }
 
 

@@ -235,9 +235,13 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         and not payments.plan_unlocked(order)
     )
     category = order.quoted_category if locked else order.aligner_category
+    from .services import catalogue
+
     return schemas.OrderSummary(
         id=order.id,
         order_number=order.reference,
+        kind=order.kind,
+        product_label=catalogue.describe(order),
         status=order.status,
         status_label=STATUS_LABELS[order.status],
         category=category,
@@ -420,6 +424,7 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
     ]
     return schemas.OrderDetail(
         **base,
+        patient_id=order.patient_id,
         has_simulation=any(
             f.category == FileCategory.SIMULATION_MODEL and not f.is_deleted
             for f in order.files

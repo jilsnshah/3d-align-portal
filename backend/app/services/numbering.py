@@ -31,3 +31,15 @@ def next_order_number(db: Session) -> str:
     planning. Sequence resets each calendar year."""
     year = datetime.now(timezone.utc).year
     return f"AL-{year}-{_next(db, f'order:{year}'):04d}"
+
+def next_product_number(db: Session, code: str) -> str:
+    """PR-2026-0001, keyed on the product's own code.
+
+    A separate series per product, so the lab reads what a reference is for at a
+    glance and the aligner sequence is not spent on a bleaching tray. The old
+    system did the same thing with 3DAER(1.0)001, but folded the size into the
+    reference — which meant repricing a size changed how orders were numbered.
+    """
+    year = datetime.now(timezone.utc).year
+    key = code.upper()
+    return f"{key}-{year}-{_next(db, f'product:{key}:{year}'):04d}"

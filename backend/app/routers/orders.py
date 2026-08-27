@@ -17,6 +17,7 @@ from ..db import get_db
 from ..deps import current_user, owned_order, verified_doctor
 from ..enums import (
     CATEGORY_FOLDER,
+    STATUS_LABELS,
     DOCTOR_ACTION_STATUSES,
     FILE_GROUP,
     MIN_STEPS_PER_PHASE,
@@ -33,6 +34,7 @@ from ..enums import (
     PhaseDecision,
     ShipmentStatus,
     ShipmentType,
+    OrderKind,
     OrderStatus,
     PlanStatus,
     QuoteStatus,
@@ -49,11 +51,15 @@ from ..models import (
     PhaseFitIssue,
     PhaseIssueMessage,
     Patient,
+    Product,
     User,
     utcnow,
 )
 from ..serializers import missing_categories, order_detail, order_summary
+from ..transitions import transition
 from ..services.numbering import next_enquiry_number
+from ..services import catalogue
+from ..services import scans as scan_service
 from ..services import shipments
 from ..services.storage import get_storage
 from ..services import payments as payment_service
@@ -67,7 +73,7 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.get("", response_model=list[schemas.OrderSummary])
 def list_orders(
     needs_action: bool = Query(default=False),
-    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner)$"),
+    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner|product)$"),
     search: Optional[str] = Query(default=None),
     patient_id: Optional[str] = Query(default=None),
     limit: int = Query(default=25, ge=1, le=200),
@@ -83,11 +89,17 @@ def list_orders(
     query = db.query(Order).filter(Order.doctor_id == doctor.id)
     if needs_action:
         query = query.filter(Order.status.in_(list(DOCTOR_ACTION_STATUSES)))
-    # An enquiry has no AL number yet; a case in the aligner series does.
+    # An enquiry has no number yet; a case in the aligner series does. A product
+    # order carries a number too, from its own product's series, so the kind is
+    # what separates the two.
     if series == "enquiry":
         query = query.filter(Order.order_number.is_(None))
     elif series == "aligner":
-        query = query.filter(Order.order_number.isnot(None))
+        query = query.filter(
+            Order.order_number.isnot(None), Order.kind == OrderKind.ALIGNER
+        )
+    elif series == "product":
+        query = query.filter(Order.kind == OrderKind.PRODUCT)
     if patient_id:
         query = query.filter(Order.patient_id == patient_id)
     if search and search.strip():
@@ -114,10 +126,34 @@ def create_order(
     patient = _resolve_patient(db, doctor, payload)
     address = _resolve_address(db, doctor, payload.shipping_address_id)
 
+    product = size = None
+    if payload.product_id:
+        product = db.get(Product, payload.product_id)
+        if product is None or not product.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "That product is not available.")
+        size = catalogue.size_of(product, payload.product_size_id)
+        if size is None:
+            # A product with one form needs no choice; one with several does,
+            # and picking for the clinic would be guessing at a clinical call.
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Choose a size for the {product.name}.",
+            )
+        if payload.extra_teeth and not product.per_tooth_price:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"The {product.name} is not priced per tooth.",
+            )
+
     order = Order(
         enquiry_number=next_enquiry_number(db),
         doctor_id=doctor.id,
         patient_id=patient.id,
+        kind=OrderKind.PRODUCT if product is not None else OrderKind.ALIGNER,
+        product_id=product.id if product else None,
+        product_size_id=size.id if size else None,
+        quantity=payload.quantity,
+        extra_teeth=payload.extra_teeth,
         arch=payload.arch,
         priority=payload.priority,
         chief_complaint=payload.chief_complaint,
@@ -575,6 +611,78 @@ def choose_scan_route(
     if payload.route == ScanRoute.COURIER:
         order.scan_courier_tracking = payload.courier_tracking
 
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.DOCTOR)
+
+
+@router.get("/{order_id}/scan-sources", response_model=list[schemas.ScanSourceOut])
+def scan_sources(
+    order_id: str,
+    doctor: Doctor = Depends(verified_doctor),
+    db: Session = Depends(get_db),
+):
+    """Earlier cases of this patient's whose scan could be used again.
+
+    A clinic that finished a case and now wants a retainer for the same patient
+    should not be sent to take the impression twice — the lab already holds the
+    arches. Only complete sets are offered: half a scan is nothing the bench can
+    work from.
+    """
+    order = owned_order(order_id, db, doctor)
+    return [
+        schemas.ScanSourceOut(
+            order_id=s["order_id"],
+            reference=s["reference"],
+            kind=s["kind"],
+            status=s["status"],
+            status_label=STATUS_LABELS[s["status"]],
+            taken_at=s["taken_at"],
+        )
+        for s in scan_service.sources_for(db, order.patient_id, exclude_order_id=order.id)
+    ]
+
+
+@router.post("/{order_id}/scan-reuse", response_model=schemas.OrderDetail)
+def reuse_scan(
+    order_id: str,
+    payload: schemas.ScanReuseIn,
+    doctor: Doctor = Depends(verified_doctor),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Carry an existing scan onto this order instead of taking a new one.
+
+    The rows are new — each order owns its files — but they point at the same
+    stored objects, so nothing is uploaded or stored twice. The case then moves
+    on exactly as it would with a fresh scan: the lab still reviews it, because
+    a scan old enough to be stale is the lab's call, not the clinic's.
+    """
+    order = owned_order(order_id, db, doctor)
+    assert_status(order, OrderStatus.AWAITING_SCAN)
+
+    source = db.get(Order, payload.source_order_id)
+    if source is None or source.patient_id != order.patient_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "That case is not on this patient's record."
+        )
+    if scan_service.has_complete_scan(order):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This case already has a scan."
+        )
+    try:
+        scan_service.copy_into(db, source, order, user.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    order.scan_route = ScanRoute.UPLOAD
+    transition(
+        db,
+        order,
+        OrderStatus.SCAN_SUBMITTED,
+        user,
+        note=f"Scan carried over from {source.reference}.",
+    )
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.DOCTOR)

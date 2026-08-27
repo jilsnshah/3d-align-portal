@@ -18,6 +18,7 @@ const PILL_TONE: Record<OrderStatus, string> = {
   FIT_REVIEW: "pill pill-gold",
   FIT_ISSUE: "pill pill-danger",
   ALIGNER_PRODUCTION: "pill pill-dark",
+  PRODUCT_FABRICATION: "pill pill-dark",
   DISPATCHING: "pill pill-dark",
   PHASE_REVIEW: "pill pill-gold",
   COMPLETED: "pill pill-ok",
@@ -71,14 +72,19 @@ export function Loading({ what = "" }: { what?: string }) {
 export function Field({
   label,
   children,
+  hint,
 }: {
   label: string;
   children: ReactNode;
+  /** A rule the value obeys that the label cannot carry on its own — a
+      surcharge, a limit, what the price already covers. */
+  hint?: string;
 }) {
   return (
     <label className="field">
       <span>{label}</span>
       {children}
+      {hint ? <small className="muted">{hint}</small> : null}
     </label>
   );
 }

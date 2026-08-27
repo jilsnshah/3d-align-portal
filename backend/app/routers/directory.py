@@ -76,6 +76,20 @@ def reverse_geocode(lat: float, lng: float):
     return {"address": (found or {}).get("formatted", ""), "parts": found or {}}
 
 
+@router.get("/products", response_model=list[schemas.ProductOut])
+def product_catalogue(db: Session = Depends(get_db)):
+    """What the lab makes besides staged aligner series.
+
+    One list, read by the clinic's order form and by the lab. The previous
+    system kept the catalogue in two places and they drifted — three products
+    were orderable but missing from the list its assistant classified against,
+    so a doctor asking for a sports guard could not be routed.
+    """
+    from ..services import catalogue
+
+    return [schemas.ProductOut.model_validate(p) for p in catalogue.catalogue(db)]
+
+
 @router.get("/addresses", response_model=list[schemas.AddressOut])
 def list_addresses(doctor: Doctor = Depends(current_doctor), db: Session = Depends(get_db)):
     return db.query(Address).filter(Address.doctor_id == doctor.id).order_by(Address.created_at).all()

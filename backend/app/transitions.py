@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from .enums import LAB_ROLES, STATUS_LABELS, TERMINAL_STATUSES, OrderStatus, UserRole
 from .models import Notification, Order, StatusEvent, User, utcnow
-from .services.numbering import next_order_number
+from .services.numbering import next_order_number, next_product_number
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +39,14 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
         S.IN_PLANNING,
         S.AWAITING_SCAN,
         S.TRAINING_ALIGNER_PRODUCTION,
+        # A product order has nothing to plan: the appliance is made from the
+        # scan as it stands, so an accepted scan goes straight to the bench.
+        S.PRODUCT_FABRICATION,
         S.CANCELLED,
     },
+    # A product that cannot be made from the scan given goes back for another,
+    # the same way a rejected aligner scan does.
+    S.PRODUCT_FABRICATION: {S.DISPATCHING, S.AWAITING_SCAN, S.CANCELLED},
     S.IN_PLANNING: {S.PLAN_SHARED, S.CANCELLED},
     S.PLAN_SHARED: {S.IN_PLANNING, S.TRAINING_ALIGNER_PRODUCTION, S.CANCELLED},
     S.TRAINING_ALIGNER_PRODUCTION: {S.TRAINING_ALIGNER_SHIPPED, S.CANCELLED},
@@ -204,6 +210,13 @@ def transition(
     if to == S.IN_PLANNING and order.order_number is None:
         order.order_number = next_order_number(db)
         _rename_storage_folder(order)
+    # A product order never reaches planning, so reaching the bench is what
+    # earns it its number — and it takes one from its own product's series
+    # rather than spending an aligner number on a bleaching tray.
+    elif to == S.PRODUCT_FABRICATION and order.order_number is None:
+        if order.product is not None:
+            order.order_number = next_product_number(db, order.product.code)
+            _rename_storage_folder(order)
 
     order.status = to
     now = utcnow()

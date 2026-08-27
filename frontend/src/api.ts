@@ -16,6 +16,7 @@ export type OrderStatus =
   | "FIT_REVIEW"
   | "FIT_ISSUE"
   | "ALIGNER_PRODUCTION"
+  | "PRODUCT_FABRICATION"
   | "DISPATCHING"
   | "PHASE_REVIEW"
   | "COMPLETED"
@@ -35,7 +36,7 @@ export type FileCategory =
   | "PHASE_FIT_PHOTO"
   | "OTHER";
 
-export type ShipmentType = "TRAINING_ALIGNER" | "ALIGNER_PHASE" | "FULL_CASE";
+export type ShipmentType = "TRAINING_ALIGNER" | "PRODUCT" | "ALIGNER_PHASE" | "FULL_CASE";
 
 export interface Doctor {
   id: string;
@@ -172,7 +173,7 @@ export interface Quote {
 }
 
 /** Enquiries carry an EN reference; cases that reached planning carry an AL one. */
-export type CaseSeries = "enquiry" | "aligner";
+export type CaseSeries = "enquiry" | "aligner" | "product";
 
 export interface TreatmentPlan {
   id: string;
@@ -235,9 +236,43 @@ export interface StatusEvent {
   created_at: string;
 }
 
+export interface Product {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  per_tooth_price: string;
+  included_teeth: number;
+  sizes: ProductSize[];
+  /** False when there is only one form of it, which is not a choice worth asking. */
+  has_choice_of_size: boolean;
+}
+
+export interface ProductSize {
+  id: string;
+  label: string;
+  price: string;
+}
+
+/** An earlier case of this patient's whose scan could be used again. */
+export interface ScanSource {
+  order_id: string;
+  reference: string;
+  kind: OrderKind;
+  status: OrderStatus;
+  status_label: string;
+  taken_at: string;
+}
+
+export type OrderKind = "ALIGNER" | "PRODUCT";
+
 export interface OrderSummary {
   id: string;
   order_number: string;
+  /** An aligner case, or one of the other things the lab makes. */
+  kind: OrderKind;
+  /** Already spelled out: "Essix Retainer · 0.8 mm · x3". Empty for aligners. */
+  product_label: string;
   status: OrderStatus;
   status_label: string;
   category: AlignerCategory | null;
@@ -261,6 +296,7 @@ export interface OrderSummary {
 }
 
 export interface OrderDetail extends OrderSummary {
+  patient_id: string;
   enquiry_number: string;
   has_simulation: boolean;
   dispatch_mode: "FULL" | "PHASED" | null;
@@ -455,7 +491,11 @@ export interface Articulation {
   notes: string[];
 }
 
-export type PaymentKind = "TREATMENT_PLAN" | "TRAINING_FIT" | "PRODUCTION_PHASE";
+export type PaymentKind =
+  | "TREATMENT_PLAN"
+  | "TRAINING_FIT"
+  | "PRODUCTION_PHASE"
+  | "PRODUCT_ORDER";
 export type PaymentStatus = "DUE" | "SUBMITTED" | "VERIFIED" | "REJECTED";
 
 export interface Payment {
@@ -811,6 +851,10 @@ export const api = {
   resubmitRecords: (id: string) => post<OrderDetail>(`/orders/${id}/resubmit`),
   acceptQuote: (id: string) => post<OrderDetail>(`/orders/${id}/quote/accept`),
   chooseScanRoute: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/scan-route`, body),
+  products: () => get<Product[]>("/products"),
+  scanSources: (id: string) => get<ScanSource[]>(`/orders/${id}/scan-sources`),
+  reuseScan: (id: string, sourceOrderId: string) =>
+    post<OrderDetail>(`/orders/${id}/scan-reuse`, { source_order_id: sourceOrderId }),
   respondToPlan: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/plan/respond`, body),
   submitFitReview: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/fit-review`, body),
   confirmDelivery: (orderId: string, shipmentId: string) =>
