@@ -94,6 +94,10 @@ export default function DoctorOrders() {
           <Empty>No cases match “{search}”.</Empty>
         ) : series === "enquiry" ? (
           <Empty>No open enquiries — everything has moved into planning.</Empty>
+        ) : series === "product" ? (
+          <Empty>
+            No product orders yet. <Link to="/catalogue">See what 3D Align makes.</Link>
+          </Empty>
         ) : (
           <Empty>
             No aligner cases yet. <Link to="/orders/new">Start your first one.</Link>

@@ -8,6 +8,7 @@ import { useAuth } from "../auth";
 const DOCTOR_NAV = [
   { to: "/orders", label: "Cases" },
   { to: "/orders/new", label: "New case" },
+  { to: "/catalogue", label: "Other products" },
   { to: "/patients", label: "Patients" },
   { to: "/profile", label: "Profile" },
 ];

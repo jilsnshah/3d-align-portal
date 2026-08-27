@@ -6,6 +6,7 @@ import { useAuth } from "./auth";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import PendingVerification from "./pages/PendingVerification";
+import Catalogue from "./pages/doctor/Catalogue";
 import DoctorOrders from "./pages/doctor/Orders";
 import NewOrder from "./pages/doctor/NewOrder";
 import DoctorOrderDetail from "./pages/doctor/OrderDetail";
@@ -87,6 +88,7 @@ export default function App() {
         {/* The clinic reviews the planned movement here before approving the
             plan, so the viewer has to be reachable from their side too. */}
         <Route path="/viewer/:orderId" element={<Viewer />} />
+        <Route path="/catalogue" element={<Catalogue />} />
         <Route path="/patients" element={<Patients />} />
         <Route path="/profile" element={<Profile />} />
       </Route>

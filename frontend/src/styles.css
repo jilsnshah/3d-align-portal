@@ -1993,3 +1993,95 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   color: var(--ink-3);
   letter-spacing: 0.02em;
 }
+
+/* --- Catalogue -----------------------------------------------------------
+   The shop front for everything that is not a staged aligner series. Cards
+   rather than a table: a doctor picking a retainer is choosing, not scanning
+   a list, and the price belongs next to the thing it prices. */
+
+.catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 16px;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.product-card:hover {
+  border-color: var(--gold-line);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.product-card header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.product-card h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+
+.product-code {
+  flex: none;
+  padding: 2px 7px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--gold-deep);
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 5px;
+}
+
+.product-card > p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.product-sizes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.product-sizes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 0.86rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.product-sizes b {
+  font-variant-numeric: tabular-nums;
+}
+
+.product-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.product-from {
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}

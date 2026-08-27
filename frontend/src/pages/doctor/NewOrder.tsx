@@ -9,8 +9,6 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
 import type { OrderDetail } from "../../api";
 import FileExplorer from "../../components/FileExplorer";
-import ProductPicker, { totalFor } from "../../components/ProductPicker";
-import type { ProductChoice } from "../../components/ProductPicker";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
 const STEPS = ["Patient", "Clinical", "Records", "Shipping"];
@@ -27,7 +25,6 @@ export default function NewOrder() {
     queryFn: () => api.patients({ limit: 200 }),
   });
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
-  const products = useQuery({ queryKey: ["products"], queryFn: api.products });
 
   const [patientId, setPatientId] = useState("");
   const [newPatient, setNewPatient] = useState({ full_name: "", date_of_birth: "", sex: "", external_ref: "" });
@@ -36,11 +33,6 @@ export default function NewOrder() {
   const [chiefComplaint, setChiefComplaint] = useState("");
   const [clinicalNotes, setClinicalNotes] = useState("");
   const [addressId, setAddressId] = useState("");
-  // Empty productId means a staged aligner series, which is the default.
-  const [choice, setChoice] = useState<ProductChoice>({
-    productId: "", sizeId: "", quantity: 1, extraTeeth: 0,
-  });
-  const isProduct = choice.productId !== "";
 
   const createDraft = useMutation({
     mutationFn: () =>
@@ -51,10 +43,6 @@ export default function NewOrder() {
         priority,
         chief_complaint: chiefComplaint,
         clinical_notes: clinicalNotes,
-        product_id: choice.productId || null,
-        product_size_id: choice.sizeId || null,
-        quantity: choice.quantity,
-        extra_teeth: choice.extraTeeth,
       }),
     onSuccess: (order) => {
       setDraft(order);
@@ -195,9 +183,6 @@ export default function NewOrder() {
       {step === 1 && (
         <div className="card stack-sm">
           <h2>Clinical detail</h2>
-          {products.data && (
-            <ProductPicker products={products.data} value={choice} onChange={setChoice} />
-          )}
           <div className="grid-2">
             <Field label="Arches">
               <select value={arch} onChange={(e) => setArch(e.target.value as typeof arch)}>
@@ -238,7 +223,7 @@ export default function NewOrder() {
             <button
               type="button"
               className="btn-primary"
-              disabled={createDraft.isPending || (isProduct && !choice.sizeId)}
+              disabled={createDraft.isPending}
               onClick={() => createDraft.mutate()}
             >
               {createDraft.isPending ? "Saving…" : "Save and continue"}
@@ -320,17 +305,6 @@ export default function NewOrder() {
               <dd className="mono">{draft.order_number}</dd>
               <dt>Patient</dt>
               <dd>{draft.patient_name}</dd>
-              {draft.product_label ? (
-                <>
-                  <dt>Product</dt>
-                  <dd>
-                    {draft.product_label}
-                    {products.data
-                      ? ` — ₹${totalFor(products.data, choice).total.toLocaleString("en-IN")}`
-                      : ""}
-                  </dd>
-                </>
-              ) : null}
               <dt>Arches</dt>
               <dd>{draft.arch === "BOTH" ? "Both" : draft.arch}</dd>
               <dt>Priority</dt>

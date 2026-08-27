@@ -140,6 +140,18 @@ class FileCategory(str, Enum):
 # Enforced by /orders/{id}/submit.
 REQUIRED_SUBMIT_CATEGORIES = [FileCategory.RECORD_PHOTO, FileCategory.OPG]
 
+# A product is made from the scan, not planned from the records. Asking a clinic
+# for a panoramic radiograph before it will quote a bleaching tray is a barrier
+# with nothing behind it, so the photographs stand on their own — they are what
+# the lab looks at to see the case is what it says it is.
+REQUIRED_SUBMIT_CATEGORIES_PRODUCT = [FileCategory.RECORD_PHOTO]
+
+
+def required_submit_categories(kind) -> list:
+    if kind == OrderKind.PRODUCT:
+        return REQUIRED_SUBMIT_CATEGORIES_PRODUCT
+    return REQUIRED_SUBMIT_CATEGORIES
+
 
 class Slot(str, Enum):
     """A named place in a records set.

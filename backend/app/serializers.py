@@ -22,6 +22,7 @@ from .enums import (
     PaymentStatus,
     PhaseStatus,
     REQUIRED_SUBMIT_CATEGORIES,
+    required_submit_categories,
     SLOT_LABELS,
     STATUS_LABELS,
     FileCategory,
@@ -44,7 +45,7 @@ def missing_categories(order: Order) -> list[FileCategory]:
         for f in order.files
         if not f.is_deleted and f.revision == order.revision_for(FILE_GROUP[f.category])
     }
-    return [c for c in REQUIRED_SUBMIT_CATEGORIES if c not in present]
+    return [c for c in required_submit_categories(order.kind) if c not in present]
 
 
 from .enums import CATEGORY_TITLES
@@ -209,7 +210,7 @@ def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schem
                 category=category,
                 label=CATEGORY_LABELS[category],
                 revision=revision,
-                required=category in REQUIRED_SUBMIT_CATEGORIES,
+                required=category in required_submit_categories(order.kind),
                 complete=(not order.missing_slots(category))
                 if spec
                 else bool([f for f in live if f.revision == revision]),

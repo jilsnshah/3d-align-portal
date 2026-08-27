@@ -40,6 +40,27 @@ const ENQUIRY_STATUSES = [
   "CANCELLED",
 ];
 
+// A product is made from the scan, so it never sees planning, a training fit or
+// phases. Offering those as filters would be offering an empty table.
+const PRODUCT_STATUSES = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "RECORDS_REQUESTED",
+  "QUOTED",
+  "AWAITING_SCAN",
+  "SCAN_SUBMITTED",
+  "PRODUCT_FABRICATION",
+  "DISPATCHING",
+  "COMPLETED",
+  "CANCELLED",
+];
+
+function statusesFor(series: CaseSeries): string[] {
+  if (series === "enquiry") return ENQUIRY_STATUSES;
+  if (series === "product") return PRODUCT_STATUSES;
+  return STATUSES;
+}
+
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
     key: "aligner",
@@ -64,18 +85,18 @@ export default function StaffOrders() {
   const canAssign = me?.role === "ADMIN";
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "";
-  const series: CaseSeries = params.get("series") === "enquiry" ? "enquiry" : "aligner";
+  const requested = params.get("series");
+  const series: CaseSeries =
+    requested === "enquiry" || requested === "product" ? requested : "aligner";
   const [search, setSearch] = useState("");
 
-  const statusOptions = series === "enquiry" ? ENQUIRY_STATUSES : STATUSES;
+  const statusOptions = statusesFor(series);
 
   function switchSeries(next: CaseSeries) {
     // A status that only exists on the other side would show an empty table
     // and look like a bug, so it is dropped on the way across.
     const keep =
-      status && (next === "enquiry" ? ENQUIRY_STATUSES : STATUSES).includes(status)
-        ? status
-        : "";
+      status && statusesFor(next).includes(status) ? status : "";
     const p: Record<string, string> = { series: next };
     if (keep) p.status = keep;
     setParams(p);
@@ -148,7 +169,9 @@ export default function StaffOrders() {
         <Empty>
           {series === "enquiry"
             ? "No enquiries match."
-            : "No cases in the aligner series match."}
+            : series === "product"
+              ? "No product orders match. Retainers, splints and trays appear here once a clinic orders one."
+              : "No cases in the aligner series match."}
         </Empty>
       ) : (
         <>
