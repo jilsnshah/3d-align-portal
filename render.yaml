@@ -23,8 +23,12 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
-    autoDeploy: true
     branch: main
+    # Deliberately manual. A client is testing against this service, and a push
+    # landing mid-session would rebuild under them — and every deploy throws away
+    # the converted mesh cache, so the next 3D view pays the conversion again.
+    # Deploy with: render deploys create <service-id>
+    autoDeploy: false
     envVars:
       - key: ENVIRONMENT
         value: production
