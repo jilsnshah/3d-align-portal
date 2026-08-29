@@ -125,12 +125,18 @@ export default function StaffOrders() {
           </p>
         </div>
         <div className="row">
-          <input
-            placeholder="Case number, patient, doctor, clinic"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ minWidth: 260 }}
-          />
+          <span className="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Case number, patient, doctor, clinic"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search cases"
+            />
+          </span>
           <select
             value={status}
             onChange={(e) => {

@@ -58,12 +58,18 @@ export default function DoctorOrders() {
           <p className="sub">{active.hint}</p>
         </div>
         <div className="row">
-          <input
-            placeholder="Case number, patient, chart no."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ minWidth: 260 }}
-          />
+          <span className="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Case number, patient, chart no."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search cases"
+            />
+          </span>
           <Link to="/orders/new">
             <button type="button" className="btn-primary">
               New case
@@ -110,6 +116,7 @@ export default function DoctorOrders() {
             orders={actionable}
             onOpen={(id) => navigate(`/orders/${id}`)}
             emptyText="Nothing waiting on you."
+            showHeader
           />
           <Section
             title="With the lab"
@@ -132,42 +139,52 @@ function Section({
   orders,
   onOpen,
   emptyText,
+  showHeader = false,
 }: {
   title: string;
   orders: OrderSummary[];
   onOpen: (id: string) => void;
   emptyText?: string;
+  /* Printed once, above the first section. Repeating the same six column names
+     down the page is noise: the reader learned them at the top. */
+  showHeader?: boolean;
 }) {
   return (
-    <section>
-      <h4 style={{ marginBottom: 10 }}>{title}</h4>
+    <section className="case-section">
+      <h4 className="case-section-head">
+        {title}
+        {orders.length > 0 && <span className="count">{orders.length}</span>}
+      </h4>
       {orders.length === 0 ? (
         emptyText && <p className="dim">{emptyText}</p>
       ) : (
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Patient</th>
-                <th>Align category</th>
-                <th>Your orthodontist</th>
-                <th>Status</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
+            {showHeader && (
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Align category</th>
+                  <th>Your orthodontist</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+            )}
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id} className="clickable" onClick={() => onOpen(order.id)}>
-                  <td className="mono">
-                    {order.order_number}
-                    {order.priority === "EXPRESS" && (
-                      <span className="pill pill-gold" style={{ marginLeft: 8 }}>
-                        Express
+                  <td>
+                    <div className="cell-stack">
+                      <span className="cell-title">
+                        {order.patient_name}
+                        {order.priority === "EXPRESS" && (
+                          <span className="pill pill-gold">Express</span>
+                        )}
                       </span>
-                    )}
+                      <span className="cell-sub mono">{order.order_number}</span>
+                    </div>
                   </td>
-                  <td>{order.patient_name}</td>
                   <td>
                     {order.kind === "PRODUCT" ? (
                       // A product has no Align band — what it is *is* the answer.

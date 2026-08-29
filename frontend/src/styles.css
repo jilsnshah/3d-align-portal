@@ -36,8 +36,36 @@
   --danger-line: #edc5be;
 
   --font:
-    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", sans-serif;
+    "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
+
+  /* Type scale. A fourth-ish ratio, rounded to whole pixels so nothing lands on
+     a half-pixel and blurs. Display sizes carry negative tracking because Inter
+     is drawn loose for small text and looks slack when set large. */
+  --t-display: 1.75rem;
+  --t-h1: 1.42rem;
+  --t-h2: 1.12rem;
+  --t-h3: 0.98rem;
+  --t-body: 0.92rem;
+  --t-sm: 0.85rem;
+  --t-xs: 0.78rem;
+  --t-micro: 0.7rem;
+
+  --track-display: -0.022em;
+  --track-h1: -0.016em;
+  --track-h2: -0.011em;
+  --track-caps: 0.085em;
+
+  /* Spacing. Everything in the app was hand-picked per rule, so no two gaps
+     agreed. Four-pixel base, which is what the 15px body text sits on. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 22px;
+  --s-6: 30px;
+  --s-7: 40px;
+  --s-8: 56px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   --r: 10px;
@@ -111,18 +139,20 @@ h3,
 h4 {
   margin: 0;
   font-weight: 650;
-  letter-spacing: -0.015em;
+  letter-spacing: var(--track-h2);
   text-wrap: balance;
+  /* Headings sit on their own line height rather than the body's, so a two-line
+     title closes up instead of drifting apart. */
+  line-height: 1.22;
 }
 h1 {
-  font-size: 1.62rem;
-  letter-spacing: -0.025em;
+  font-size: var(--t-h1);
+  letter-spacing: var(--track-h1);
 }
 h2 {
-  font-size: 1.22rem;
-  letter-spacing: -0.02em;
+  font-size: var(--t-h2);
 }
-h3 { font-size: 1.02rem; }
+h3 { font-size: var(--t-h3); }
 h4 {
   font-size: 0.7rem;
   font-weight: 650;
@@ -132,6 +162,20 @@ h4 {
 }
 
 p { margin: 0; }
+
+/* Anything read as a quantity is set in tabular figures: prices, counts, case
+   references and timestamps all sit in columns, and proportional digits make a
+   column of numbers ripple. */
+.mono,
+td,
+th,
+.tile .n,
+.welcome-stats dd,
+.product-sizes b,
+.product-from,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
 a {
   color: var(--ink);
   text-underline-offset: 2px;
@@ -279,6 +323,9 @@ a:hover { text-decoration-color: var(--gold); }
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  /* The nav scrolls when it will not fit. Without this the last item is sheared
+     mid-word and reads as a rendering fault rather than as more to swipe to. */
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent 100%);
 }
 .topnav::-webkit-scrollbar { display: none; }
 .topnav a {
@@ -437,6 +484,11 @@ a:hover { text-decoration-color: var(--gold); }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .stack-sm { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+/* Inputs are width:100% so they fill a form column. In a toolbar that makes the
+   field eat the row and push the button onto a line of its own, so a toolbar
+   field sizes to itself. */
+.row > input,
+.row > .search { width: auto; }
 .row-between { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .split { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
@@ -2368,4 +2420,210 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 @media (prefers-reduced-motion: reduce) {
   .start-card:hover, .strip-card:hover, .product-card:hover { transform: none; }
+}
+
+/* --- Loading placeholders -------------------------------------------------
+   A line of text on an empty page tells someone that nothing has arrived. A
+   shape tells them what is arriving, holds the layout so the page does not
+   jump when it does, and reads as faster than it is. */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--white);
+  overflow: hidden;
+}
+
+.skeleton-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.skeleton-item:last-child { border-bottom: 0; }
+
+.skeleton-line {
+  height: 10px;
+  border-radius: 999px;
+  /* The sweep is a gradient moving across a fixed track rather than an opacity
+     pulse: a pulse reads as something broken blinking, a sweep reads as work
+     in progress. */
+  background: linear-gradient(
+    90deg,
+    var(--paper-2) 0%,
+    var(--rule) 40%,
+    var(--paper-2) 80%
+  );
+  background-size: 300% 100%;
+  animation: sweep 1.4s var(--ease) infinite;
+}
+
+.skeleton-line.wide { width: 42%; }
+.skeleton-line.narrow { width: 24%; height: 8px; opacity: 0.75; }
+
+.skeleton-card .skeleton-item { padding: var(--s-5); }
+.skeleton-tile { flex-direction: row; gap: var(--s-3); border: 0; background: none; }
+.skeleton-tile .skeleton-item {
+  flex: 1;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--white);
+}
+
+@keyframes sweep {
+  from { background-position: 120% 0; }
+  to { background-position: -20% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line { animation: none; background: var(--paper-2); }
+}
+
+/* A search field that looks like one: the icon says what it is before the
+   placeholder is read, and the field widens as it takes focus. */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search input {
+  width: 268px;
+  padding-left: 34px;
+  transition:
+    width var(--mid) var(--ease-out),
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+}
+
+.search input:focus { width: 320px; }
+
+.search svg {
+  position: absolute;
+  left: 11px;
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+/* --- Case list -----------------------------------------------------------
+   Three stacked tables, each reprinting the same six column names, read as a
+   database export. The columns are named once; each section then announces
+   itself and how much is in it. */
+
+.case-section + .case-section { margin-top: var(--s-6); }
+
+.case-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+.case-section-head .count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two facts in one cell: the one being looked for, and the one that identifies
+   it. Stacking them buys back a column without losing anything. */
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cell-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.cell-sub {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+}
+
+/* --- Narrow screens -------------------------------------------------------
+   A doctor checks a case between patients, on a phone, one-handed. What was
+   happening instead: case references broken across three lines, patient names
+   hyphenated mid-word, and the status column sheared off at the edge. */
+
+/* A reference is one token. Breaking "AL-2026-0273" over three lines makes it
+   unreadable and unsearchable by eye. */
+.mono,
+.cell-sub,
+.case-progress .pill,
+.pill {
+  white-space: nowrap;
+}
+
+.cell-title { flex-wrap: wrap; }
+
+@media (max-width: 860px) {
+  /* Below this the columns cannot all be honest, so the table keeps its
+     proportions and the wrapper scrolls. Squeezing them instead gives crushed
+     cells that look broken rather than dense. */
+  .table-wrap table { min-width: 720px; }
+
+  /* The edge of a scrollable region should say it continues, not look clipped. */
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent 100%);
+  }
+}
+
+@media (max-width: 680px) {
+  .page { padding: var(--s-5) var(--s-4) var(--s-8); }
+
+  /* A toolbar on a phone is a stack, and its controls should fill the width
+     rather than sit at odd widths left over from the desktop layout. */
+  .page-head .row { width: 100%; }
+  .page-head .row > .search,
+  .page-head .row > .search input,
+  .page-head .row > a,
+  .page-head .row > a > button { width: 100%; }
+  .search input:focus { width: 100%; }
+
+  .welcome { padding: var(--s-5) var(--s-4); }
+  .welcome-stats { gap: var(--s-6); }
+
+  /* The ask and the stage stack under the patient rather than being squeezed
+     against them. */
+  .waiting-row { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+  .waiting-right { width: 100%; justify-content: space-between; }
+  .waiting-ask { text-align: left; }
 }

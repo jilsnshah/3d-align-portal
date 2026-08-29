@@ -15,7 +15,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, formatDate } from "../../api";
 import type { OrderStatus, OrderSummary, Product } from "../../api";
 import { useAuth } from "../../auth";
-import { Loading, StatusPill } from "../../components/ui";
+import { Skeleton, StatusPill } from "../../components/ui";
 
 function rupees(value: string | number): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -130,7 +130,7 @@ export default function DoctorHome() {
       </div>
 
       {waiting.isLoading ? (
-        <Loading what="your cases" />
+        <Skeleton rows={3} />
       ) : (waiting.data?.length ?? 0) > 0 ? (
         <section className="stack-sm">
           <div className="row-between">
@@ -184,7 +184,7 @@ export default function DoctorHome() {
           </Link>
         </div>
         {products.isLoading ? (
-          <Loading what="the range" />
+          <Skeleton rows={6} variant="tile" />
         ) : (
           <div className="product-strip">
             {products.data?.slice(0, 6).map((product: Product) => (

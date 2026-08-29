@@ -1,3 +1,10 @@
+/* Inter, self-hosted and variable. The stylesheet asked for it and never
+   loaded it, so every screen fell through to whatever the operating system
+   supplies — SF on a Mac, Segoe on Windows — and the type was different for
+   every person looking at it. The optical-size axis is what keeps small text
+   legible and large text tight without hand-tuning tracking at each size. */
+import "@fontsource-variable/inter/opsz.css";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

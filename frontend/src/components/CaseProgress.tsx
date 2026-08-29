@@ -64,13 +64,16 @@ export default function CaseProgress({
       >
         <span style={{ width: `${done ? 100 : Math.max(percent, 4)}%` }} />
       </div>
-      <span className="case-progress-note">
-        {done
-          ? "Complete"
-          : phases
-            ? `${percent}% · phase ${Math.min((phaseDone ?? 0) + 1, phases)}/${phases}`
-            : `${percent}%`}
-      </span>
+      {/* The bar already says how far along; printing the same number under it
+          on every row is the figure twice. Only what the bar cannot show gets
+          words — which phase is out, and that a case is finished. */}
+      {(done || phases > 0) && (
+        <span className="case-progress-note">
+          {done
+            ? "Complete"
+            : `Phase ${Math.min((phaseDone ?? 0) + 1, phases)} of ${phases}`}
+        </span>
+      )}
     </div>
   );
 }

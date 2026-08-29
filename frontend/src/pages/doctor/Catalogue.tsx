@@ -12,7 +12,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
 import type { Product } from "../../api";
-import { Banner, ErrorText, Field, Loading } from "../../components/ui";
+import { Banner, ErrorText, Field, Skeleton } from "../../components/ui";
 
 /** "an Essix Retainer", not "a Essix Retainer". */
 function article(name: string): string {
@@ -120,7 +120,13 @@ export default function Catalogue() {
     };
   }, [ordering]);
 
-  if (products.isLoading) return <Loading what="the catalogue" />;
+  if (products.isLoading) {
+    return (
+      <main className="page stack">
+        <Skeleton rows={4} variant="card" />
+      </main>
+    );
+  }
 
   return (
     <main className="page stack">

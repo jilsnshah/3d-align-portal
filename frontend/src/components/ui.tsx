@@ -69,6 +69,31 @@ export function Loading({ what = "" }: { what?: string }) {
   return <div className="loading">Loading {what}…</div>;
 }
 
+/** Placeholders shaped like the content that is coming.
+
+    A spinner says only that something is happening; a shape says what, holds
+    the layout so nothing jumps when the data lands, and reads as faster than a
+    line of text on an empty page even when it is not. */
+export function Skeleton({
+  rows = 4,
+  variant = "row",
+}: {
+  rows?: number;
+  variant?: "row" | "card" | "tile";
+}) {
+  return (
+    <div className={`skeleton skeleton-${variant}`} aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton-item">
+          <span className="skeleton-line wide" />
+          <span className="skeleton-line narrow" />
+        </div>
+      ))}
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
+}
+
 export function Field({
   label,
   children,
