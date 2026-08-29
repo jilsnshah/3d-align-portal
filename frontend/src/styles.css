@@ -81,7 +81,11 @@ html {
 
 body {
   margin: 0;
+  /* A warm wash falling away from the top, so content sits on something rather
+     than on a flat sheet. Fixed, so it does not travel with the scroll. */
   background: var(--paper);
+  background-image: linear-gradient(180deg, var(--paper-2) 0%, var(--paper) 420px);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font);
   font-size: 15px;
@@ -374,6 +378,7 @@ a:hover { text-decoration-color: var(--gold); }
 
 .page {
   flex: 1;
+  position: relative;
   width: 100%;
   max-width: 1240px;
   margin: 0 auto;
@@ -381,6 +386,22 @@ a:hover { text-decoration-color: var(--gold); }
   animation: rise var(--slow) var(--ease-out) both;
 }
 .page-narrow { max-width: 780px; }
+
+/* A hairline of gold under the page title. Small, but it stops every screen
+   from opening with unaccented black text on paper. */
+.page-head h1::after,
+.welcome h1::after {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 2px;
+  margin-top: 9px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold-line));
+}
+.welcome h1::after {
+  background: linear-gradient(90deg, var(--gold-bright), transparent);
+}
 
 .page-head {
   display: flex;
@@ -622,8 +643,12 @@ button:not(:disabled):active { transform: translateY(1px); }
   flex: none;
 }
 .pill-gold { background: var(--gold-soft); border-color: var(--gold-line); color: var(--warn); }
-.pill-dark { background: var(--black); border-color: var(--black); color: var(--white); }
-.pill-dark::before { background: var(--gold-bright); opacity: 1; }
+.pill-dark {
+  background: var(--paper-2);
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+.pill-dark::before { background: var(--gold); opacity: 1; }
 .pill-ok { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok); }
 .pill-warn { background: var(--warn-soft); border-color: var(--gold-line); color: var(--warn); }
 .pill-danger { background: var(--danger-soft); border-color: var(--danger-line); color: var(--danger); }
@@ -660,7 +685,16 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 /* ---------------- queue tiles ---------------- */
 
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px; }
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 12px;
+}
+@media (min-width: 1100px) {
+  /* A fixed four keeps an odd count balanced (4 + 3) instead of stranding a
+     single tile on a row of its own. */
+  .tiles { grid-template-columns: repeat(4, 1fr); }
+}
 .tile {
   background: var(--white);
   border: 1px solid var(--rule);
@@ -1970,9 +2004,15 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .case-progress {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  /* Without this the pill stretches to the width of the cell: a flex column
+     stretches its children by default, and a status chip 950px wide reads as a
+     banner rather than a label. */
+  align-items: flex-start;
+  gap: 6px;
   min-width: 148px;
+  max-width: 210px;
 }
+.case-progress-bar { align-self: stretch; }
 .case-progress-bar {
   height: 4px;
   border-radius: 999px;
@@ -2212,9 +2252,31 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
+.start-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--white) 60%, var(--gold-wash) 100%);
+}
+
+/* A gold edge that only fills in on hover, so the cards read as one family at
+   rest and the one under the cursor is unmistakable. */
+.start-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold-line));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--mid) var(--ease-out);
+}
+
+.start-card:hover::before { transform: scaleX(1); }
+
 .start-card:hover {
   border-color: var(--gold-line);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
@@ -2263,6 +2325,13 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 .waiting-row:last-child { border-bottom: 0; }
 .waiting-row:hover { background: var(--gold-wash); }
+
+.waiting-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
+}
 
 .waiting-ask {
   flex: none;

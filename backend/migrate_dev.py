@@ -118,15 +118,12 @@ ADDITIONS = {
 # Roles were renamed when technicians arrived.
 ROLE_RENAMES = [("STAFF", "ADMIN")]
 
-# Everything below is SQLite: sqlite_master, "?" placeholders, and the
-# rebuild-the-table trick SQLite needs for changes it cannot ALTER. A Postgres
-# deployment has no dev database to patch — create_all() builds the current
-# schema on first boot — so leaving early is the whole job there. The container
-# runs this on every start, so this must return quietly rather than fail.
-if engine.dialect.name != "sqlite":
-    print(f"{engine.dialect.name}: nothing to patch, the schema is created whole.")
-    raise SystemExit(0)
-
+# Adding a column runs the same on both engines, and it has to: create_all()
+# builds tables that are missing but never touches one that already exists, so
+# a deployed Postgres whose orders table predates a new column will not get it
+# any other way. Getting this wrong means every query against that table fails
+# on the first request after a deploy.
+sqlite = engine.dialect.name == "sqlite"
 inspector = inspect(engine)
 applied = 0
 
@@ -161,8 +158,15 @@ with engine.begin() as conn:
 
 
 # --------------------------------------------------------------------------
-# Column rebuilds
+# Column rebuilds — SQLite only
 # --------------------------------------------------------------------------
+# What follows is SQLite to its bones: sqlite_master, "?" placeholders, and the
+# rebuild-the-table trick it needs for changes it cannot ALTER. Postgres does
+# these in place, and did them when the schema was first created there.
+if not sqlite:
+    print(f"\n{applied} change(s) applied.")
+    raise SystemExit(0)
+
 # SQLite cannot relax a NOT NULL in place, so the table is rebuilt from the
 # model. order_number became nullable when the AL series stopped being spent on
 # cases that never reach planning.

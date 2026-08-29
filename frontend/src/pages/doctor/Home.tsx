@@ -15,7 +15,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, formatDate } from "../../api";
 import type { OrderStatus, OrderSummary, Product } from "../../api";
 import { useAuth } from "../../auth";
-import { Loading } from "../../components/ui";
+import { Loading, StatusPill } from "../../components/ui";
 
 function rupees(value: string | number): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -154,9 +154,12 @@ export default function DoctorHome() {
                     {order.product_label ? ` · ${order.product_label}` : ""}
                   </div>
                 </div>
-                <div className="waiting-ask">
-                  {ASK[order.status] ?? order.status_label}
-                  <span className="start-go"> →</span>
+                <div className="waiting-right">
+                  <StatusPill status={order.status} label={order.status_label} />
+                  <span className="waiting-ask">
+                    {ASK[order.status] ?? order.status_label}
+                    <span className="start-go"> →</span>
+                  </span>
                 </div>
               </button>
             ))}
