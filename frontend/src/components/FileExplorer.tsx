@@ -171,6 +171,8 @@ function PlainUploader({
 
   if (!set.editable) return null;
 
+  const [dragging, setDragging] = useState(false);
+
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     setBusy(true);
@@ -204,26 +206,57 @@ function PlainUploader({
   }
 
   return (
-    <div className="dropzone">
+    <div
+      className={`dropzone${dragging ? " dragging" : ""}`}
+      onDragOver={(e) => {
+        if (busy) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        if (!busy) void upload(e.dataTransfer.files);
+      }}
+    >
       <div className="row">
-        <input
-          id={inputId}
-          type="file"
-          multiple
-          disabled={busy}
-          onChange={(e) => void upload(e.target.files)}
-        />
-        {isFolderImport && (
+        <label className={`file-trigger${busy ? " is-disabled" : ""}`}>
+          <input
+            id={inputId}
+            type="file"
+            multiple
+            disabled={busy}
+            onChange={(e) => void upload(e.target.files)}
+          />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 16V5m0 0L8 9m4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
+          </svg>
+          <span>Choose files</span>
+        </label>
+        {isFolderImport ? (
           <>
-            <span className="dim">or pick the folder</span>
-            <input
-              type="file"
-              multiple
-              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-              disabled={busy}
-              onChange={(e) => void upload(e.target.files)}
-            />
+            <span className="dim">or</span>
+            <label className={`file-trigger${busy ? " is-disabled" : ""}`}>
+              <input
+                type="file"
+                multiple
+                {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                disabled={busy}
+                onChange={(e) => void upload(e.target.files)}
+              />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M3 7h5l2 2h11v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" strokeLinejoin="round" />
+              </svg>
+              <span>Choose a folder</span>
+            </label>
           </>
+        ) : (
+          <span className="dim drop-hint">or drop them here</span>
         )}
       </div>
       {isFolderImport && !busy && (

@@ -25,7 +25,10 @@ export default function FileUploader({
   // folder rather than shift-selecting thirty-odd files.
   const isFolderImport = category === "SIMULATION_MODEL";
   const [error, setError] = useState<unknown>(null);
+  const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const blocked = busy || (slotOptions.length > 0 && !slot);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -60,7 +63,28 @@ export default function FileUploader({
   }
 
   return (
-    <div className="dropzone">
+    <div
+      className={`dropzone${dragging ? " dragging" : ""}${blocked ? " blocked" : ""}`}
+      /* A lab uploading a staged export has thirty files in a folder already
+         open. Making them go through a file picker to reach files they are
+         looking at is work the browser can do for them. */
+      onDragOver={(e) => {
+        if (blocked) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // Only when the pointer leaves the zone itself, not on every child it
+        // crosses on the way in.
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        if (!blocked) void handleFiles(e.dataTransfer.files);
+      }}
+    >
       <div className="row">
         <select
           value={category}
@@ -88,27 +112,39 @@ export default function FileUploader({
             ))}
           </select>
         )}
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          disabled={busy || (slotOptions.length > 0 && !slot)}
-          onChange={(e) => void handleFiles(e.target.files)}
-          style={{ maxWidth: 300 }}
-        />
+        <label className={`file-trigger${blocked ? " is-disabled" : ""}`}>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            disabled={blocked}
+            onChange={(e) => void handleFiles(e.target.files)}
+          />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 16V5m0 0L8 9m4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
+          </svg>
+          <span>Choose files</span>
+        </label>
+        <span className="dim drop-hint">or drop them here</span>
         {isFolderImport && (
           <>
             <span className="dim">or</span>
-            <input
-              ref={folderRef}
-              type="file"
-              multiple
-              // Not in the TS lib yet, but supported by every browser the lab uses.
-              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-              disabled={busy}
-              onChange={(e) => void handleFiles(e.target.files)}
-              style={{ maxWidth: 280 }}
-            />
+            <label className={`file-trigger${busy ? " is-disabled" : ""}`}>
+              <input
+                ref={folderRef}
+                type="file"
+                multiple
+                // Not in the TS lib yet, but supported by every browser the lab uses.
+                {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+                disabled={busy}
+                onChange={(e) => void handleFiles(e.target.files)}
+              />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M3 7h5l2 2h11v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" strokeLinejoin="round" />
+              </svg>
+              <span>Choose a folder</span>
+            </label>
           </>
         )}
       </div>

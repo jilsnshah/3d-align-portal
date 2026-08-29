@@ -136,12 +136,23 @@ function PaymentRow({ order, payment }: { order: OrderDetail; payment: Payment }
             send the screenshot below.
           </p>
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
+            {/* The clinic is sending proof they have paid. A raw browser control
+                reading "No file chosen" is a poor place for that moment, and it
+                never says which screenshot was picked. */}
+            <label className="file-trigger">
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M12 16V5m0 0L8 9m4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" strokeLinecap="round" />
+              </svg>
+              <span>{file ? "Change screenshot" : "Add the screenshot"}</span>
+            </label>
+            {file && <span className="dim file-chosen">{file.name}</span>}
             <input
               placeholder="UPI reference (optional)"
               value={reference}

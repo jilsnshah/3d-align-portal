@@ -164,8 +164,7 @@ function Section({
               <thead>
                 <tr>
                   <th>Patient</th>
-                  <th>Align category</th>
-                  <th>Your orthodontist</th>
+                  <th>Treatment</th>
                   <th>Status</th>
                   <th>Updated</th>
                 </tr>
@@ -182,22 +181,28 @@ function Section({
                           <span className="pill pill-gold">Express</span>
                         )}
                       </span>
-                      <span className="cell-sub mono">{order.order_number}</span>
+                      <span className="cell-sub">
+                        <span className="mono">{order.order_number}</span>
+                        {order.assigned_to_name && (
+                          <>
+                            {" · "}
+                            {order.assigned_to_name}
+                          </>
+                        )}
+                      </span>
                     </div>
                   </td>
                   <td>
                     {order.kind === "PRODUCT" ? (
-                      // A product has no Align band — what it is *is* the answer.
                       <span>{order.product_label}</span>
-                    ) : (
+                    ) : order.category_label ? (
                       <CategoryPill
                         label={order.category_label}
                         confirmed={order.category_confirmed}
                       />
+                    ) : (
+                      <span className="dim">Not sized yet</span>
                     )}
-                  </td>
-                  <td>
-                    {order.assigned_to_name || <span className="dim">3D Align</span>}
                   </td>
                   <td>
                     <CaseProgress

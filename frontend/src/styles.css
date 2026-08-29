@@ -877,6 +877,73 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .dropzone:hover { border-color: var(--gold); background: var(--gold-wash); }
 
+/* Dragging a file over the zone is the moment to say, unmistakably, that it
+   will be taken. A hover tint is not enough when a file is under the cursor. */
+.dropzone.dragging {
+  border-color: var(--gold-bright);
+  border-style: solid;
+  background: var(--gold-soft);
+  box-shadow: var(--glow-gold);
+}
+
+.dropzone.blocked { opacity: 0.8; }
+
+/* The native file input is the most obviously unfinished control a web app can
+   show: an OS-drawn button, a grey "No file chosen", and no way to style
+   either. It stays in the DOM for the keyboard and for assistive tech, and the
+   label is what people see and click. */
+.file-trigger input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+}
+
+.file-trigger svg { width: 15px; height: 15px; color: var(--gold-deep); }
+
+.file-trigger:hover {
+  border-color: var(--gold);
+  background: var(--gold-wash);
+}
+
+/* The label wraps the input, so the input's focus ring lands on nothing a
+   person can see. The ring goes on the label instead. */
+.file-trigger:focus-within {
+  border-color: var(--gold);
+  box-shadow: var(--glow-gold);
+}
+
+.file-trigger.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.drop-hint { font-size: var(--t-sm); }
+
+@media (max-width: 680px) {
+  /* No pointer to drag with. */
+  .drop-hint { display: none; }
+}
+
 /* ---------------- misc ---------------- */
 
 .banner {
@@ -2626,4 +2693,15 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .waiting-row { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
   .waiting-right { width: 100%; justify-content: space-between; }
   .waiting-ask { text-align: left; }
+}
+
+/* The native control shows the chosen filename and cannot be styled; a label
+   cannot show it at all. So the name is printed alongside, truncated rather
+   than allowed to push the row apart. */
+.file-chosen {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-sm);
 }
