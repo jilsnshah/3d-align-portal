@@ -120,7 +120,7 @@ export default function DoctorHome() {
         </button>
 
         <button type="button" className="start-card" onClick={() => navigate("/catalogue")}>
-          <span className="start-kicker">Retainers &amp; appliances</span>
+          <span className="start-kicker">Orthodontic Aligner Integrated Appliances</span>
           <strong>Order a product</strong>
           <span className="muted">
             Retainers, splints, bleaching trays and guards — made from a scan, no planning stage.
@@ -178,7 +178,7 @@ export default function DoctorHome() {
 
       <section className="stack-sm">
         <div className="row-between">
-          <h2 style={{ margin: 0 }}>Retainers &amp; appliances</h2>
+          <h2 style={{ margin: 0 }}>Orthodontic Aligner Integrated Appliances</h2>
           <Link to="/catalogue" className="btn-link">
             The full range
           </Link>

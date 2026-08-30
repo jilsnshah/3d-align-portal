@@ -117,10 +117,16 @@ def catalogue(db: Session) -> list:
 
 
 def size_of(product: Product, size_id: Optional[str]) -> Optional[ProductSize]:
-    if size_id:
-        return next((s for s in product.sizes if s.id == size_id), None)
-    # A product with one size does not need to be asked about.
+    """The size an order is being placed against, or None if it cannot be had.
+
+    Retired sizes are not orderable, and a page open since before the lab
+    retired one still shows it. So the id is matched against what is on sale
+    rather than against every row, and the caller refuses the order.
+    """
     sizes = product.priced_sizes
+    if size_id:
+        return next((s for s in sizes if s.id == size_id), None)
+    # A product with one size does not need to be asked about.
     return sizes[0] if len(sizes) == 1 else None
 
 

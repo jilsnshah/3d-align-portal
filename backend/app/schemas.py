@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from datetime import date as date_type, datetime, time as time_type
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from . import enums
 
@@ -126,7 +126,10 @@ class ProductOut(ORMModel):
     description: str
     per_tooth_price: Decimal
     included_teeth: int
-    sizes: list[ProductSizeOut]
+    # Read from priced_sizes, not sizes: a retired size keeps its row so the
+    # orders that used it still resolve, and reading the raw list would put it
+    # back in front of the clinic as something orderable.
+    sizes: list[ProductSizeOut] = Field(validation_alias=AliasChoices("priced_sizes", "sizes"))
     has_choice_of_size: bool
 
 

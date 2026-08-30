@@ -131,7 +131,7 @@ export default function Catalogue() {
   return (
     <main className="page stack">
       <div>
-        <h1>Retainers &amp; appliances</h1>
+        <h1>Orthodontic Aligner Integrated Appliances</h1>
         <p className="muted">
           Made from an intraoral scan — no treatment plan or simulation stage, so they are
           quick. If we already hold a scan for the patient, you can reuse it rather than
