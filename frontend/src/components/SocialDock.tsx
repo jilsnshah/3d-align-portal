@@ -6,7 +6,7 @@ import { useAuth } from "../auth";
    WhatsApp wants the number in international form with no "+", spaces or
    dashes; anything else and wa.me silently opens an empty chat. Both can be
    overridden at build time so a change of handle is a deploy, not a commit. */
-const WHATSAPP_NUMBER: string = import.meta.env.VITE_WHATSAPP_NUMBER || "919999999999";
+const WHATSAPP_NUMBER: string = import.meta.env.VITE_WHATSAPP_NUMBER || "919925428288";
 const INSTAGRAM_HANDLE: string = import.meta.env.VITE_INSTAGRAM_HANDLE || "3dalign";
 
 const WHATSAPP_ICON =
