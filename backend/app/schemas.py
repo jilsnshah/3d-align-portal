@@ -990,6 +990,10 @@ class OrderSummary(BaseModel):
     patient_name: str
     doctor_name: str
     clinic_name: str
+    # Which branch the case ships to. A practice with one clinic never sees
+    # this; one running several cannot read a mixed list without it.
+    branch_id: str = ""
+    branch_label: str = ""
     arch: enums.Arch
     priority: enums.Priority
     needs_doctor_action: bool

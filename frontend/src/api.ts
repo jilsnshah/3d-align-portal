@@ -301,6 +301,9 @@ export interface OrderSummary {
   patient_name: string;
   doctor_name: string;
   clinic_name: string;
+  /** Which branch this case ships to. Empty when the practice has one clinic. */
+  branch_id: string;
+  branch_label: string;
   arch: "UPPER" | "LOWER" | "BOTH";
   priority: "STANDARD" | "EXPRESS";
   needs_doctor_action: boolean;
@@ -847,7 +850,13 @@ export const api = {
   orders: (
     needsAction = false,
     page: Page = {},
-    filters: { search?: string; patientId?: string; series?: CaseSeries } = {},
+    filters: {
+      search?: string;
+      patientId?: string;
+      series?: CaseSeries;
+      /** One branch of a multi-clinic practice, by its delivery address. */
+      addressId?: string;
+    } = {},
   ) =>
     get<OrderSummary[]>(
       `/orders?${pageQuery(page, {
@@ -855,6 +864,7 @@ export const api = {
         search: filters.search ?? "",
         patient_id: filters.patientId ?? "",
         series: filters.series ?? "",
+        address_id: filters.addressId ?? "",
       })}`,
     ),
   order: (id: string) => get<OrderDetail>(`/orders/${id}`),

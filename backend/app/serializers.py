@@ -226,6 +226,22 @@ def _file_out(order: Order, f) -> schemas.FileOut:
     return file_out(order, f)
 
 
+def _branch_label(address) -> str:
+    """What to call a branch in a list.
+
+    The label is what the clinic typed — "Clinic", "Satellite", "Bopal" — and
+    two branches can carry the same one, so the city follows when it adds
+    something. A practice with a single address never sees either.
+    """
+    if address is None:
+        return ""
+    label = (address.label or "").strip()
+    city = (address.city or "").strip()
+    if label and city and city.casefold() not in label.casefold():
+        return f"{label} · {city}"
+    return label or city
+
+
 def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
     # The aligner count and the confirmed band are plan findings. Before the
     # plan is paid for, the clinic sees the estimate it already had.
@@ -261,6 +277,8 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         patient_name=order.patient.full_name,
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
+        branch_id=order.shipping_address_id or "",
+        branch_label=_branch_label(order.shipping_address),
         arch=order.arch,
         priority=order.priority,
         needs_doctor_action=order.status in DOCTOR_ACTION_STATUSES,

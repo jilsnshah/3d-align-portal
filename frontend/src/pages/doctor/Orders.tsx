@@ -1,5 +1,5 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
@@ -26,18 +26,57 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   },
 ];
 
+/* A practice running several branches picks one and keeps working from it,
+   so the choice outlives the visit. Stored per browser rather than on the
+   account: the same login is used from the front desk of each branch. */
+const BRANCH_KEY = "3dalign.branch";
+
+function storedBranch(): string {
+  try {
+    return window.localStorage.getItem(BRANCH_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export default function DoctorOrders() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [series, setSeries] = useState<CaseSeries>("aligner");
+  const [branch, setBranch] = useState(storedBranch);
+
+  const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
+  // One clinic is not a choice worth putting on the page.
+  const branches = addresses.data ?? [];
+  const multiBranch = branches.length > 1;
+
+  /* A branch that has been deleted, or one remembered from another account on
+     this browser, would otherwise filter every case away and look like an
+     empty practice. */
+  useEffect(() => {
+    if (!addresses.data || !branch) return;
+    if (!addresses.data.some((a) => a.id === branch)) setBranch("");
+  }, [addresses.data, branch]);
+
+  function chooseBranch(id: string) {
+    setBranch(id);
+    try {
+      if (id) window.localStorage.setItem(BRANCH_KEY, id);
+      else window.localStorage.removeItem(BRANCH_KEY);
+    } catch {
+      /* A browser refusing storage still filters, it just forgets. */
+    }
+  }
+
+  const addressId = multiBranch ? branch : "";
   const orders = useInfiniteQuery({
-    queryKey: ["orders", series, search],
+    queryKey: ["orders", series, search, addressId],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api.orders(
         false,
         { limit: PAGE_SIZE + 1, offset: pageParam as number },
-        { search, series },
+        { search, series, addressId },
       ),
     getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
@@ -49,6 +88,9 @@ export default function DoctorOrders() {
     (o) => !o.needs_doctor_action && o.status !== "COMPLETED" && o.status !== "CANCELLED",
   );
   const closed = all.filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED");
+  // Naming the branch on every row is only worth the space while the list
+  // actually holds more than one.
+  const mixed = multiBranch && !branch;
 
   return (
     <main className="page">
@@ -78,6 +120,35 @@ export default function DoctorOrders() {
         </div>
       </div>
 
+      {multiBranch && (
+        <div className="branch-bar" role="group" aria-label="Branch">
+          <span className="branch-bar-label">Branch</span>
+          <div className="branch-pills">
+            <button
+              type="button"
+              aria-pressed={!branch}
+              className={!branch ? "active" : ""}
+              onClick={() => chooseBranch("")}
+            >
+              All branches
+            </button>
+            {branches.map((address) => (
+              <button
+                key={address.id}
+                type="button"
+                aria-pressed={branch === address.id}
+                className={branch === address.id ? "active" : ""}
+                onClick={() => chooseBranch(address.id)}
+                title={`${address.line1}, ${address.city}`}
+              >
+                {address.label || address.city}
+                {address.is_default_shipping && <span className="branch-default">Default</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="series-tabs" role="tablist" aria-label="Case series">
         {SERIES.map((s) => (
           <button
@@ -98,6 +169,15 @@ export default function DoctorOrders() {
       ) : all.length === 0 ? (
         search ? (
           <Empty>No cases match “{search}”.</Empty>
+        ) : branch ? (
+          /* Blaming the practice for having no cases when a filter is on is
+             how a doctor concludes the portal has lost their work. */
+          <Empty>
+            Nothing here for {branches.find((a) => a.id === branch)?.label || "this branch"}.{" "}
+            <button type="button" className="btn-link" onClick={() => chooseBranch("")}>
+              Show every branch
+            </button>
+          </Empty>
         ) : series === "enquiry" ? (
           <Empty>No open enquiries — everything has moved into planning.</Empty>
         ) : series === "product" ? (
@@ -117,15 +197,22 @@ export default function DoctorOrders() {
             onOpen={(id) => navigate(`/orders/${id}`)}
             emptyText="Nothing waiting on you."
             showHeader
+            showBranch={mixed}
           />
           <Section
             title="With the lab"
             orders={inProgress}
             onOpen={(id) => navigate(`/orders/${id}`)}
             emptyText="No cases in progress."
+            showBranch={mixed}
           />
           {closed.length > 0 && (
-            <Section title="Closed" orders={closed} onOpen={(id) => navigate(`/orders/${id}`)} />
+            <Section
+              title="Closed"
+              orders={closed}
+              onOpen={(id) => navigate(`/orders/${id}`)}
+              showBranch={mixed}
+            />
           )}
           <LoadMore query={orders} noun="cases" shown={all.length} />
         </div>
@@ -140,6 +227,7 @@ function Section({
   onOpen,
   emptyText,
   showHeader = false,
+  showBranch = false,
 }: {
   title: string;
   orders: OrderSummary[];
@@ -148,6 +236,9 @@ function Section({
   /* Printed once, above the first section. Repeating the same six column names
      down the page is noise: the reader learned them at the top. */
   showHeader?: boolean;
+  /* Only while the list mixes branches. Stamping every row with the branch the
+     reader just filtered to says nothing. */
+  showBranch?: boolean;
 }) {
   return (
     <section className="case-section">
@@ -183,6 +274,12 @@ function Section({
                       </span>
                       <span className="cell-sub">
                         <span className="mono">{order.order_number}</span>
+                        {showBranch && order.branch_label && (
+                          <>
+                            {" · "}
+                            {order.branch_label}
+                          </>
+                        )}
                         {order.assigned_to_name && (
                           <>
                             {" · "}

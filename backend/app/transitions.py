@@ -215,7 +215,9 @@ def transition(
     # rather than spending an aligner number on a bleaching tray.
     elif to == S.PRODUCT_FABRICATION and order.order_number is None:
         if order.product is not None:
-            order.order_number = next_product_number(db, order.product.code)
+            order.order_number = next_product_number(
+                db, order.product.code, order.product_size.label if order.product_size else ""
+            )
             _rename_storage_folder(order)
 
     order.status = to

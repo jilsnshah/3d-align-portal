@@ -253,4 +253,57 @@ with engine.begin() as conn:
         print("  ~ orders.order_number is now nullable")
         applied += 1
 
+# --------------------------------------------------------------------------
+# Product references
+# --------------------------------------------------------------------------
+# Product orders took a reference from a per-product, per-year series
+# (ER-2026-0001). The lab numbers its bench work the way it always has —
+# 3DAER(1.0)001 — so the ones already placed are rewritten into that, and the
+# counters are wound on so the next order continues rather than colliding.
+#
+# Runs on every boot and is a no-op once done: a reference already in the new
+# shape is left alone.
+with engine.begin() as conn:
+    from sqlalchemy.orm import Session
+
+    from app.models import Counter, Order
+    from app.services.numbering import product_counter_key, product_number
+
+    with Session(bind=conn) as db:
+        stale = [
+            order
+            for order in db.query(Order)
+            .filter(Order.order_number.isnot(None), Order.product_id.isnot(None))
+            .order_by(Order.created_at, Order.id)
+            .all()
+            if not (order.order_number or "").startswith("3DA")
+        ]
+        if stale:
+            # order_number is unique, and a new reference can land on one an
+            # untouched row still holds, so every stale row is parked out of
+            # the way before any of them is given its real value.
+            for index, order in enumerate(stale):
+                order.order_number = f"migrating-{index}"
+            db.flush()
+
+            counters = {}
+            for order in stale:
+                code = order.product.code
+                counters[code] = counters.get(code, 0) + 1
+                order.order_number = product_number(
+                    code,
+                    order.product_size.label if order.product_size else "",
+                    counters[code],
+                )
+            for code, used in counters.items():
+                key = product_counter_key(code)
+                row = db.get(Counter, key)
+                if row is None:
+                    db.add(Counter(key=key, value=used))
+                elif row.value < used:
+                    row.value = used
+            db.commit()
+            print(f"  ~ {len(stale)} product reference(s) renumbered")
+            applied += 1
+
 print(f"\n{applied} change(s) applied.")

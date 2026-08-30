@@ -76,6 +76,7 @@ def list_orders(
     series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner|product)$"),
     search: Optional[str] = Query(default=None),
     patient_id: Optional[str] = Query(default=None),
+    address_id: Optional[str] = Query(default=None),
     limit: int = Query(default=25, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     doctor: Doctor = Depends(verified_doctor),
@@ -85,6 +86,11 @@ def list_orders(
     hundreds, and none of them need to arrive at once.
 
     Searching runs in the database so a case on page nine is still findable.
+
+    A practice running several branches reads one list of everything by default
+    and narrows to a branch with address_id — the branch being the delivery
+    address the case ships to, which is the only thing that distinguishes one
+    from another on an order.
     """
     query = db.query(Order).filter(Order.doctor_id == doctor.id)
     if needs_action:
@@ -102,6 +108,17 @@ def list_orders(
         query = query.filter(Order.kind == OrderKind.PRODUCT)
     if patient_id:
         query = query.filter(Order.patient_id == patient_id)
+    if address_id:
+        # Confirm it is this doctor's before filtering on it, so a stray id
+        # returns nothing rather than quietly listing every case.
+        owned = (
+            db.query(Address.id)
+            .filter(Address.id == address_id, Address.doctor_id == doctor.id)
+            .first()
+        )
+        if owned is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Address not found.")
+        query = query.filter(Order.shipping_address_id == address_id)
     if search and search.strip():
         needle = f"%{search.strip().lower()}%"
         query = query.join(Order.patient).filter(

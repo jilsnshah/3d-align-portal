@@ -1,5 +1,3 @@
-import { useEffect, useRef, useState } from "react";
-
 import { useAuth } from "../auth";
 
 /* The lab's public channels.
@@ -28,104 +26,41 @@ function whatsappHref(name?: string, clinic?: string): string {
 
 export default function SocialDock() {
   const { me } = useAuth();
-  const [open, setOpen] = useState(false);
-  const dock = useRef<HTMLDivElement>(null);
-
-  /* Escape and a click anywhere else close it. A floating panel that can only
-     be dismissed by hitting the same small button again is a trap on a phone,
-     where it sits over the content it is covering. */
-  useEffect(() => {
-    if (!open) return;
-
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    function onPointer(event: PointerEvent) {
-      if (!dock.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onPointer);
-    };
-  }, [open]);
 
   const channels = [
     {
       key: "whatsapp",
       label: "Chat on WhatsApp",
-      note: "Usually replies within the hour",
       href: whatsappHref(me?.doctor?.full_name, me?.doctor?.clinic_name),
       icon: WHATSAPP_ICON,
     },
     {
       key: "instagram",
-      label: "Follow on Instagram",
-      note: `@${INSTAGRAM_HANDLE}`,
+      label: "3D Align on Instagram",
       href: `https://instagram.com/${INSTAGRAM_HANDLE}`,
       icon: INSTAGRAM_ICON,
     },
   ];
 
+  /* Two channels is not a menu. Hiding them behind a button cost a tap and
+     taught nobody anything, so both sit open and go straight out. */
   return (
-    <div ref={dock} className={`social-dock${open ? " open" : ""}`}>
-      <div className="social-list" role="menu" aria-hidden={!open}>
-        {channels.map((channel, index) => (
-          <a
-            key={channel.key}
-            className={`social-item ${channel.key}`}
-            href={channel.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            role="menuitem"
-            tabIndex={open ? 0 : -1}
-            /* Stagger so the two rise in sequence rather than snapping in as a
-               block. The far one leads, which reads as the stack unfolding. */
-            style={{ transitionDelay: open ? `${(channels.length - 1 - index) * 45}ms` : "0ms" }}
-            onClick={() => setOpen(false)}
-          >
-            <span className="social-label">
-              <b>{channel.label}</b>
-              <small>{channel.note}</small>
-            </span>
-            <span className="social-badge" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="21" height="21">
-                <path fill="currentColor" d={channel.icon} />
-              </svg>
-            </span>
-          </a>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        className="social-trigger"
-        aria-expanded={open}
-        aria-label={open ? "Close contact options" : "Contact 3D Align"}
-        onClick={() => setOpen((was) => !was)}
-      >
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          {open ? (
-            <path
-              d="M6 6l12 12M18 6L6 18"
-              stroke="currentColor"
-              strokeWidth="2.1"
-              strokeLinecap="round"
-              fill="none"
-            />
-          ) : (
-            <path
-              d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          )}
-        </svg>
-      </button>
+    <div className="social-dock">
+      {channels.map((channel) => (
+        <a
+          key={channel.key}
+          className={`social-badge ${channel.key}`}
+          href={channel.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={channel.label}
+          aria-label={channel.label}
+        >
+          <svg viewBox="0 0 24 24" width="23" height="23" aria-hidden="true">
+            <path fill="currentColor" d={channel.icon} />
+          </svg>
+        </a>
+      ))}
     </div>
   );
 }
