@@ -2888,3 +2888,28 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .social-trigger { transition: none; }
   .social-item { transform: none; }
 }
+
+/* --- Order total ---------------------------------------------------------
+   A product is bought in one step, so the delivery it carries has to be a
+   line the clinic reads before it commits — not a figure folded into a single
+   number, and not a sentence promising a cost to be named later. */
+
+.order-total { display: flex; flex-direction: column; gap: var(--s-1); }
+
+.order-total-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-4);
+  font-size: var(--t-sm);
+}
+
+.order-total-line.grand {
+  margin-top: var(--s-1);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--gold-line);
+  font-size: var(--t-body);
+}
+.order-total-line.grand b { font-size: var(--t-h3); }
+
+.order-total .muted { margin-top: var(--s-2); font-size: var(--t-xs); }

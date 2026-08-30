@@ -124,6 +124,7 @@ export default function DoctorHome() {
           <strong>Order a product</strong>
           <span className="muted">
             Retainers, splints, bleaching trays and guards — made from a scan, no planning stage.
+            Price plus courier, charged together.
           </span>
           <span className="start-go">See the range →</span>
         </button>

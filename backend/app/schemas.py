@@ -44,6 +44,23 @@ class AddressOut(ORMModel, AddressIn):
     geocode_source: str = ""
 
 
+class DeliveryQuoteOut(BaseModel):
+    """What delivery will cost on an order placed right now.
+
+    A product is quoted, paid and made in one step, so the clinic has to see
+    this before it commits — unlike an aligner case, where delivery is not
+    raised until a production phase is dispatched.
+    """
+
+    city: str
+    amount: Decimal
+    # False when the lab has not priced this city and the default applies, which
+    # is worth saying out loud rather than presenting a guess as a rate.
+    is_city_rate: bool
+    # No default address on file means nothing can be quoted yet.
+    has_address: bool
+
+
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)

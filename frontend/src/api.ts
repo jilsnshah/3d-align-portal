@@ -248,6 +248,19 @@ export interface Product {
   has_choice_of_size: boolean;
 }
 
+/** What delivery will cost on a product order placed right now.
+
+    A product is one charge, raised as soon as the order exists, so the clinic
+    has to see this before it commits — unlike an aligner case, where nothing
+    is charged for delivery until a production phase ships. */
+export interface DeliveryCharge {
+  city: string;
+  amount: string;
+  /** False when the lab has not priced this city and the default applies. */
+  is_city_rate: boolean;
+  has_address: boolean;
+}
+
 export interface ProductSize {
   id: string;
   label: string;
@@ -852,6 +865,7 @@ export const api = {
   acceptQuote: (id: string) => post<OrderDetail>(`/orders/${id}/quote/accept`),
   chooseScanRoute: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/scan-route`, body),
   products: () => get<Product[]>("/products"),
+  deliveryCharge: () => get<DeliveryCharge>("/delivery-charge"),
   pushKey: () => get<{ enabled: boolean; public_key: string }>("/notifications/push/key"),
   pushSubscribe: (body: unknown) => post<void>("/notifications/push/subscribe", body),
   pushUnsubscribe: (endpoint: string) =>

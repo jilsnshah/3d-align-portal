@@ -90,6 +90,47 @@ def product_catalogue(db: Session = Depends(get_db)):
     return [schemas.ProductOut.model_validate(p) for p in catalogue.catalogue(db)]
 
 
+@router.get("/delivery-charge", response_model=schemas.DeliveryQuoteOut)
+def delivery_charge(doctor: Doctor = Depends(current_doctor), db: Session = Depends(get_db)):
+    """Delivery to where this clinic's orders go.
+
+    An aligner case can be started without anyone naming a delivery cost,
+    because none is charged until a production phase ships. A product cannot:
+    it is one charge, raised the moment the order exists, and the clinic should
+    not meet the delivery line for the first time on the payment screen. Same
+    city rates and same fallback the charge itself uses, so what is shown here
+    is what gets raised.
+    """
+    from ..services import payments, scheduling
+
+    address = (
+        db.query(Address)
+        .filter(Address.doctor_id == doctor.id, Address.is_default_shipping.is_(True))
+        .first()
+    )
+    city = (address.city or "").strip() if address is not None else ""
+    settings = scheduling.get_settings(db)
+    amount = payments.shipping_for(db, settings, city)
+    priced = amount != payments.money(settings.default_shipping_fee) if city else False
+    if city and not priced:
+        # Equal to the default is not proof of a fallback — the lab may have
+        # priced the city at the same figure. Ask the table directly.
+        from ..models import ShippingRate
+
+        priced = (
+            db.query(ShippingRate)
+            .filter(ShippingRate.city.ilike(city), ShippingRate.is_active.is_(True))
+            .first()
+            is not None
+        )
+    return schemas.DeliveryQuoteOut(
+        city=city,
+        amount=amount,
+        is_city_rate=bool(city) and priced,
+        has_address=address is not None,
+    )
+
+
 @router.get("/addresses", response_model=list[schemas.AddressOut])
 def list_addresses(doctor: Doctor = Depends(current_doctor), db: Session = Depends(get_db)):
     return db.query(Address).filter(Address.doctor_id == doctor.id).order_by(Address.created_at).all()

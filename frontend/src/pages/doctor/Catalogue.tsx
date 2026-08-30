@@ -50,6 +50,10 @@ export default function Catalogue() {
     queryKey: ["patients", "picker"],
     queryFn: () => api.patients({ limit: 200 }),
   });
+  /* A product is one charge, raised the moment the order exists — so the
+     delivery on top has to be a number the clinic saw before it committed,
+     not a line it meets for the first time on the payment screen. */
+  const delivery = useQuery({ queryKey: ["delivery-charge"], queryFn: api.deliveryCharge });
 
   const [params, setParams] = useSearchParams();
   const [ordering, setOrdering] = useState<Product | null>(null);
@@ -68,9 +72,11 @@ export default function Catalogue() {
   }
 
   const size = ordering?.sizes.find((s) => s.id === sizeId) ?? null;
-  const total = ordering && size
+  const goods = ordering && size
     ? (Number(size.price) + Number(ordering.per_tooth_price) * extraTeeth) * quantity
     : 0;
+  const shipping = Number(delivery.data?.amount ?? 0);
+  const total = goods + shipping;
 
   const create = useMutation({
     mutationFn: () =>
@@ -137,6 +143,15 @@ export default function Catalogue() {
           quick. If we already hold a scan for the patient, you can reuse it rather than
           taking another.
         </p>
+        {/* Said once at the top and again on the order itself. An aligner case
+            can be started without meeting a delivery cost; this cannot. */}
+        {delivery.data && delivery.data.amount !== "0.00" && (
+          <p className="muted">
+            Prices exclude delivery. Courier to{" "}
+            {delivery.data.is_city_rate && delivery.data.city ? delivery.data.city : "your address"}{" "}
+            is <b>{rupees(delivery.data.amount)}</b> per order, charged with the product.
+          </p>
+        )}
       </div>
 
       <div className="catalogue-grid">
@@ -268,12 +283,33 @@ export default function Catalogue() {
             )}
           </div>
 
-          {total > 0 && (
+          {goods > 0 && (
             <Banner tone="ok">
-              <div>
-                <b>{rupees(total)}</b> for {quantity} set{quantity === 1 ? "" : "s"}. Delivery is
-                added once we know where it is going. You will be asked for photographs and a
-                scan next.
+              <div className="order-total">
+                <div className="order-total-line">
+                  <span>
+                    {quantity} set{quantity === 1 ? "" : "s"}
+                  </span>
+                  <span>{rupees(goods)}</span>
+                </div>
+                <div className="order-total-line">
+                  <span>
+                    Delivery
+                    {delivery.data?.is_city_rate && delivery.data.city
+                      ? ` to ${delivery.data.city}`
+                      : ""}
+                  </span>
+                  <span>{delivery.isLoading ? "…" : rupees(shipping)}</span>
+                </div>
+                <div className="order-total-line grand">
+                  <span>Total</span>
+                  <b>{delivery.isLoading ? "…" : rupees(total)}</b>
+                </div>
+                <p className="muted" style={{ margin: 0 }}>
+                  {shipping > 0
+                    ? "Payable in one charge once the order is placed. You will be asked for photographs and a scan next."
+                    : "Delivery is not charged to your address. You will be asked for photographs and a scan next."}
+                </p>
               </div>
             </Banner>
           )}
