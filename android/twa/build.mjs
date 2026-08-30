@@ -61,20 +61,30 @@ const passwords = {
 
 log.info("Compiling the APK…");
 await gradle.assembleRelease();
-await androidSdkTools.zipalignOnlyVerification(
-  "./app/build/outputs/apk/release/app-release-unsigned.apk",
-  "./app-release-unsigned-aligned.apk",
-).catch(async () => {
-  await androidSdkTools.zipalign(
-    "./app/build/outputs/apk/release/app-release-unsigned.apk",
-    "./app-release-unsigned-aligned.apk",
-  );
-});
-await androidSdkTools.apksigner(
-  manifest.signingKey.path, passwords.keystorePassword,
-  manifest.signingKey.alias, passwords.keyPassword,
-  "./app-release-unsigned-aligned.apk", "./app-release-signed.apk",
-);
+
+// Aligned and signed with the build tools directly. The library's zipalign
+// helpers have a verify-only variant that returns without producing a file,
+// which leaves the signer with nothing to read.
+const { execFile } = await import("node:child_process");
+const { promisify } = await import("node:util");
+const run = promisify(execFile);
+const tools = `${process.env.HOME}/android-sdk/build-tools/36.1.0`;
+const unsigned = "app/build/outputs/apk/release/app-release-unsigned.apk";
+
+await run(`${tools}/zipalign`, ["-p", "-f", "4", unsigned, "app-release-aligned.apk"]);
+await run(`${tools}/apksigner`, [
+  "sign",
+  "--ks", manifest.signingKey.path,
+  "--ks-key-alias", manifest.signingKey.alias,
+  "--ks-pass", `pass:${passwords.keystorePassword}`,
+  "--key-pass", `pass:${passwords.keyPassword}`,
+  "--out", `3d-align-${manifest.appVersionName}.apk`,
+  "app-release-aligned.apk",
+]);
+const { stdout: verified } = await run(`${tools}/apksigner`, [
+  "verify", "--print-certs", `3d-align-${manifest.appVersionName}.apk`,
+]);
+log.info(verified.split("\n").find((l) => l.includes("SHA-256")) ?? "signed");
 
 log.info("Compiling the Play Store bundle…");
 await gradle.bundleRelease();
