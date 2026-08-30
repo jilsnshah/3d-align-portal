@@ -2724,3 +2724,21 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   white-space: nowrap;
   font-size: var(--t-sm);
 }
+
+/* --- Device notifications ------------------------------------------------ */
+
+.push-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-3);
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: var(--r-sm);
+}
+
+.push-row strong { font-size: var(--t-sm); }
+.push-row .dim { font-size: var(--t-xs); margin-top: 2px; }
+.push-note { font-size: var(--t-xs); margin-bottom: var(--s-3); }

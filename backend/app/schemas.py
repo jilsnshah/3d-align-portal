@@ -141,6 +141,18 @@ class ScanSourceOut(BaseModel):
     taken_at: datetime
 
 
+class PushKeysIn(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscribeIn(BaseModel):
+    """What the browser hands back after the person agrees to notifications."""
+
+    endpoint: str = Field(min_length=1, max_length=512)
+    keys: PushKeysIn
+
+
 class ScanReuseIn(BaseModel):
     """Which earlier case of this patient's to take the scan from."""
 

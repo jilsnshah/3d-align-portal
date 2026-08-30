@@ -852,6 +852,10 @@ export const api = {
   acceptQuote: (id: string) => post<OrderDetail>(`/orders/${id}/quote/accept`),
   chooseScanRoute: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/scan-route`, body),
   products: () => get<Product[]>("/products"),
+  pushKey: () => get<{ enabled: boolean; public_key: string }>("/notifications/push/key"),
+  pushSubscribe: (body: unknown) => post<void>("/notifications/push/subscribe", body),
+  pushUnsubscribe: (endpoint: string) =>
+    del<void>(`/notifications/push/subscribe?endpoint=${encodeURIComponent(endpoint)}`),
   scanSources: (id: string) => get<ScanSource[]>(`/orders/${id}/scan-sources`),
   reuseScan: (id: string, sourceOrderId: string) =>
     post<OrderDetail>(`/orders/${id}/scan-reuse`, { source_order_id: sourceOrderId }),

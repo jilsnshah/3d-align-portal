@@ -34,3 +34,6 @@ scipy==1.13.1
 
 # S3-compatible object storage (Supabase Storage, R2, B2) — STORAGE_BACKEND=s3.
 boto3==1.35.92
+
+# Web push: identifies this server to the push services.
+pywebpush==2.0.0

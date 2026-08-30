@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     # Refuses to start with development defaults when this is not "development".
     environment: str = "development"
 
+    # Web push. The public key ships to the browser so it can subscribe; the
+    # private half signs the requests and never leaves the host. Blank and push
+    # is simply off — alerts still appear inside the portal.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_contact: str = "mailto:3d.alignsolutions@gmail.com"
+
     max_upload_mb: int = 200
 
     # How long a deleted file stays recoverable in the recycle bin.

@@ -29,6 +29,11 @@ async def lifespan(app: FastAPI):
 
     Base.metadata.create_all(bind=engine)
 
+    from .services.push import install as install_push
+    from .db import SessionLocal as _SessionLocal
+
+    install_push(_SessionLocal)
+
     from .services.travel import configure_from_settings
 
     configure_from_settings()

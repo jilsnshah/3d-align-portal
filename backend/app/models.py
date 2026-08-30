@@ -1379,6 +1379,28 @@ class Invoice(Base, TimestampMixin):
     order: Mapped[Order] = relationship(back_populates="invoice")
 
 
+class PushSubscription(Base, TimestampMixin):
+    """One device that has agreed to receive notifications.
+
+    A person can have several — a phone, a tablet, the clinic desktop — so they
+    are per device rather than per user. The endpoint is the push service's own
+    URL for that device and is what identifies it.
+    """
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(512), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    # Set when the push service says the device is gone, so a dead endpoint is
+    # not retried on every alert.
+    failed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
+
+    user: Mapped[User] = relationship()
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 

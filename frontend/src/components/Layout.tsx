@@ -3,6 +3,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { api, formatDate, openFreshTab } from "../api";
+import PushToggle from "./PushToggle";
 import { useAuth } from "../auth";
 
 const DOCTOR_NAV = [
@@ -130,6 +131,7 @@ export default function Layout() {
               Close
             </button>
           </div>
+          <PushToggle />
           {notifications.isLoading && <p className="dim">Loading…</p>}
           {notifications.data?.length === 0 && <p className="dim">Nothing yet.</p>}
           {notifications.data?.map((note) => (

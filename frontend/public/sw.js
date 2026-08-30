@@ -75,3 +75,55 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+
+/* --- Notifications -------------------------------------------------------
+   The alerts the portal already raises, shown by the device. The worker is
+   what receives them: an installed app is usually not running, and this is the
+   only thing that is. */
+
+self.addEventListener("push", (event) => {
+  let payload = { title: "3D Align", body: "", url: "/" };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // A push with no readable payload still deserves to be shown rather than
+    // dropped, otherwise the browser shows its own "site updated in the
+    // background" placeholder instead.
+    if (event.data) payload.body = event.data.text();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      // Alerts about the same case replace each other rather than stacking six
+      // deep on the lock screen.
+      tag: payload.url,
+      renotify: true,
+      data: { url: payload.url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/";
+
+  // Bring the open app forward if it is already running, rather than opening a
+  // second copy of it.
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((windows) => {
+        for (const client of windows) {
+          if ("focus" in client) {
+            client.navigate(target).catch(() => {});
+            return client.focus();
+          }
+        }
+        return self.clients.openWindow(target);
+      }),
+  );
+});
