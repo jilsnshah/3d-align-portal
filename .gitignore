@@ -34,3 +34,9 @@ frontend/tsconfig.tsbuildinfo
 
 # Screenshots taken by screenshot.mjs for checking UI work.
 frontend/shots/
+
+# Android release signing key. Whoever holds this can publish updates as us,
+# and losing it means the app can never be updated on the Play Store again.
+android/*.keystore
+android/*.jks
+android/twa/

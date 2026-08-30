@@ -33,3 +33,14 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+/* The worker exists to answer honestly when there is no network — an installed
+   app that opens to a blank white screen looks broken rather than offline. It
+   is registered after load so it never competes with the first render, and it
+   is skipped in development, where a stale worker between rebuilds is a
+   debugging trap rather than a feature. */
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js");
+  });
+}

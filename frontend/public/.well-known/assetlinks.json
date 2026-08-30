@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.threedalign.portal",
+      "sha256_cert_fingerprints": [
+        "3F:11:93:FE:8C:7A:F3:4D:94:B2:AA:92:98:4D:69:2A:1B:DF:C9:4D:E2:CA:FA:71:C2:F1:0F:64:FA:B1:A1:05"
+      ]
+    }
+  }
+]
