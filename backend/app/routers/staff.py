@@ -381,6 +381,38 @@ def _clinic_cities(db: Session) -> dict:
     return {names[k]: v for k, v in counts.items()}
 
 
+@router.get("/stats", response_model=schemas.StatsOut)
+def lab_stats(
+    view: str = Query(default="year", pattern="^(year|month)$"),
+    year: Optional[int] = Query(default=None, ge=2000, le=2100),
+    month: Optional[int] = Query(default=None, ge=1, le=12),
+    doctor_id: Optional[str] = Query(default=None),
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """The lab's own book: every clinic, or one of them.
+
+    Narrowing to a doctor answers "how much work does this practice send us",
+    which is the question a lab asks before it prices anything.
+    """
+    from datetime import datetime, timezone
+
+    from ..services import stats
+
+    now = datetime.now(timezone.utc)
+    data = stats.collect(
+        db, view, year or now.year, month or now.month, doctor_id=doctor_id
+    )
+    data["available_years"] = stats.available_years(db, None)
+    if doctor_id:
+        # Narrowed to one practice, the doctor breakdown is a single bar
+        # restating the total. Its branches are the useful cut instead.
+        data["doctors"] = []
+    else:
+        data["branches"] = []
+    return schemas.StatsOut.model_validate(data)
+
+
 @router.get("/shipping-rates", response_model=list[schemas.ShippingRateOut])
 def read_shipping_rates(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
     cities = {k.casefold(): v for k, v in _clinic_cities(db).items()}

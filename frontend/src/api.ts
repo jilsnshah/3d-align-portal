@@ -261,6 +261,45 @@ export interface DeliveryCharge {
   has_address: boolean;
 }
 
+export interface StatsSlice {
+  key: string;
+  label: string;
+  note: string;
+  orders: number;
+  units: number;
+}
+
+export interface StatsBucket {
+  key: string;
+  label: string;
+  aligners: number;
+  products: number;
+  paid: string;
+}
+
+export interface Stats {
+  view: "year" | "month";
+  year: number;
+  month: number | null;
+  period_label: string;
+  available_years: number[];
+  totals: {
+    orders: number;
+    aligners: number;
+    products: number;
+    cancelled: number;
+    patients: number;
+    paid: string;
+  };
+  series: StatsBucket[];
+  products: StatsSlice[];
+  categories: StatsSlice[];
+  /** Lab-side only. A doctor is never shown another practice's volumes. */
+  doctors: StatsSlice[];
+  /** Doctor-side only, and only useful to a practice with several clinics. */
+  branches: StatsSlice[];
+}
+
 export interface ProductSize {
   id: string;
   label: string;
@@ -876,6 +915,14 @@ export const api = {
   chooseScanRoute: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/scan-route`, body),
   products: () => get<Product[]>("/products"),
   deliveryCharge: () => get<DeliveryCharge>("/delivery-charge"),
+  practiceStats: (q: { view: string; year: number; month: number }) =>
+    get<Stats>(`/stats?view=${q.view}&year=${q.year}&month=${q.month}`),
+  labStats: (q: { view: string; year: number; month?: number; doctorId?: string }) =>
+    get<Stats>(
+      `/staff/stats?view=${q.view}&year=${q.year}` +
+        (q.month ? `&month=${q.month}` : "") +
+        (q.doctorId ? `&doctor_id=${encodeURIComponent(q.doctorId)}` : ""),
+    ),
   pushKey: () => get<{ enabled: boolean; public_key: string }>("/notifications/push/key"),
   pushSubscribe: (body: unknown) => post<void>("/notifications/push/subscribe", body),
   pushUnsubscribe: (endpoint: string) =>

@@ -90,6 +90,34 @@ def product_catalogue(db: Session = Depends(get_db)):
     return [schemas.ProductOut.model_validate(p) for p in catalogue.catalogue(db)]
 
 
+@router.get("/stats", response_model=schemas.StatsOut)
+def practice_stats(
+    view: str = Query(default="year", pattern="^(year|month)$"),
+    year: Optional[int] = Query(default=None, ge=2000, le=2100),
+    month: Optional[int] = Query(default=None, ge=1, le=12),
+    doctor: Doctor = Depends(verified_doctor),
+    db: Session = Depends(get_db),
+):
+    """What this practice has sent the lab, and when.
+
+    Scoped to the signed-in doctor and nothing else — the lab's own view of
+    every clinic lives behind the staff router, and no parameter here can
+    widen this one.
+    """
+    from datetime import datetime, timezone
+
+    from ..services import stats
+
+    now = datetime.now(timezone.utc)
+    data = stats.collect(
+        db, view, year or now.year, month or now.month, doctor_id=doctor.id
+    )
+    data["available_years"] = stats.available_years(db, doctor.id)
+    # A practice cannot be broken down by doctor: it is one doctor.
+    data["doctors"] = []
+    return schemas.StatsOut.model_validate(data)
+
+
 @router.get("/delivery-charge", response_model=schemas.DeliveryQuoteOut)
 def delivery_charge(doctor: Doctor = Depends(current_doctor), db: Session = Depends(get_db)):
     """Delivery to where this clinic's orders go.

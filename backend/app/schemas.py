@@ -61,6 +61,56 @@ class DeliveryQuoteOut(BaseModel):
     has_address: bool
 
 
+class StatsTotals(BaseModel):
+    orders: int
+    aligners: int
+    products: int
+    # Counted, then kept out of every breakdown: it says what was asked for,
+    # not what was made.
+    cancelled: int
+    patients: int
+    # Verified payments inside the window, by the day they were verified.
+    paid: Decimal
+
+
+class StatsBucket(BaseModel):
+    """One column of the time chart — a month of a year, or a day of a month."""
+
+    key: str
+    label: str
+    aligners: int
+    products: int
+    paid: Decimal
+
+
+class StatsSlice(BaseModel):
+    """One row of a ranked breakdown: a product, a band, a doctor, a branch."""
+
+    key: str
+    label: str
+    note: str = ""
+    orders: int
+    # Product orders can be for several sets, so what was made and what was
+    # asked for are different numbers.
+    units: int
+
+
+class StatsOut(BaseModel):
+    view: Literal["year", "month"]
+    year: int
+    month: Optional[int] = None
+    period_label: str
+    available_years: list[int]
+    totals: StatsTotals
+    series: list[StatsBucket]
+    products: list[StatsSlice]
+    categories: list[StatsSlice]
+    # Lab-side only. A doctor is never shown another practice's volumes.
+    doctors: list[StatsSlice] = []
+    # Doctor-side only, and only meaningful to a practice with several clinics.
+    branches: list[StatsSlice] = []
+
+
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)

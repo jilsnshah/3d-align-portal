@@ -21,6 +21,7 @@ import AdminBookings from "./pages/admin/Bookings";
 import AdminTechnicians from "./pages/admin/Technicians";
 import AdminSettings from "./pages/admin/Settings";
 import TechSchedule from "./pages/tech/Schedule";
+import StatsPage from "./pages/Stats";
 import Viewer from "./pages/Viewer";
 
 export default function App() {
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="/staff/bookings" element={<AdminBookings />} />
           <Route path="/staff/technicians" element={<AdminTechnicians />} />
           <Route path="/staff/settings" element={<AdminSettings />} />
+          <Route path="/staff/stats" element={<StatsPage lab />} />
         </Route>
         <Route path="*" element={<Navigate to="/staff" replace />} />
       </Routes>
@@ -92,6 +94,7 @@ export default function App() {
         <Route path="/viewer/:orderId" element={<Viewer />} />
         <Route path="/catalogue" element={<Catalogue />} />
         <Route path="/patients" element={<Patients />} />
+        <Route path="/stats" element={<StatsPage />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
