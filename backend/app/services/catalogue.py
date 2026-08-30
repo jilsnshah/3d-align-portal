@@ -29,7 +29,8 @@ SEED: list = [
     ("PR", "Pediatric Retainer", 100, 1, [("standard", 750)]),
     ("NG", "Bruxism Splint", 0, 0, [("0.5 mm", 700), ("1.0 mm", 700), ("1.5 mm", 700)]),
     ("TMJ", "TMJ Splint", 0, 0, [("1.5 mm", 2000), ("2.0 mm", 2000)]),
-    ("LEACH", "Bleaching Tray", 0, 0, [("0.6 mm", 700), ("1.0 mm", 700)]),
+    ("LEACH", "Bleaching Tray", 0, 0,
+     [("0.6 mm", 700), ("0.8 mm", 700), ("1.0 mm", 700)]),
     ("SG", "Sports Guard", 0, 0,
      [("2 mm", 3500), ("3 mm", 3500), ("4 mm", 4000), ("5 mm", 4000)]),
     ("ABP", "Anterior Bite Plate", 0, 0, [("standard", 2500)]),
@@ -43,29 +44,67 @@ def money(value) -> Decimal:
 
 
 def ensure_products(db: Session) -> list:
-    """Put the catalogue in place on first boot, and leave it alone after.
+    """Put the catalogue in place on first boot, and top it up on later ones.
 
-    Only missing products are added: a lab that has repriced must not have its
-    prices overwritten by a restart.
+    Prices are never rewritten: a lab that has repriced must not lose that to a
+    restart. But a size added to the seed has to reach the labs that are already
+    running, or the catalogue is only ever correct on a database created after
+    the change — so a product that exists gains the labels it is missing.
+
+    A size the lab has retired keeps its row with ``is_active`` false, so this
+    finds it and leaves it retired rather than resurrecting it on every boot.
     """
-    existing = {p.code for p in db.query(Product).all()}
+    existing = {p.code: p for p in db.query(Product).all()}
     for order, (code, name, per_tooth, included, sizes) in enumerate(SEED):
-        if code in existing:
-            continue
-        product = Product(
-            code=code,
-            name=name,
-            per_tooth_price=money(per_tooth),
-            included_teeth=included,
-            sort_order=order,
-        )
-        db.add(product)
-        for index, (label, price) in enumerate(sizes):
-            product.sizes.append(
-                ProductSize(label=label, price=money(price), sort_order=index)
+        product = existing.get(code)
+        if product is None:
+            product = Product(
+                code=code,
+                name=name,
+                per_tooth_price=money(per_tooth),
+                included_teeth=included,
+                sort_order=order,
             )
+            db.add(product)
+            for index, (label, price) in enumerate(sizes):
+                product.sizes.append(
+                    ProductSize(label=label, price=money(price), sort_order=index)
+                )
+            continue
+
+        held = {size.label for size in product.sizes}
+        added = [(label, price) for label, price in sizes if label not in held]
+        if not added:
+            continue
+        for label, price in added:
+            product.sizes.append(ProductSize(label=label, price=money(price)))
+        _resequence(product, [label for label, _ in sizes])
     db.commit()
     return catalogue(db)
+
+
+def _resequence(product: Product, seed_labels: list) -> None:
+    """Order this product's sizes the way the seed lists them.
+
+    A new thickness belongs between its neighbours, not after them — 0.8 mm
+    reading below 1.0 mm looks like a mistake on the shelf. Sizes the lab added
+    itself are not in the seed, so they keep their relative order and follow.
+
+    Only called for a product that just gained a size, so a lab that has ordered
+    its own list and needs nothing new is never renumbered underneath it.
+    """
+    rank = {label: index for index, label in enumerate(seed_labels)}
+    # A size appended a moment ago has no sort_order until it is flushed, so the
+    # extras are ordered on a real number rather than on None.
+    extras = sorted(
+        (size for size in product.sizes if size.label not in rank),
+        key=lambda size: size.sort_order or 0,
+    )
+    for size in product.sizes:
+        if size.label in rank:
+            size.sort_order = rank[size.label]
+    for offset, size in enumerate(extras):
+        size.sort_order = len(rank) + offset
 
 
 def catalogue(db: Session) -> list:
