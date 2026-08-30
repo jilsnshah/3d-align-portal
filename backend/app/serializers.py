@@ -7,6 +7,7 @@ from .config import settings
 from .enums import (
     APPOINTMENT_LABELS,
     LAB_ROLES,
+    OrderKind,
     OrderStatus,
     DOCTOR_HIDDEN_CATEGORIES,
     PLAN_GATED_CATEGORIES,
@@ -329,6 +330,73 @@ def _payment_out(order: Order, row, settings) -> schemas.PaymentOut:
     )
 
 
+def _product_charge_lines(order: Order, settings) -> list:
+    """The money on a product order.
+
+    A product is one charge: what was made, times how many, plus delivery.
+    There is no plan to unlock and no training fit to make, so neither fixed
+    fee is ever raised against it — and printing them here as deductions said
+    ₹3,500 was coming off a bill that never carried it.
+    """
+    from .services import catalogue
+
+    product = order.product
+    size = order.product_size
+    quantity = max(order.quantity or 1, 1)
+    teeth = max(order.extra_teeth or 0, 0)
+    each = Decimal(size.price) if size is not None else Decimal("0")
+    per_tooth = Decimal(product.per_tooth_price or 0) if product is not None else Decimal("0")
+
+    lines = [
+        schemas.ChargeLine(
+            label=product.name if product is not None else "Product",
+            amount=each,
+            note=(
+                f"{size.label} · each"
+                if size is not None and product is not None and product.has_choice_of_size
+                else "Each"
+            ),
+        )
+    ]
+    if teeth and per_tooth:
+        lines.append(
+            schemas.ChargeLine(
+                label=f"{teeth} tooth beyond the base" if teeth == 1
+                else f"{teeth} teeth beyond the base",
+                amount=per_tooth * teeth,
+                note=f"{per_tooth:,.2f} per tooth · each",
+            )
+        )
+    goods = catalogue.line_total(order)
+    if quantity > 1:
+        lines.append(
+            schemas.ChargeLine(
+                label=f"{quantity} sets",
+                amount=goods,
+                note="Price of one, times how many",
+            )
+        )
+
+    row = next((p for p in order.payments if p.kind == PaymentKind.PRODUCT_ORDER), None)
+    shipping = Decimal(row.shipping_amount or 0) if row is not None else Decimal("0")
+    city = payments.delivery_city(order)
+    lines.append(
+        schemas.ChargeLine(
+            label="Delivery",
+            amount=shipping,
+            note=(f"To {city}" if city else "Default rate") if shipping else "Not charged",
+        )
+    )
+    lines.append(
+        schemas.ChargeLine(
+            label="Total for this order",
+            amount=goods + shipping,
+            note="Payable in one charge",
+        )
+    )
+    return lines
+
+
 def charge_lines(order: Order, settings) -> list:
     """The money on a case, itemised.
 
@@ -336,6 +404,12 @@ def charge_lines(order: Order, settings) -> list:
     it in pieces and needs to see that the plan fee and the training-fit fee are
     taken off the quote rather than added on top of it.
     """
+    # A product order shares none of that arithmetic — no band, no quote, and
+    # neither fixed fee — so it gets its own breakdown rather than an aligner
+    # one with every line reading "not set yet".
+    if order.kind == OrderKind.PRODUCT:
+        return _product_charge_lines(order, settings)
+
     plan = order.approved_plan or order.current_plan
     lines = [
         schemas.ChargeLine(
