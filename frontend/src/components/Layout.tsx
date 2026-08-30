@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { api, formatDate, openFreshTab } from "../api";
 import PushToggle from "./PushToggle";
+import SocialDock from "./SocialDock";
 import { useAuth } from "../auth";
 
 const DOCTOR_NAV = [
@@ -145,6 +146,11 @@ export default function Layout() {
       )}
 
       <Outlet />
+
+      {/* The lab is a phone call away in practice; a doctor should not have
+          to dig for the number. Staff and technicians sit inside the lab and
+          have no use for it. */}
+      {!isAdmin && !isTech && <SocialDock />}
     </div>
   );
 }
