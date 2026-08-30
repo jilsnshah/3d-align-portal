@@ -1,0 +1,36 @@
+{
+  "packageId": "com.threedalign.portal",
+  "host": "threed-align.onrender.com",
+  "name": "3D Align \u2014 Order Portal",
+  "launcherName": "3D Align",
+  "display": "standalone",
+  "themeColor": "#0b0b0c",
+  "navigationColor": "#0b0b0c",
+  "backgroundColor": "#0b0b0c",
+  "startUrl": "/",
+  "iconUrl": "http://127.0.0.1:8000/icon-512.png",
+  "maskableIconUrl": "http://127.0.0.1:8000/icon-maskable-512.png",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "../3dalign-release.keystore",
+    "alias": "3dalign"
+  },
+  "orientation": "default",
+  "fallbackType": "customtabs",
+  "enableNotifications": false,
+  "webManifestUrl": "http://127.0.0.1:8000/manifest.webmanifest",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://threed-align.onrender.com/",
+  "minSdkVersion": 21,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "splashScreenFadeOutDuration": 300,
+  "appVersion": "1.0.0"
+}

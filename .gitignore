@@ -40,3 +40,12 @@ frontend/shots/
 android/*.keystore
 android/*.jks
 android/twa/
+android/dist/
+android/twa/app/
+android/twa/build/
+android/twa/.gradle/
+android/twa/*.apk
+android/twa/*.aab
+android/twa/*.keystore
+!android/twa/build.mjs
+!android/twa/twa-manifest.json
