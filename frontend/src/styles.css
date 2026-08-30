@@ -492,6 +492,13 @@ a:hover { text-decoration-color: var(--gold); }
 .row-between { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .split { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
+/* A grid or flex item will not shrink below its content unless told to: its
+   min-width resolves to auto. So a track holding a table that scrolls sideways
+   grows to the table's width and takes the whole page with it, and the phone
+   ends up scrolling horizontally instead of the table doing it. */
+.split > *,
+.grid-2 > *,
+.row > * { min-width: 0; }
 @media (min-width: 1000px) { .split { grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); } }
 
 .muted { color: var(--ink-2); }
@@ -2663,8 +2670,20 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 @media (max-width: 860px) {
   /* Below this the columns cannot all be honest, so the table keeps its
      proportions and the wrapper scrolls. Squeezing them instead gives crushed
-     cells that look broken rather than dense. */
-  .table-wrap table { min-width: 720px; }
+     cells that look broken rather than dense.
+
+     The width has to be enough that no column is wrung out: at 720 the lab's
+     six-column board still stacked "Dr. Anita Mehta, Mehta Dental Studio" into
+     a five-line tower. Cells set their own floor and the table takes the sum. */
+  .table-wrap table { min-width: 100%; }
+  /* 158 is what "Dr. Anita Mehta" needs to stay on one line at this size; below
+     that a full name breaks in two and the row grows a storey. */
+  .table-wrap td,
+  .table-wrap th { min-width: 158px; }
+  /* The first column is the identifier and the last is a timestamp; both are
+     read at a glance and neither needs the same room as a name. */
+  .table-wrap td:first-child,
+  .table-wrap th:first-child { min-width: 150px; }
 
   /* The edge of a scrollable region should say it continues, not look clipped. */
   .table-wrap {
