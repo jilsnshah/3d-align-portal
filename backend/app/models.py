@@ -96,6 +96,11 @@ class User(Base, TimestampMixin):
     # office: the admin and the orthodontists who plan for them.
     full_name: Mapped[str] = mapped_column(String(200), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped when someone signs out, which invalidates every token issued
+    # before it. A signed cookie is otherwise valid until it expires, and now
+    # that sessions last two months, "sign out" has to mean something on a
+    # shared clinic machine rather than only clearing the local cookie.
+    session_epoch: Mapped[int] = mapped_column(Integer, default=0)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime())
 
     doctor: Mapped[Optional[Doctor]] = relationship(

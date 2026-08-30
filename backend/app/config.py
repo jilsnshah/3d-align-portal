@@ -36,7 +36,15 @@ class Settings(BaseSettings):
     # Signs the session cookie. Override in every deployed environment.
     secret_key: str = "dev-secret-change-me"
     session_cookie_name: str = "align_session"
-    session_max_age_seconds: int = 60 * 60 * 12
+    # An installed app is opened the way a native one is: signed in until the
+    # person signs out. A fixed twelve hours meant a doctor was thrown back to
+    # the login screen twice a day, which in an app reads as being logged out
+    # at random. The window is long and it rolls — see session_refresh_after.
+    session_max_age_seconds: int = 60 * 60 * 24 * 60
+    # A session older than this is reissued on the next request, so anyone
+    # using the portal never reaches the end of the window and anyone who
+    # stopped eventually does.
+    session_refresh_after_seconds: int = 60 * 60 * 24
     cookie_secure: bool = False
 
     cors_origins: str = "http://localhost:5173"

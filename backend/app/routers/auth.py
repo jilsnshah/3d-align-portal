@@ -25,7 +25,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def _set_session(response: Response, user: User, request: Request) -> None:
     response.set_cookie(
         cookie_name_for(request.headers.get(SLOT_HEADER)),
-        make_session_token(user.id),
+        make_session_token(user.id, user.session_epoch or 0),
         max_age=settings.session_max_age_seconds,
         httponly=True,
         secure=settings.cookie_secure,
@@ -146,4 +146,8 @@ def change_password(
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect.")
     user.password_hash = hash_password(payload.new_password)
+    # Changing a password is how someone reacts to thinking it is known. That
+    # has to end the sessions already open with the old one — otherwise the
+    # cookie a stranger holds keeps working for the next two months.
+    user.session_epoch = (user.session_epoch or 0) + 1
     db.commit()

@@ -245,8 +245,13 @@ def update_orthodontist(
         user.full_name = payload.full_name.strip()
     if payload.is_active is not None:
         user.is_active = payload.is_active
+        if not payload.is_active:
+            # Deactivating has to take effect now, not whenever their cookie
+            # happens to expire.
+            user.session_epoch = (user.session_epoch or 0) + 1
     if payload.password:
         user.password_hash = hash_password(payload.password)
+        user.session_epoch = (user.session_epoch or 0) + 1
     db.commit()
     db.refresh(user)
     return _staff_out(user)

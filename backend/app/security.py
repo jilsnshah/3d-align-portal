@@ -25,8 +25,8 @@ def verify_password(raw: str, hashed: str) -> bool:
         return False
 
 
-def make_session_token(user_id: str) -> str:
-    return _serializer.dumps({"uid": user_id})
+def make_session_token(user_id: str, epoch: int = 0) -> str:
+    return _serializer.dumps({"uid": user_id, "ep": epoch})
 
 
 def read_session_token(token: str) -> Optional[str]:
@@ -35,6 +35,41 @@ def read_session_token(token: str) -> Optional[str]:
     except (BadSignature, SignatureExpired):
         return None
     return data.get("uid")
+
+
+def read_session_epoch(token: str) -> int:
+    """Which generation of sessions this token belongs to.
+
+    Tokens issued before the epoch existed carry none, and count as zero, so
+    anyone already signed in stays signed in across the change.
+    """
+    try:
+        data = _serializer.loads(token, max_age=settings.session_max_age_seconds)
+    except (BadSignature, SignatureExpired):
+        return -1
+    return int(data.get("ep", 0))
+
+
+def session_age_seconds(token: str) -> Optional[float]:
+    """How long ago this session was issued, or None if it is not ours.
+
+    The signature carries its own timestamp, so the age is read from the token
+    rather than tracked anywhere. Used to decide when to hand out a fresh one.
+    """
+    try:
+        _, issued = _serializer.loads(
+            token, max_age=settings.session_max_age_seconds, return_timestamp=True
+        )
+    except (BadSignature, SignatureExpired):
+        return None
+    from datetime import datetime, timezone
+
+    stamp = issued if isinstance(issued, datetime) else None
+    if stamp is None:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - stamp).total_seconds()
 
 
 # Sessions are scoped to a browser tab, not just a host.

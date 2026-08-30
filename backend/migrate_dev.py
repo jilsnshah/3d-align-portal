@@ -14,7 +14,10 @@ from app.db import engine
 # Tables introduced later are created by create_all(); this only patches columns
 # added to tables that already exist.
 ADDITIONS = {
-    "users": [("full_name", "VARCHAR(200) NOT NULL DEFAULT ''")],
+    "users": [
+        ("full_name", "VARCHAR(200) NOT NULL DEFAULT ''"),
+        ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
+    ],
     "addresses": [
         ("latitude", "FLOAT"),
         ("longitude", "FLOAT"),

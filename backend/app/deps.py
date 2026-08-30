@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -9,10 +9,19 @@ from typing import Optional
 
 from .enums import LAB_ROLES, OFFICE_ROLES, UserRole, VerificationStatus
 from .models import Doctor, Order, User
-from .security import SLOT_HEADER, cookie_name_for, read_session_token
+from .security import (
+    SLOT_HEADER,
+    cookie_name_for,
+    make_session_token,
+    read_session_epoch,
+    read_session_token,
+    session_age_seconds,
+)
 
 
-def current_user(request: Request, db: Session = Depends(get_db)) -> User:
+def current_user(
+    request: Request, response: Response, db: Session = Depends(get_db)
+) -> User:
     # Headers cover fetch(); the query parameter covers <img src> and download
     # links, which cannot carry one.
     slot = request.headers.get(SLOT_HEADER) or request.query_params.get("slot")
@@ -25,6 +34,26 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account is not active.")
+    if read_session_epoch(token) != (user.session_epoch or 0):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "That session was signed out. Sign in again."
+        )
+
+    # A session that is being used rolls forward, so someone who opens the app
+    # every day is never signed out, while one left alone eventually expires.
+    # Reissued only past a threshold rather than on every request, so a busy
+    # screen does not rewrite the cookie a dozen times a second.
+    age = session_age_seconds(token)
+    if age is not None and age > settings.session_refresh_after_seconds:
+        response.set_cookie(
+            cookie_name_for(slot),
+            make_session_token(user.id, user.session_epoch or 0),
+            max_age=settings.session_max_age_seconds,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="lax",
+            path="/",
+        )
     return user
 
 
