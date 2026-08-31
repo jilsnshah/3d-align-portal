@@ -165,6 +165,100 @@ with engine.begin() as conn:
 
 
 # --------------------------------------------------------------------------
+# Works on both dialects
+# --------------------------------------------------------------------------
+# Everything below here is plain SQL or an ALTER that Postgres supports, so it
+# has to run before the SQLite-only section returns. Putting new work after
+# that guard is how the last round of changes reached SQLite and silently
+# skipped production.
+with engine.begin() as conn:
+    # An accessory order names nobody — restocking IPR strips is the practice
+    # buying supplies, not clinical work on a person. SQLite cannot relax a NOT
+    # NULL in place and rebuilds the table further down; Postgres does it here.
+    if not sqlite:
+        nullable = conn.exec_driver_sql(
+            "SELECT is_nullable FROM information_schema.columns"
+            " WHERE table_name = 'orders' AND column_name = 'patient_id'"
+        ).scalar()
+        if nullable == "NO":
+            conn.exec_driver_sql("ALTER TABLE orders ALTER COLUMN patient_id DROP NOT NULL")
+            print("  ~ orders.patient_id is now nullable")
+            applied += 1
+
+    # Orders placed before the price was written down take today's catalogue
+    # figure, which is what they were already being charged. Doing it once here
+    # means they stop moving from now on rather than staying live for ever.
+    filled = conn.exec_driver_sql(
+        """
+        UPDATE orders SET
+            unit_price = (
+                SELECT price FROM product_sizes WHERE product_sizes.id = orders.product_size_id
+            ),
+            unit_per_tooth_price = (
+                SELECT per_tooth_price FROM products WHERE products.id = orders.product_id
+            )
+        WHERE product_id IS NOT NULL AND unit_price IS NULL
+        """
+    ).rowcount
+    if filled:
+        print(f"  ~ {filled} order(s) had their price written down")
+        applied += 1
+
+
+# --------------------------------------------------------------------------
+# Product references
+# --------------------------------------------------------------------------
+# Product orders took a reference from a per-product, per-year series
+# (ER-2026-0001). The lab numbers its bench work the way it always has —
+# 3DAER(1.0)001 — so the ones already placed are rewritten into that, and the
+# counters are wound on so the next order continues rather than colliding.
+#
+# Runs on every boot and is a no-op once done: a reference already in the new
+# shape is left alone.
+with engine.begin() as conn:
+    from sqlalchemy.orm import Session
+
+    from app.models import Counter, Order
+    from app.services.numbering import product_counter_key, product_number
+
+    with Session(bind=conn) as db:
+        stale = [
+            order
+            for order in db.query(Order)
+            .filter(Order.order_number.isnot(None), Order.product_id.isnot(None))
+            .order_by(Order.created_at, Order.id)
+            .all()
+            if not (order.order_number or "").startswith("3DA")
+        ]
+        if stale:
+            # order_number is unique, and a new reference can land on one an
+            # untouched row still holds, so every stale row is parked out of
+            # the way before any of them is given its real value.
+            for index, order in enumerate(stale):
+                order.order_number = f"migrating-{index}"
+            db.flush()
+
+            counters = {}
+            for order in stale:
+                code = order.product.code
+                counters[code] = counters.get(code, 0) + 1
+                order.order_number = product_number(
+                    code,
+                    order.product_size.label if order.product_size else "",
+                    counters[code],
+                )
+            for code, used in counters.items():
+                key = product_counter_key(code)
+                row = db.get(Counter, key)
+                if row is None:
+                    db.add(Counter(key=key, value=used))
+                elif row.value < used:
+                    row.value = used
+            db.commit()
+            print(f"  ~ {len(stale)} product reference(s) renumbered")
+            applied += 1
+
+# --------------------------------------------------------------------------
 # Column rebuilds — SQLite only
 # --------------------------------------------------------------------------
 # What follows is SQLite to its bones: sqlite_master, "?" placeholders, and the
@@ -257,81 +351,11 @@ with engine.begin() as conn:
         print("  ~ orders.order_number is now nullable")
         applied += 1
 
-    # An accessory order names nobody, so the column has to allow it.
+    # Postgres dropped this NOT NULL above; SQLite has to rebuild the table.
     if _relax_nullable(conn, "orders", "patient_id", Order.__table__):
         print("  ~ orders.patient_id is now nullable")
         applied += 1
 
-    # Orders placed before the price was written down take today's catalogue
-    # figure, which is what they were already being charged. Doing it once here
-    # means they stop moving from now on rather than staying live for ever.
-    filled = conn.exec_driver_sql(
-        """
-        UPDATE orders SET
-            unit_price = (
-                SELECT price FROM product_sizes WHERE product_sizes.id = orders.product_size_id
-            ),
-            unit_per_tooth_price = (
-                SELECT per_tooth_price FROM products WHERE products.id = orders.product_id
-            )
-        WHERE product_id IS NOT NULL AND unit_price IS NULL
-        """
-    ).rowcount
-    if filled:
-        print(f"  ~ {filled} order(s) had their price written down")
-        applied += 1
 
-# --------------------------------------------------------------------------
-# Product references
-# --------------------------------------------------------------------------
-# Product orders took a reference from a per-product, per-year series
-# (ER-2026-0001). The lab numbers its bench work the way it always has —
-# 3DAER(1.0)001 — so the ones already placed are rewritten into that, and the
-# counters are wound on so the next order continues rather than colliding.
-#
-# Runs on every boot and is a no-op once done: a reference already in the new
-# shape is left alone.
-with engine.begin() as conn:
-    from sqlalchemy.orm import Session
-
-    from app.models import Counter, Order
-    from app.services.numbering import product_counter_key, product_number
-
-    with Session(bind=conn) as db:
-        stale = [
-            order
-            for order in db.query(Order)
-            .filter(Order.order_number.isnot(None), Order.product_id.isnot(None))
-            .order_by(Order.created_at, Order.id)
-            .all()
-            if not (order.order_number or "").startswith("3DA")
-        ]
-        if stale:
-            # order_number is unique, and a new reference can land on one an
-            # untouched row still holds, so every stale row is parked out of
-            # the way before any of them is given its real value.
-            for index, order in enumerate(stale):
-                order.order_number = f"migrating-{index}"
-            db.flush()
-
-            counters = {}
-            for order in stale:
-                code = order.product.code
-                counters[code] = counters.get(code, 0) + 1
-                order.order_number = product_number(
-                    code,
-                    order.product_size.label if order.product_size else "",
-                    counters[code],
-                )
-            for code, used in counters.items():
-                key = product_counter_key(code)
-                row = db.get(Counter, key)
-                if row is None:
-                    db.add(Counter(key=key, value=used))
-                elif row.value < used:
-                    row.value = used
-            db.commit()
-            print(f"  ~ {len(stale)} product reference(s) renumbered")
-            applied += 1
 
 print(f"\n{applied} change(s) applied.")
