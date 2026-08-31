@@ -213,6 +213,7 @@ class ProductOut(ORMModel):
     description: str
     per_tooth_price: Decimal
     included_teeth: int
+    image_url: str = ""
     # Read from priced_sizes, not sizes: a retired size keeps its row so the
     # orders that used it still resolve, and reading the raw list would put it
     # back in front of the clinic as something orderable.
@@ -260,6 +261,7 @@ class AccessoryOut(ORMModel):
     name: str
     description: str
     price: Decimal
+    image_url: str = ""
 
 
 class AccessoryLineOut(BaseModel):

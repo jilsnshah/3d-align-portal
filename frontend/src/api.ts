@@ -243,6 +243,8 @@ export interface Product {
   description: string;
   per_tooth_price: string;
   included_teeth: number;
+  /** A photograph of the product. Empty until the lab has one. */
+  image_url: string;
   sizes: ProductSize[];
   /** False when there is only one form of it, which is not a choice worth asking. */
   has_choice_of_size: boolean;
@@ -275,6 +277,8 @@ export interface Accessory {
   name: string;
   description: string;
   price: string;
+  /** A photograph of the item. Empty until the lab has one. */
+  image_url: string;
 }
 
 /** One accessory on an order, priced as it was when it was ordered. */

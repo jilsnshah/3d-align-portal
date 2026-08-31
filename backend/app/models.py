@@ -1220,6 +1220,9 @@ class Product(Base, TimestampMixin):
     # pediatric retainer includes one pontic and charges for the rest.
     per_tooth_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     included_teeth: Mapped[int] = mapped_column(Integer, default=0)
+    # A photograph of the thing. Empty until the lab has one, and the shelf
+    # shows a marked placeholder rather than a broken tile in the meantime.
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -1274,6 +1277,7 @@ class Accessory(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(400), default="")
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

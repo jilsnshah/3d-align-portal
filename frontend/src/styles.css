@@ -2165,40 +2165,109 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
    rather than a table: a doctor picking a retainer is choosing, not scanning
    a list, and the price belongs next to the thing it prices. */
 
+/* --- The shelf ------------------------------------------------------------
+   A catalogue people buy from, not a specification table. The picture leads,
+   the name follows, the price sits at the foot where the eye lands last and
+   the action is waiting. Everything else is quiet so those three carry. */
+
 .catalogue-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--s-4);
 }
+.catalogue-grid > * { min-width: 0; }
 
 .product-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
   background: var(--white);
   border: 1px solid var(--rule);
-  border-radius: 14px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+  transition:
+    border-color var(--mid) var(--ease),
+    box-shadow var(--mid) var(--ease),
+    transform var(--mid) var(--ease-out);
 }
 
 .product-card:hover {
   border-color: var(--gold-line);
-  box-shadow: var(--shadow);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+}
+.product-card:focus-within {
+  border-color: var(--gold);
+  box-shadow: var(--glow-gold);
 }
 
-.product-card header {
+/* --- the picture, or the label standing in for one --- */
+
+.tile-media {
+  position: relative;
+  width: 100%;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+}
+.tile-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The placeholder says what the thing is rather than pretending to show it:
+   the lab's own code on a quiet ground, the way a specimen tray is labelled.
+   A drawn stand-in would be a picture of something the lab does not sell. */
+.tile-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(120% 100% at 50% 0%, var(--white) 0%, var(--paper-2) 70%);
+}
+.tile-mark::after {
+  /* A hairline frame, inset — reads as a mounted plate rather than a gap. */
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+}
+.tile-code {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 0.94rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  color: var(--gold-deep);
+  padding: 5px 12px;
+  background: var(--white);
+  border: 1px solid var(--gold-line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-xs);
+}
+
+.product-body {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-4) var(--s-3);
+  flex: 1;
 }
 
 .product-card h3 {
   margin: 0;
-  font-size: 1.02rem;
-  line-height: 1.25;
+  font-size: var(--t-h3);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
+.product-card .muted { margin: 0; font-size: var(--t-xs); line-height: 1.5; }
 
 .product-code {
   flex: none;
@@ -2218,8 +2287,10 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   line-height: 1.45;
 }
 
+/* The size list is a price table, so it reads as one — ruled rows, figures
+   aligned on their own column, and nothing bolder than it needs to be. */
 .product-sizes {
-  margin: 0 0 auto;
+  margin: var(--s-2) 0 0;
   padding: 0;
   list-style: none;
   border-top: 1px solid var(--rule);
@@ -2228,29 +2299,60 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .product-sizes li {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  align-items: baseline;
+  gap: var(--s-3);
   padding: 6px 0;
-  font-size: 0.86rem;
+  font-size: var(--t-xs);
+  color: var(--ink-2);
   border-bottom: 1px solid var(--rule);
 }
+.product-sizes li:last-child { border-bottom: none; }
 
 .product-sizes b {
   font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
 }
 
+/* The foot is where the eye lands last, so the price and the way to buy it
+   live there together, on a ground that separates them from the description. */
 .product-card footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-3);
   margin-top: auto;
-  padding-top: 4px;
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
 }
 
 .product-from {
-  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--t-h3);
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.product-from small {
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
   color: var(--ink-3);
 }
+
+.product-card footer .btn-primary { padding: 8px 14px; font-size: var(--t-sm); }
+
+/* A shelf tile that has something in the basket says so quietly — the count in
+   the stepper is the real signal, this only helps the eye find it again. */
+.shelf-card.picked { border-color: var(--gold); box-shadow: var(--glow-gold); }
+.shelf-card.picked .tile-media { background: var(--gold-wash); }
+.shelf-card .product-body { padding-bottom: var(--s-2); }
+.shelf-card footer { padding: var(--s-2) var(--s-3); }
 
 /* --- Modal ---------------------------------------------------------------
    A form that opens below a long grid is a form nobody sees: the state
@@ -2800,6 +2902,14 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .social-badge { width: 48px; height: 48px; }
 }
 
+/* The basket bar reaches the corner the dock lives in — at 1280 the two
+   overlapped and the circles sat on "Order these". The bar is the transient
+   thing and the action is the important one, so the dock steps up out of its
+   way at every width, not only on a phone. */
+.shell:has(.basket-bar) .social-dock {
+  bottom: calc(max(var(--s-5), env(safe-area-inset-bottom)) + 92px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .social-badge { transition: none; }
 }
@@ -3255,18 +3365,15 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .basket-right { width: 100%; justify-content: space-between; }
 
   /* On a phone the contact dock lands on the right edge — which on the shelf
-     is exactly where every stepper is, so the circles sat on top of the only
-     control the page has. Where a page puts its controls down that edge, the
+     is where every stepper and every Order button is, so the circles sat on
+     top of the controls. Where a page puts its actions down that edge, the
      dock moves to the other one. Browsers without :has() keep today's
      behaviour rather than getting something worse. */
+  .shell:has(.catalogue-grid) .social-dock,
   .shell:has(.addon-list) .social-dock {
     right: auto;
     left: max(var(--s-4), env(safe-area-inset-left));
     align-items: flex-start;
   }
-  /* And the basket bar spans the full width, so it clears the dock by rising
-     above it rather than by moving aside. */
-  .shell:has(.basket-bar) .social-dock {
-    bottom: calc(max(var(--s-4), env(safe-area-inset-bottom)) + 108px);
-  }
+
 }

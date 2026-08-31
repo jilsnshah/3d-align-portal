@@ -13,6 +13,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import type { Accessory as AccessoryType, Product } from "../../api";
 import { Banner, ErrorText, Field, Skeleton } from "../../components/ui";
+import ProductImage from "../../components/ProductImage";
 
 /** "an Essix Retainer", not "a Essix Retainer". */
 function article(name: string): string {
@@ -259,31 +260,35 @@ export default function Catalogue() {
       <div className="catalogue-grid">
         {products.data?.map((product) => (
           <article key={product.id} className="product-card">
-            <header>
-              <span className="product-code">{product.code}</span>
+            <ProductImage src={product.image_url} code={product.code} name={product.name} />
+
+            <div className="product-body">
               <h3>{product.name}</h3>
-            </header>
-            <p className="muted">{BLURB[product.code] ?? product.description}</p>
+              <p className="muted">{BLURB[product.code] ?? product.description}</p>
 
-            <ul className="product-sizes">
-              {product.sizes.map((s) => (
-                <li key={s.id}>
-                  <span>{product.has_choice_of_size ? s.label : "One size"}</span>
-                  <b>{rupees(s.price)}</b>
-                </li>
-              ))}
-            </ul>
+              <ul className="product-sizes">
+                {product.sizes.map((s) => (
+                  <li key={s.id}>
+                    <span>{product.has_choice_of_size ? s.label : "One size"}</span>
+                    <b>{rupees(s.price)}</b>
+                  </li>
+                ))}
+              </ul>
 
-            {Number(product.per_tooth_price) > 0 && (
-              <p className="dim">
-                Includes {product.included_teeth} pontic
-                {product.included_teeth === 1 ? "" : "s"} — {rupees(product.per_tooth_price)} per
-                extra tooth.
-              </p>
-            )}
+              {Number(product.per_tooth_price) > 0 && (
+                <p className="dim">
+                  Includes {product.included_teeth} pontic
+                  {product.included_teeth === 1 ? "" : "s"} — {rupees(product.per_tooth_price)} per
+                  extra tooth.
+                </p>
+              )}
+            </div>
 
             <footer>
-              <span className="product-from">from {rupees(from(product))}</span>
+              <span className="product-from">
+                <small>from</small>
+                {rupees(from(product))}
+              </span>
               <button
                 type="button"
                 className="btn-primary"
@@ -291,7 +296,7 @@ export default function Catalogue() {
                 title={heldBy ? `${heldBy.reference} is still open — ${heldBy.reason}.` : undefined}
                 onClick={() => open(product)}
               >
-                {heldBy ? "Settle the open order" : "Order this"}
+                {heldBy ? "Settle first" : "Order this"}
               </button>
             </footer>
           </article>
@@ -301,9 +306,9 @@ export default function Catalogue() {
 
       {tab === "accessories" && (shelf.data?.length ?? 0) > 0 && (
         <section className="stack-sm">
-          <div className="addon-list card">
+          <div className="catalogue-grid">
             {shelf.data?.map((item) => (
-              <AccessoryRow
+              <AccessoryCard
                 key={item.id}
                 item={item}
                 count={basket[item.id] ?? 0}
@@ -609,8 +614,35 @@ export default function Catalogue() {
   );
 }
 
-/** One shelf item with a count beside it. The stepper is the whole control:
-    a clinic ordering five cases should not have to open anything. */
+/** A shelf tile: picture, name, price, and the stepper that orders it. The
+    stepper is the whole control — a clinic ordering five cases should not have
+    to open anything to do it. */
+function AccessoryCard({
+  item,
+  count,
+  onChange,
+}: {
+  item: AccessoryType;
+  count: number;
+  onChange: (count: number) => void;
+}) {
+  return (
+    <article className={`product-card shelf-card${count > 0 ? " picked" : ""}`}>
+      <ProductImage src={item.image_url} code={item.code} name={item.name} ratio="16 / 10" />
+      <div className="product-body">
+        <h3>{item.name}</h3>
+        <p className="muted">{item.description}</p>
+      </div>
+      <footer>
+        <span className="product-from">{rupees(item.price)}</span>
+        <Stepper item={item} count={count} onChange={onChange} />
+      </footer>
+    </article>
+  );
+}
+
+/** One shelf item as a compact row, for the add-on step inside a dialog where
+    there is no room for pictures. */
 function AccessoryRow({
   item,
   count,
@@ -627,31 +659,45 @@ function AccessoryRow({
         <small>{item.description}</small>
       </div>
       <span className="addon-price">{rupees(item.price)}</span>
-      <div className="stepper">
-        <button
-          type="button"
-          onClick={() => onChange(count - 1)}
-          disabled={count === 0}
-          aria-label={`One fewer ${item.name}`}
-        >
-          −
-        </button>
-        <input
-          type="number"
-          min={0}
-          max={200}
-          value={count}
-          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
-          aria-label={`How many ${item.name}`}
-        />
-        <button
-          type="button"
-          onClick={() => onChange(count + 1)}
-          aria-label={`One more ${item.name}`}
-        >
-          +
-        </button>
-      </div>
+      <Stepper item={item} count={count} onChange={onChange} />
+    </div>
+  );
+}
+
+function Stepper({
+  item,
+  count,
+  onChange,
+}: {
+  item: AccessoryType;
+  count: number;
+  onChange: (count: number) => void;
+}) {
+  return (
+    <div className="stepper">
+      <button
+        type="button"
+        onClick={() => onChange(count - 1)}
+        disabled={count === 0}
+        aria-label={`One fewer ${item.name}`}
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min={0}
+        max={200}
+        value={count}
+        onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+        aria-label={`How many ${item.name}`}
+      />
+      <button
+        type="button"
+        onClick={() => onChange(count + 1)}
+        aria-label={`One more ${item.name}`}
+      >
+        +
+      </button>
     </div>
   );
 }
