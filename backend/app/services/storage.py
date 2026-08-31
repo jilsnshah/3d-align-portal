@@ -81,12 +81,15 @@ class LocalStorage:
         return StoredFile(ref=str(target.relative_to(self.root)), size_bytes=target.stat().st_size)
 
     def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
-        """Renames the case folder when a case is given its AL number. Local refs
+        """Renames the case folder when a case is given its number. Local refs
         embed the folder name, so the caller has to rewrite them too."""
         source = self.root / "Orders" / old_name
         target = self.root / "Orders" / new_name
         if not source.is_dir():
-            return None
+            # Already renamed — a retry, or a second pass over the same case.
+            # Saying so is better than reporting nothing happened, which left
+            # the caller unable to tell success from a missing folder.
+            return str(target) if target.is_dir() else None
         if target.exists():
             raise StorageError(f"Cannot rename to {new_name}: that folder already exists.")
         source.rename(target)

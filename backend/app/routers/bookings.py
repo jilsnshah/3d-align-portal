@@ -223,7 +223,11 @@ def book_appointment(
             user_id=technician.user_id,
             order_id=order.id,
             title="New scan visit assigned",
-            body=f"{order.reference} — {order.patient.full_name}\n{starts_at:%d %b %Y, %H:%M}",
+            body=(
+                f"{order.reference} — "
+                f"{order.patient.full_name if order.patient else ''}\n"
+                f"{starts_at:%d %b %Y, %H:%M}"
+            ),
         )
     )
     db.commit()
@@ -353,7 +357,7 @@ def _job_order(appointment: Appointment) -> schemas.JobOrderOut:
     return schemas.JobOrderOut(
         id=order.id,
         order_number=order.reference,
-        patient_name=order.patient.full_name,
+        patient_name=order.patient.full_name if order.patient else "",
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
         arch=order.arch,

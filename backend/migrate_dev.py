@@ -72,6 +72,10 @@ ADDITIONS = {
         # Backfilled by backfill_case_numbers.py, which also re-packs the AL
         # series so it only covers cases that actually reached planning.
         ("enquiry_number", "VARCHAR(30) NOT NULL DEFAULT ''"),
+        # What the order was priced at when it was placed, so a later repricing
+        # cannot move a bill the clinic has already been shown.
+        ("unit_price", "NUMERIC(12,2)"),
+        ("unit_per_tooth_price", "NUMERIC(12,2)"),
         ("records_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("scan_revision", "INTEGER NOT NULL DEFAULT 1"),
         ("planning_revision", "INTEGER NOT NULL DEFAULT 1"),
@@ -251,6 +255,30 @@ with engine.begin() as conn:
 
     if _relax_nullable(conn, "orders", "order_number", Order.__table__):
         print("  ~ orders.order_number is now nullable")
+        applied += 1
+
+    # An accessory order names nobody, so the column has to allow it.
+    if _relax_nullable(conn, "orders", "patient_id", Order.__table__):
+        print("  ~ orders.patient_id is now nullable")
+        applied += 1
+
+    # Orders placed before the price was written down take today's catalogue
+    # figure, which is what they were already being charged. Doing it once here
+    # means they stop moving from now on rather than staying live for ever.
+    filled = conn.exec_driver_sql(
+        """
+        UPDATE orders SET
+            unit_price = (
+                SELECT price FROM product_sizes WHERE product_sizes.id = orders.product_size_id
+            ),
+            unit_per_tooth_price = (
+                SELECT per_tooth_price FROM products WHERE products.id = orders.product_id
+            )
+        WHERE product_id IS NOT NULL AND unit_price IS NULL
+        """
+    ).rowcount
+    if filled:
+        print(f"  ~ {filled} order(s) had their price written down")
         applied += 1
 
 # --------------------------------------------------------------------------

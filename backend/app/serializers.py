@@ -303,7 +303,11 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
             if order.assigned_to is not None
             else ""
         ),
-        patient_name=order.patient.full_name,
+        # An accessory order names no one. "Practice stock" is what it is,
+        # and reads better on a board than a blank cell.
+        patient_name=(
+            order.patient.full_name if order.patient is not None else "Practice stock"
+        ),
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
         branch_id=order.shipping_address_id or "",
@@ -570,7 +574,7 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
     ]
     return schemas.OrderDetail(
         **base,
-        patient_id=order.patient_id,
+        patient_id=order.patient_id or "",
         has_simulation=any(
             f.category == FileCategory.SIMULATION_MODEL and not f.is_deleted
             for f in order.files

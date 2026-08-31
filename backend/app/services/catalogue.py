@@ -146,13 +146,28 @@ def line_total(order: Order) -> Decimal:
     extras = accessories.total(order)
     if order.product is None or order.product_size is None:
         return extras
+    each, per_tooth = frozen_prices(order)
     # Column defaults only land on insert, so an order still being built in
     # memory has None here rather than 0.
     teeth = max(order.extra_teeth or 0, 0)
     count = max(order.quantity or 1, 1)
-    each = money(order.product_size.price)
-    extra = money(order.product.per_tooth_price) * teeth
-    return money((each + extra) * count + extras)
+    return money((each + per_tooth * teeth) * count + extras)
+
+
+def frozen_prices(order: Order) -> tuple:
+    """What this order was priced at, not what the catalogue says today.
+
+    The figures are written onto the order when it is placed. An order raised
+    before that was recorded has none, and falls back to the live catalogue —
+    which is what it has always done, so nothing already open changes shape.
+    """
+    each = order.unit_price
+    per_tooth = order.unit_per_tooth_price
+    if each is None:
+        each = order.product_size.price if order.product_size is not None else 0
+    if per_tooth is None:
+        per_tooth = order.product.per_tooth_price if order.product is not None else 0
+    return money(each), money(per_tooth)
 
 
 def describe(order: Order) -> str:

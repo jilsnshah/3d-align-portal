@@ -195,7 +195,10 @@ class Order(Base, TimestampMixin):
     order_number: Mapped[Optional[str]] = mapped_column(String(30), unique=True, index=True)
 
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"), index=True)
-    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"))
+    # Null on an accessory order. Restocking IPR strips is the practice buying
+    # supplies, not clinical work on a person, and forcing a name onto it meant
+    # inventing one.
+    patient_id: Mapped[Optional[str]] = mapped_column(ForeignKey("patients.id"))
     parent_order_id: Mapped[Optional[str]] = mapped_column(ForeignKey("orders.id"))
 
     # What the lab is making. Everything that differs between an aligner case
@@ -207,6 +210,13 @@ class Order(Base, TimestampMixin):
     product_id: Mapped[Optional[str]] = mapped_column(ForeignKey("products.id"))
     product_size_id: Mapped[Optional[str]] = mapped_column(ForeignKey("product_sizes.id"))
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # What the size and the per-tooth rate cost at the moment of ordering.
+    # Read live off the catalogue before, so repricing an Essix moved the total
+    # on every unpaid order that already existed — including ones the clinic
+    # had already been shown, and which it is now being held to settle. Null on
+    # orders placed before this was written down; those still read live.
+    unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    unit_per_tooth_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     # Set when the clinic chose an existing scan rather than giving a new one.
     # The files are attached to this order too, so nothing here is load-bearing
     # for reading them — it records where they came from.

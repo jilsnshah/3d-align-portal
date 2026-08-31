@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .enums import (
     LAB_ROLES,
+    OFFICE_ROLES,
     STATUS_LABELS,
     TERMINAL_STATUSES,
     OrderKind,
@@ -173,11 +174,16 @@ def assert_status(order: Order, *expected: OrderStatus) -> None:
         )
 
 
-def _rename_storage_folder(order: Order) -> None:
-    """Moves the case folder from its enquiry ref to its new AL number.
+def _rename_storage_folder(db: Session, order: Order) -> None:
+    """Moves the case folder from its enquiry ref to its new number.
 
     Never allowed to block the transition: a case that reached planning matters
     more than a tidy folder name, and the stored refs stay valid either way.
+
+    But it used to fail into a log line nobody read, leaving the case holding a
+    new reference while its files sat in a folder named after the old one. When
+    it fails now the lab is told, because the divergence is real and someone
+    has to go and look.
     """
     old_name = order.enquiry_number
     new_name = order.order_number
@@ -196,8 +202,27 @@ def _rename_storage_folder(order: Order) -> None:
         for f in order.files:
             if f.storage_ref and f.storage_ref.startswith(prefix):
                 f.storage_ref = f"Orders/{new_name}/" + f.storage_ref[len(prefix) :]
-    except Exception:  # pragma: no cover - storage is best effort here
+    except Exception as exc:  # pragma: no cover - storage is best effort here
         log.exception("Could not rename case folder %s -> %s", old_name, new_name)
+        _warn_staff(
+            db,
+            order,
+            "Case folder could not be renamed",
+            f"{new_name} still has its files under {old_name} in storage. "
+            f"Nothing is lost and the case works, but the folder name is out of "
+            f"step and someone should tidy it. ({exc})",
+        )
+
+
+def _warn_staff(db: Session, order: Order, title: str, body: str) -> None:
+    """Put something in front of the lab that would otherwise only reach a log."""
+    staff = (
+        db.query(User)
+        .filter(User.role.in_(OFFICE_ROLES), User.is_active.is_(True))
+        .all()
+    )
+    for member in staff:
+        db.add(Notification(user_id=member.id, order_id=order.id, title=title, body=body))
 
 
 def transition(
@@ -240,7 +265,7 @@ def transition(
     # issue sent back) a no-op.
     if to == S.IN_PLANNING and order.order_number is None:
         order.order_number = next_order_number(db)
-        _rename_storage_folder(order)
+        _rename_storage_folder(db, order)
     # A product order never reaches planning, so reaching the bench is what
     # earns it its number — and it takes one from its own product's series
     # rather than spending an aligner number on a bleaching tray.
@@ -249,10 +274,10 @@ def transition(
             order.order_number = next_product_number(
                 db, order.product.code, order.product_size.label if order.product_size else ""
             )
-            _rename_storage_folder(order)
+            _rename_storage_folder(db, order)
         elif order.kind == OrderKind.ACCESSORY:
             order.order_number = next_accessory_number(db)
-            _rename_storage_folder(order)
+            _rename_storage_folder(db, order)
 
     order.status = to
     now = utcnow()
@@ -287,7 +312,8 @@ def _notify(
     # for the alert that asks its clinic for a scan.
     if to == S.AWAITING_SCAN and order.kind != OrderKind.ALIGNER:
         title = "Scan required"
-    body = f"{order.reference} — {order.patient.full_name}"
+    who = order.patient.full_name if order.patient is not None else "Practice stock"
+    body = f"{order.reference} — {who}"
     if note:
         body = f"{body}\n{note}"
 

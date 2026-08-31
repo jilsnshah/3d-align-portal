@@ -125,7 +125,11 @@ def build_invoice_payload(order, quote, doctor, address, plan=None) -> dict:
     today = datetime.date.today()
     return {
         "invoiceTitle": "Invoice",
-        "invoiceSubTitle": f"Clear aligner treatment — {order.patient.full_name}",
+        "invoiceSubTitle": (
+            f"Clear aligner treatment — {order.patient.full_name}"
+            if order.patient is not None
+            else "3D Align order"
+        ),
         "invoiceNumber": order.order_number,
         "invoiceDate": today.isoformat(),
         "dueDate": (today + datetime.timedelta(days=30)).isoformat(),

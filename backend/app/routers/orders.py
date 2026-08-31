@@ -144,7 +144,10 @@ def create_order(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    patient = _resolve_patient(db, doctor, payload)
+    # Only an order that is purely shelf items can go without a patient. An
+    # appliance is made for someone, even when accessories ride along with it.
+    stock_only = bool(payload.accessories) and not payload.product_id
+    patient = _resolve_patient(db, doctor, payload, optional=stock_only)
     address = _resolve_address(db, doctor, payload.shipping_address_id)
 
     # A by-product ships before it is paid for, so the brake is here: one
@@ -200,12 +203,16 @@ def create_order(
     order = Order(
         enquiry_number=next_enquiry_number(db),
         doctor_id=doctor.id,
-        patient_id=patient.id,
+        patient_id=patient.id if patient is not None else None,
         kind=kind,
         product_id=product.id if product else None,
         product_size_id=size.id if size else None,
         quantity=payload.quantity,
         extra_teeth=payload.extra_teeth,
+        # Written down now rather than read back off the catalogue later, so a
+        # repricing cannot move what this clinic already agreed to.
+        unit_price=size.price if size is not None else None,
+        unit_per_tooth_price=product.per_tooth_price if product is not None else None,
         arch=payload.arch,
         priority=payload.priority,
         chief_complaint=payload.chief_complaint,
@@ -279,6 +286,13 @@ def update_order(
         _set_accessories(db, order, lines)
     for key, value in data.items():
         setattr(order, key, value)
+
+    # Changing the size on a draft changes what it costs, so the figure written
+    # onto the order is rewritten with it. Nothing has been agreed yet.
+    if "product_size_id" in data:
+        db.flush()
+        order.unit_price = order.product_size.price if order.product_size else None
+        order.unit_per_tooth_price = order.product.per_tooth_price if order.product else None
 
     db.commit()
     db.refresh(order)
@@ -1102,7 +1116,16 @@ def cancel_draft(
 # --------------------------------------------------------------------------
 
 
-def _resolve_patient(db: Session, doctor: Doctor, payload: schemas.OrderCreateIn) -> Patient:
+def _resolve_patient(
+    db: Session, doctor: Doctor, payload: schemas.OrderCreateIn, optional: bool = False
+) -> Optional[Patient]:
+    """Who the order is for, or None where that is not a question.
+
+    Restocking IPR strips is the practice buying supplies. Making the clinic
+    name a patient for it meant inventing one, so an accessory order may name
+    nobody — while still allowing a name where the clinic wants the order
+    filed against a case.
+    """
     if payload.patient_id:
         patient = db.get(Patient, payload.patient_id)
         if not patient or patient.doctor_id != doctor.id:
@@ -1113,6 +1136,8 @@ def _resolve_patient(db: Session, doctor: Doctor, payload: schemas.OrderCreateIn
         db.add(patient)
         db.flush()
         return patient
+    if optional:
+        return None
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose an existing patient or add a new one.")
 
 

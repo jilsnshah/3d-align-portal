@@ -135,18 +135,18 @@ export default function Catalogue() {
     mutationFn: () =>
       api.createOrder({
         patient_id: patientId || null,
-        new_patient: patientId ? null : { full_name: newPatientName },
+        new_patient:
+          !patientId && newPatientName.trim().length >= 2
+            ? { full_name: newPatientName }
+            : null,
         accessories: asPayload,
       }),
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
-  const accessoryBlocker =
-    asPayload.length === 0
-      ? "Add something first."
-      : !patientId && newPatientName.trim().length < 2
-        ? "Name the patient."
-        : "";
+  /* Restocking is the practice buying supplies, so nobody has to be named.
+     A clinic that wants the order filed against a case still can. */
+  const accessoryBlocker = asPayload.length === 0 ? "Add something first." : "";
 
   const blocker = !sizeId
     ? "Choose a thickness."
@@ -516,9 +516,12 @@ export default function Catalogue() {
               </button>
             </div>
 
-            <Field label="Patient">
+            <Field
+              label="For a patient?"
+              hint="Optional — leave it as practice stock if these are for the shelf."
+            >
               <select value={patientId} onChange={(e) => setPatientId(e.target.value)}>
-                <option value="">A patient not on file yet</option>
+                <option value="">Practice stock — no patient</option>
                 {patients.data?.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name}
@@ -526,15 +529,6 @@ export default function Catalogue() {
                 ))}
               </select>
             </Field>
-            {!patientId && (
-              <Field label="Patient's full name">
-                <input
-                  value={newPatientName}
-                  onChange={(e) => setNewPatientName(e.target.value)}
-                  placeholder="As it should appear on the order"
-                />
-              </Field>
-            )}
 
             <Banner tone="ok">
               <div className="order-total">
