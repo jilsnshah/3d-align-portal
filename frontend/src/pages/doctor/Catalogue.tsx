@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
-import type { Product } from "../../api";
+import type { Accessory as AccessoryType, Product } from "../../api";
 import { Banner, ErrorText, Field, Skeleton } from "../../components/ui";
 
 /** "an Essix Retainer", not "a Essix Retainer". */
@@ -54,6 +54,35 @@ export default function Catalogue() {
      delivery on top has to be a number the clinic saw before it committed,
      not a line it meets for the first time on the payment screen. */
   const delivery = useQuery({ queryKey: ["delivery-charge"], queryFn: api.deliveryCharge });
+  const shelf = useQuery({ queryKey: ["accessories"], queryFn: api.accessories });
+
+  /* Accessories are counted, not chosen once: a clinic restocking asks for two
+     strips, a cleanser and five cases in one breath. Held as code -> count so
+     the same basket serves the shelf below and the add-on step in the order
+     dialog above it. */
+  const [basket, setBasket] = useState<Record<string, number>>({});
+  const [orderingAccessories, setOrderingAccessories] = useState(false);
+
+  function setCount(id: string, count: number) {
+    setBasket((was) => {
+      const next = { ...was };
+      if (count <= 0) delete next[id];
+      else next[id] = Math.min(count, 200);
+      return next;
+    });
+  }
+
+  const basketLines = (shelf.data ?? [])
+    .filter((item) => basket[item.id])
+    .map((item) => ({ item, quantity: basket[item.id] }));
+  const basketTotal = basketLines.reduce(
+    (sum, line) => sum + Number(line.item.price) * line.quantity,
+    0,
+  );
+  const asPayload = basketLines.map((line) => ({
+    accessory_id: line.item.id,
+    quantity: line.quantity,
+  }));
 
   const [params, setParams] = useSearchParams();
   const [ordering, setOrdering] = useState<Product | null>(null);
@@ -76,7 +105,7 @@ export default function Catalogue() {
     ? (Number(size.price) + Number(ordering.per_tooth_price) * extraTeeth) * quantity
     : 0;
   const shipping = Number(delivery.data?.amount ?? 0);
-  const total = goods + shipping;
+  const total = goods + basketTotal + shipping;
 
   const create = useMutation({
     mutationFn: () =>
@@ -87,11 +116,31 @@ export default function Catalogue() {
         product_size_id: sizeId,
         quantity,
         extra_teeth: extraTeeth,
+        accessories: asPayload,
       }),
     // Straight into the case, which is where the records and the scan are asked
     // for — the same path every other order takes.
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
+
+  /* An accessory order names a patient the same way every other order does —
+     the lab ships to a clinic, but the case still belongs to someone. */
+  const createAccessoryOrder = useMutation({
+    mutationFn: () =>
+      api.createOrder({
+        patient_id: patientId || null,
+        new_patient: patientId ? null : { full_name: newPatientName },
+        accessories: asPayload,
+      }),
+    onSuccess: (order) => navigate(`/orders/${order.id}`),
+  });
+
+  const accessoryBlocker =
+    asPayload.length === 0
+      ? "Add something first."
+      : !patientId && newPatientName.trim().length < 2
+        ? "Name the patient."
+        : "";
 
   const blocker = !sizeId
     ? "Choose a thickness."
@@ -190,6 +239,60 @@ export default function Catalogue() {
         ))}
       </div>
 
+      {(shelf.data?.length ?? 0) > 0 && (
+        <section className="stack-sm">
+          <div>
+            <h2 style={{ marginBottom: 4 }}>Accessories</h2>
+            <p className="muted" style={{ margin: 0 }}>
+              Stock items — nothing is made and no scan is needed, so these ship as soon as
+              they are packed. Add them to an appliance above, or order them on their own.
+            </p>
+          </div>
+
+          <div className="addon-list card">
+            {shelf.data?.map((item) => (
+              <AccessoryRow
+                key={item.id}
+                item={item}
+                count={basket[item.id] ?? 0}
+                onChange={(n) => setCount(item.id, n)}
+              />
+            ))}
+          </div>
+
+          {basketLines.length > 0 && !ordering && (
+            /* Only while something is in it. A permanent empty bar at the foot
+               of the page is furniture. */
+            <div className="basket-bar">
+              <div className="basket-lines">
+                {basketLines.map((line) => (
+                  <span key={line.item.id}>
+                    {line.item.name}
+                    {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                  </span>
+                ))}
+              </div>
+              <div className="basket-right">
+                <span className="basket-total">
+                  {rupees(basketTotal)}
+                  {shipping > 0 && <small> + {rupees(shipping)} delivery</small>}
+                </span>
+                <button type="button" className="btn-ghost btn-sm" onClick={() => setBasket({})}>
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setOrderingAccessories(true)}
+                >
+                  Order these
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {ordering && createPortal(
         /* Into the body, not into the page. `.page` carries an entrance
            animation on transform with fill-mode "both", which keeps it filling
@@ -283,6 +386,33 @@ export default function Catalogue() {
             )}
           </div>
 
+          {/* Asked here rather than left to be discovered on the shelf below:
+              the moment a clinic is ordering a retainer is the moment it
+              remembers it is low on cases and cleanser, and a second order
+              means a second delivery charge. */}
+          {(shelf.data?.length ?? 0) > 0 && (
+            <details className="addons" open={basketLines.length > 0}>
+              <summary>
+                Anything else with it?
+                {basketLines.length > 0 && (
+                  <span className="addons-count">
+                    {basketLines.length} added · {rupees(basketTotal)}
+                  </span>
+                )}
+              </summary>
+              <div className="addon-list">
+                {shelf.data?.map((item) => (
+                  <AccessoryRow
+                    key={item.id}
+                    item={item}
+                    count={basket[item.id] ?? 0}
+                    onChange={(n) => setCount(item.id, n)}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
+
           {goods > 0 && (
             <Banner tone="ok">
               <div className="order-total">
@@ -292,6 +422,15 @@ export default function Catalogue() {
                   </span>
                   <span>{rupees(goods)}</span>
                 </div>
+                {basketLines.map((line) => (
+                  <div className="order-total-line" key={line.item.id}>
+                    <span>
+                      {line.item.name}
+                      {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                    </span>
+                    <span>{rupees(Number(line.item.price) * line.quantity)}</span>
+                  </div>
+                ))}
                 <div className="order-total-line">
                   <span>
                     Delivery
@@ -332,6 +471,141 @@ export default function Catalogue() {
         </div>,
         document.body,
       )}
+
+      {orderingAccessories && createPortal(
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setOrderingAccessories(false);
+          }}
+        >
+          <div className="modal stack-sm" role="dialog" aria-modal="true" aria-label="Order accessories">
+            <div className="row-between">
+              <h2 style={{ margin: 0 }}>Order accessories</h2>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => setOrderingAccessories(false)}
+              >
+                Cancel
+              </button>
+            </div>
+
+            <Field label="Patient">
+              <select value={patientId} onChange={(e) => setPatientId(e.target.value)}>
+                <option value="">A patient not on file yet</option>
+                {patients.data?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {!patientId && (
+              <Field label="Patient's full name">
+                <input
+                  value={newPatientName}
+                  onChange={(e) => setNewPatientName(e.target.value)}
+                  placeholder="As it should appear on the order"
+                />
+              </Field>
+            )}
+
+            <Banner tone="ok">
+              <div className="order-total">
+                {basketLines.map((line) => (
+                  <div className="order-total-line" key={line.item.id}>
+                    <span>
+                      {line.item.name}
+                      {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                    </span>
+                    <span>{rupees(Number(line.item.price) * line.quantity)}</span>
+                  </div>
+                ))}
+                <div className="order-total-line">
+                  <span>
+                    Delivery
+                    {delivery.data?.is_city_rate && delivery.data.city
+                      ? ` to ${delivery.data.city}`
+                      : ""}
+                  </span>
+                  <span>{rupees(shipping)}</span>
+                </div>
+                <div className="order-total-line grand">
+                  <span>Total</span>
+                  <b>{rupees(basketTotal + shipping)}</b>
+                </div>
+                <p className="muted" style={{ margin: 0 }}>
+                  Nothing is made for these, so no scan or photographs are asked for — they go
+                  straight to packing.
+                </p>
+              </div>
+            </Banner>
+
+            <ErrorText error={createAccessoryOrder.error} />
+            <div className="row-between">
+              <span className="dim">{accessoryBlocker}</span>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={Boolean(accessoryBlocker) || createAccessoryOrder.isPending}
+                onClick={() => createAccessoryOrder.mutate()}
+              >
+                {createAccessoryOrder.isPending ? "Placing…" : "Place this order"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </main>
+  );
+}
+
+/** One shelf item with a count beside it. The stepper is the whole control:
+    a clinic ordering five cases should not have to open anything. */
+function AccessoryRow({
+  item,
+  count,
+  onChange,
+}: {
+  item: AccessoryType;
+  count: number;
+  onChange: (count: number) => void;
+}) {
+  return (
+    <div className={`addon-row${count > 0 ? " picked" : ""}`}>
+      <div className="addon-name">
+        <b>{item.name}</b>
+        <small>{item.description}</small>
+      </div>
+      <span className="addon-price">{rupees(item.price)}</span>
+      <div className="stepper">
+        <button
+          type="button"
+          onClick={() => onChange(count - 1)}
+          disabled={count === 0}
+          aria-label={`One fewer ${item.name}`}
+        >
+          −
+        </button>
+        <input
+          type="number"
+          min={0}
+          max={200}
+          value={count}
+          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+          aria-label={`How many ${item.name}`}
+        />
+        <button
+          type="button"
+          onClick={() => onChange(count + 1)}
+          aria-label={`One more ${item.name}`}
+        >
+          +
+        </button>
+      </div>
+    </div>
   );
 }

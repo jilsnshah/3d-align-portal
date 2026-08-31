@@ -65,6 +65,7 @@ class StatsTotals(BaseModel):
     orders: int
     aligners: int
     products: int
+    accessories: int = 0
     # Counted, then kept out of every breakdown: it says what was asked for,
     # not what was made.
     cancelled: int
@@ -80,6 +81,7 @@ class StatsBucket(BaseModel):
     label: str
     aligners: int
     products: int
+    accessories: int = 0
     paid: Decimal
 
 
@@ -104,6 +106,9 @@ class StatsOut(BaseModel):
     totals: StatsTotals
     series: list[StatsBucket]
     products: list[StatsSlice]
+    # Shelf items, counted wherever they rode — on a product order as much as
+    # on an order of their own.
+    accessories: list[StatsSlice] = []
     categories: list[StatsSlice]
     # Lab-side only. A doctor is never shown another practice's volumes.
     doctors: list[StatsSlice] = []
@@ -229,6 +234,30 @@ class ScanReuseIn(BaseModel):
     source_order_id: str
 
 
+class AccessoryLineIn(BaseModel):
+    accessory_id: str
+    quantity: int = Field(default=1, ge=1, le=200)
+
+
+class AccessoryOut(ORMModel):
+    id: str
+    code: str
+    name: str
+    description: str
+    price: Decimal
+
+
+class AccessoryLineOut(BaseModel):
+    """One accessory on an order, priced as it was when it was ordered."""
+
+    accessory_id: str
+    code: str
+    name: str
+    quantity: int
+    unit_price: Decimal
+    line_total: Decimal
+
+
 class OrderCreateIn(BaseModel):
     patient_id: Optional[str] = None
     new_patient: Optional[PatientIn] = None
@@ -245,11 +274,18 @@ class OrderCreateIn(BaseModel):
     quantity: int = Field(default=1, ge=1, le=50)
     extra_teeth: int = Field(default=0, ge=0, le=32)
 
+    # Shelf items, riding on a product order or standing as an order of their
+    # own. Several of them, each with its own count.
+    accessories: list[AccessoryLineIn] = []
+
 
 class OrderUpdateIn(BaseModel):
     product_size_id: Optional[str] = None
     quantity: Optional[int] = Field(default=None, ge=1, le=50)
     extra_teeth: Optional[int] = Field(default=None, ge=0, le=32)
+    # The whole list, not a delta: sending it replaces what the draft holds, so
+    # removing a line is saying what is left rather than naming what to drop.
+    accessories: Optional[list[AccessoryLineIn]] = None
     arch: Optional[enums.Arch] = None
     priority: Optional[enums.Priority] = None
     chief_complaint: Optional[str] = None
@@ -1052,6 +1088,8 @@ class OrderSummary(BaseModel):
 
 
 class OrderDetail(OrderSummary):
+    # What shelf items this order carries, priced as they were ordered.
+    accessories: list[AccessoryLineOut] = []
     # So a repeat order for the same patient can be raised, and the scans they
     # have already given offered back instead of asked for again.
     patient_id: str = ""

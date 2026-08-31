@@ -35,6 +35,11 @@ class OrderKind(str, Enum):
 
     ALIGNER = "ALIGNER"
     PRODUCT = "PRODUCT"
+    # Stock goods — an IPR strip, a retainer case, a cleanser. Nothing is made
+    # and nothing is fitted, so there is no scan, no records set and no bench
+    # work: the lab picks them off a shelf and packs them. They ride along on a
+    # product order or stand as an order of their own.
+    ACCESSORY = "ACCESSORY"
 
 
 class OrderStatus(str, Enum):
@@ -147,7 +152,14 @@ REQUIRED_SUBMIT_CATEGORIES = [FileCategory.RECORD_PHOTO, FileCategory.OPG]
 REQUIRED_SUBMIT_CATEGORIES_PRODUCT = [FileCategory.RECORD_PHOTO]
 
 
+# An accessory is stock. There is nothing to look at before packing a box of
+# retainer cases, so nothing is asked for.
+REQUIRED_SUBMIT_CATEGORIES_ACCESSORY: list = []
+
+
 def required_submit_categories(kind) -> list:
+    if kind == OrderKind.ACCESSORY:
+        return REQUIRED_SUBMIT_CATEGORIES_ACCESSORY
     if kind == OrderKind.PRODUCT:
         return REQUIRED_SUBMIT_CATEGORIES_PRODUCT
     return REQUIRED_SUBMIT_CATEGORIES
@@ -575,7 +587,7 @@ PAYMENT_KIND_LABELS: dict[str, str] = {
     PaymentKind.TREATMENT_PLAN: "Treatment plan",
     PaymentKind.TRAINING_FIT: "Training fit aligner",
     PaymentKind.PRODUCTION_PHASE: "Production aligners",
-    PaymentKind.PRODUCT_ORDER: "Product order",
+    PaymentKind.PRODUCT_ORDER: "Products and accessories",
 }
 
 

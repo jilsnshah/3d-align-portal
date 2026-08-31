@@ -14,9 +14,20 @@ from typing import Optional
 from fastapi import HTTPException, status as http_status
 from sqlalchemy.orm import Session
 
-from .enums import LAB_ROLES, STATUS_LABELS, TERMINAL_STATUSES, OrderStatus, UserRole
+from .enums import (
+    LAB_ROLES,
+    STATUS_LABELS,
+    TERMINAL_STATUSES,
+    OrderKind,
+    OrderStatus,
+    UserRole,
+)
 from .models import Notification, Order, StatusEvent, User, utcnow
-from .services.numbering import next_order_number, next_product_number
+from .services.numbering import (
+    next_accessory_number,
+    next_order_number,
+    next_product_number,
+)
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +35,11 @@ S = OrderStatus
 
 ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
     S.DRAFT: {S.SUBMITTED, S.CANCELLED},
-    S.SUBMITTED: {S.UNDER_REVIEW, S.CANCELLED},
+    # An accessory order is stock: nothing to review, nothing to quote, nothing
+    # to scan. It goes straight to the shelf to be picked. Only an accessory
+    # order takes that edge — the submit route is what decides, and an aligner
+    # case still walks the full path.
+    S.SUBMITTED: {S.UNDER_REVIEW, S.PRODUCT_FABRICATION, S.CANCELLED},
     S.UNDER_REVIEW: {S.RECORDS_REQUESTED, S.QUOTED, S.CANCELLED},
     S.RECORDS_REQUESTED: {S.UNDER_REVIEW, S.CANCELLED},
     # Re-sending a quote keeps the order in QUOTED with a new version.
@@ -88,6 +103,10 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
 # Who may drive each move. Anything not listed is staff-only.
 DOCTOR_MOVES: set[tuple[OrderStatus, OrderStatus]] = {
     (S.DRAFT, S.SUBMITTED),
+    # Placing an order for stock is the whole of the decision — there is
+    # nothing for the lab to accept first. The submit route only takes this
+    # edge for an accessory order; every other kind stops at SUBMITTED.
+    (S.SUBMITTED, S.PRODUCT_FABRICATION),
     (S.RECORDS_REQUESTED, S.UNDER_REVIEW),
     (S.QUOTED, S.AWAITING_SCAN),
     # Uploading an STL hands the scan to the lab. Accepting it is staff-only.
@@ -198,6 +217,13 @@ def transition(
         raise TransitionError(
             f"Cannot move {order.reference} from {STATUS_LABELS[frm]} to {STATUS_LABELS[to]}."
         )
+    # Straight from ordered to picking is an accessory's path and no other's.
+    # Enforced here rather than only at the caller, so the permission cannot be
+    # widened by a second route being added later that forgets the check.
+    if (frm, to) == (S.SUBMITTED, S.PRODUCT_FABRICATION) and order.kind != OrderKind.ACCESSORY:
+        raise TransitionError(
+            f"{order.reference} has to be reviewed before it reaches the bench."
+        )
     if actor is not None and actor.role == UserRole.DOCTOR and (frm, to) not in DOCTOR_MOVES:
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
@@ -218,6 +244,9 @@ def transition(
             order.order_number = next_product_number(
                 db, order.product.code, order.product_size.label if order.product_size else ""
             )
+            _rename_storage_folder(order)
+        elif order.kind == OrderKind.ACCESSORY:
+            order.order_number = next_accessory_number(db)
             _rename_storage_folder(order)
 
     order.status = to

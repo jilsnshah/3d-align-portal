@@ -138,21 +138,31 @@ def line_total(order: Order) -> Decimal:
     quantity when the invoice was raised, so everything the clinic was shown in
     between was the price of one — order three splints, get quoted for one.
     """
+    from . import accessories
+
+    # Accessories ride on a product order and stand alone on an accessory one,
+    # so they are added here rather than in either caller — one function owns
+    # what an order of goods is worth.
+    extras = accessories.total(order)
     if order.product is None or order.product_size is None:
-        return Decimal("0")
+        return extras
     # Column defaults only land on insert, so an order still being built in
     # memory has None here rather than 0.
     teeth = max(order.extra_teeth or 0, 0)
     count = max(order.quantity or 1, 1)
     each = money(order.product_size.price)
     extra = money(order.product.per_tooth_price) * teeth
-    return money((each + extra) * count)
+    return money((each + extra) * count + extras)
 
 
 def describe(order: Order) -> str:
     """One line for the board: what was ordered, in how many, at what size."""
+    from . import accessories
+
     if order.product is None:
-        return ""
+        # An accessory order has no appliance to name, so the shelf items are
+        # the whole of what it is.
+        return accessories.describe(order)
     parts = [order.product.name]
     if order.product_size is not None and order.product.has_choice_of_size:
         parts.append(order.product_size.label)
@@ -163,4 +173,7 @@ def describe(order: Order) -> str:
                      else f"+{order.extra_teeth} teeth")
     if (order.quantity or 1) > 1:
         parts.append(f"x{order.quantity}")
+    extras = accessories.describe(order)
+    if extras:
+        parts.append(f"+ {extras}")
     return " · ".join(parts)

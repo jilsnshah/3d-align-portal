@@ -203,6 +203,7 @@ export default function StatsPage({ lab = false }: { lab?: boolean }) {
             />
             <StatTile label="Aligner cases" value={formatCount(data.totals.aligners)} />
             <StatTile label="Product orders" value={formatCount(data.totals.products)} />
+            <StatTile label="Accessory orders" value={formatCount(data.totals.accessories)} />
             <StatTile
               label="Patients"
               value={formatCount(data.totals.patients)}
@@ -294,6 +295,19 @@ export default function StatsPage({ lab = false }: { lab?: boolean }) {
                   <RankBars rows={toRank(data.products, true)} unit="orders" />
                   <TableToggle label="products">
                     <SliceTable rows={data.products} unit="Product" />
+                  </TableToggle>
+                </>
+              )}
+            </Panel>
+
+            <Panel title="Accessories" hint="Shelf items, wherever they rode.">
+              {data.accessories.length === 0 ? (
+                <p className="dim">No accessories in this period.</p>
+              ) : (
+                <>
+                  <RankBars rows={toRank(data.accessories, true)} unit="orders" />
+                  <TableToggle label="accessories">
+                    <SliceTable rows={data.accessories} unit="Accessory" />
                   </TableToggle>
                 </>
               )}

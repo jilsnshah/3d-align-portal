@@ -3080,3 +3080,170 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .stat-grid { grid-template-columns: 1fr; }
   .stat-filters select { flex: 1; min-width: 0; }
 }
+
+/* --- Accessories ---------------------------------------------------------
+   Shelf items are counted, not configured. The whole control is a stepper, so
+   a clinic ordering five retainer cases never opens anything. */
+
+.addon-list { display: flex; flex-direction: column; }
+
+/* On the page the shelf is a grid: a full-width row leaves a thousand pixels
+   between an item's name and the button that adds it, which is a long way to
+   travel to buy a retainer case. Inside the dialog it stays a list, because
+   the dialog is already narrow. */
+.addon-list.card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0 var(--s-5);
+  padding: var(--s-2) var(--s-4);
+}
+.addon-list.card > * { min-width: 0; }
+
+.addon-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.addon-row:last-child { border-bottom: none; }
+/* A row that has been picked says so without shouting: the count already does
+   the talking, this only helps the eye find them again in a long shelf. */
+.addon-row.picked .addon-name b { color: var(--gold-deep); }
+
+.addon-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.addon-name b { font-size: var(--t-sm); font-weight: 600; }
+.addon-name small { font-size: var(--t-xs); color: var(--ink-3); }
+
+.addon-price {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--white);
+}
+.stepper button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.stepper button:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); }
+.stepper button:disabled { color: var(--rule-strong); cursor: default; }
+.stepper input {
+  width: 42px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  border-radius: 0;
+  text-align: center;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  /* The spinners fight the buttons either side of them for the same job. */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input:focus { outline: none; background: var(--gold-wash); }
+
+/* The add-on step inside the order dialog. Collapsed by default so the form
+   still reads as a form, and open the moment anything is in it. */
+.addons {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  padding: 0 var(--s-4);
+}
+.addons > summary {
+  padding: var(--s-3) 0;
+  cursor: pointer;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.addons[open] > summary { border-bottom: 1px solid var(--rule); }
+.addons-count {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  font-weight: 500;
+  color: var(--gold-deep);
+}
+.addons .addon-list {
+  padding-bottom: var(--s-2);
+  max-height: 244px;
+  overflow-y: auto;
+}
+
+/* Sticks to the bottom while the basket has something in it, so the count and
+   the way out are in the same place the eye already is. */
+.basket-bar {
+  position: sticky;
+  bottom: max(var(--s-4), env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4);
+  background: var(--black-2);
+  color: var(--white);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+}
+.basket-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-size: var(--t-xs);
+  color: rgba(255, 255, 255, 0.75);
+}
+.basket-right { display: flex; align-items: center; gap: var(--s-3); }
+.basket-total { font-size: var(--t-body); font-weight: 650; white-space: nowrap; }
+.basket-total small { font-weight: 400; color: rgba(255, 255, 255, 0.6); }
+.basket-bar .btn-ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.basket-bar .btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 680px) {
+  .addon-row { flex-wrap: wrap; }
+  .addon-name { flex-basis: 100%; }
+  .addon-price { margin-right: auto; }
+  .basket-bar { padding: var(--s-3); }
+  .basket-right { width: 100%; justify-content: space-between; }
+
+  /* On a phone the bar reaches the corner the contact dock lives in, and the
+     circles landed on top of "Order these". While a basket is open the dock
+     steps up out of its way; browsers without :has() keep today's behaviour
+     rather than getting something worse. */
+  .shell:has(.basket-bar) .social-dock {
+    bottom: calc(max(var(--s-4), env(safe-area-inset-bottom)) + 108px);
+  }
+}

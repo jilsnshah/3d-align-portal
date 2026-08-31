@@ -73,7 +73,9 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.get("", response_model=list[schemas.OrderSummary])
 def list_orders(
     needs_action: bool = Query(default=False),
-    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner|product)$"),
+    series: Optional[str] = Query(
+        default=None, pattern="^(enquiry|aligner|product|accessory)$"
+    ),
     search: Optional[str] = Query(default=None),
     patient_id: Optional[str] = Query(default=None),
     address_id: Optional[str] = Query(default=None),
@@ -106,6 +108,8 @@ def list_orders(
         )
     elif series == "product":
         query = query.filter(Order.kind == OrderKind.PRODUCT)
+    elif series == "accessory":
+        query = query.filter(Order.kind == OrderKind.ACCESSORY)
     if patient_id:
         query = query.filter(Order.patient_id == patient_id)
     if address_id:
@@ -162,11 +166,21 @@ def create_order(
                 f"The {product.name} is not priced per tooth.",
             )
 
+    # An order with shelf items and no appliance is an accessory order; one
+    # with both is a product order carrying extras. Nothing at all is an
+    # aligner case, which is unchanged by any of this.
+    if product is not None:
+        kind = OrderKind.PRODUCT
+    elif payload.accessories:
+        kind = OrderKind.ACCESSORY
+    else:
+        kind = OrderKind.ALIGNER
+
     order = Order(
         enquiry_number=next_enquiry_number(db),
         doctor_id=doctor.id,
         patient_id=patient.id,
-        kind=OrderKind.PRODUCT if product is not None else OrderKind.ALIGNER,
+        kind=kind,
         product_id=product.id if product else None,
         product_size_id=size.id if size else None,
         quantity=payload.quantity,
@@ -179,9 +193,23 @@ def create_order(
         status=OrderStatus.DRAFT,
     )
     db.add(order)
+    if payload.accessories:
+        _set_accessories(db, order, payload.accessories)
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.DOCTOR)
+
+
+def _set_accessories(db: Session, order: Order, lines) -> None:
+    """Replace the order's shelf items, refusing anything not on the shelf."""
+    from ..services import accessories as accessory_service
+
+    try:
+        accessory_service.set_lines(db, order, lines)
+    except KeyError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "One of those accessories is not available."
+        )
 
 
 @router.get("/{order_id}", response_model=schemas.OrderDetail)
@@ -208,6 +236,16 @@ def update_order(
     if "shipping_address_id" in data:
         address = _resolve_address(db, doctor, data.pop("shipping_address_id"))
         order.shipping_address_id = address.id if address else None
+    # Accessories are rows, not a column: setattr would put Pydantic models
+    # into the relationship. Pulled out before the generic pass below.
+    if "accessories" in data:
+        lines = data.pop("accessories") or []
+        if order.kind == OrderKind.ALIGNER:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Accessories go on a product order or an order of their own.",
+            )
+        _set_accessories(db, order, lines)
     for key, value in data.items():
         setattr(order, key, value)
 
@@ -258,6 +296,18 @@ def submit_order(
         order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
 
     transition(db, order, OrderStatus.SUBMITTED, user)
+    # Stock needs no review, no quote and no scan. An accessory order goes
+    # straight to the shelf to be picked, which is also where it takes its
+    # number. Only this kind takes that edge; everything else walks the path
+    # it always has.
+    if order.kind == OrderKind.ACCESSORY:
+        transition(
+            db,
+            order,
+            OrderStatus.PRODUCT_FABRICATION,
+            user,
+            note="Accessories only — nothing to make, straight to packing.",
+        )
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.DOCTOR)

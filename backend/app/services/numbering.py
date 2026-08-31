@@ -65,6 +65,17 @@ def product_counter_key(code: str) -> str:
     return f"product:{code.upper()}"
 
 
+def next_accessory_number(db: Session) -> str:
+    """3DAACC001 — one series for orders that are only shelf items.
+
+    A product reference names the appliance and its thickness because that is
+    what the bench reads off the tray. An accessory order has no appliance and
+    can hold several different items, so there is nothing to name: it takes a
+    plain running number and the packing list says what is in the box.
+    """
+    return f"3DAACC{_next(db, 'accessory'):03d}"
+
+
 def next_product_number(db: Session, code: str, size_label: str = "") -> str:
     """3DAER(1.0)001 — the lab's own bench series.
 

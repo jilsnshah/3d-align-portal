@@ -25,7 +25,7 @@ from typing import Optional
 from sqlalchemy.orm import Session, selectinload
 
 from ..enums import OrderKind, OrderStatus, PaymentStatus, category_label
-from ..models import Order, Payment
+from ..models import Order, OrderAccessory, Payment
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -105,6 +105,7 @@ def collect(
         .filter(Order.created_at >= start, Order.created_at < end)
         .options(
             selectinload(Order.product),
+            selectinload(Order.accessories).selectinload(OrderAccessory.accessory),
             selectinload(Order.quotes),
             selectinload(Order.plans),
             selectinload(Order.doctor),
@@ -116,14 +117,15 @@ def collect(
     orders = orders_query.all()
 
     shape = buckets(view, year, month)
-    by_bucket = {key: {"aligners": 0, "products": 0} for key, _ in shape}
+    by_bucket = {key: {"aligners": 0, "products": 0, "accessories": 0} for key, _ in shape}
 
-    totals = {"orders": 0, "aligners": 0, "products": 0, "cancelled": 0}
+    totals = {"orders": 0, "aligners": 0, "products": 0, "accessories": 0, "cancelled": 0}
     patients = set()
     products: dict = defaultdict(lambda: {"orders": 0, "units": 0, "label": ""})
     categories: dict = defaultdict(int)
     doctors: dict = defaultdict(lambda: {"orders": 0, "label": "", "note": ""})
     branches: dict = defaultdict(lambda: {"orders": 0, "label": ""})
+    shelf: dict = defaultdict(lambda: {"orders": 0, "units": 0, "label": ""})
 
     for order in orders:
         # A cancelled case is counted so the number is honest, then kept out of
@@ -136,7 +138,11 @@ def collect(
         patients.add(order.patient_id)
         key = _bucket_key(_local(order.created_at), view)
 
-        if order.kind == OrderKind.PRODUCT:
+        if order.kind == OrderKind.ACCESSORY:
+            totals["accessories"] += 1
+            if key in by_bucket:
+                by_bucket[key]["accessories"] += 1
+        elif order.kind == OrderKind.PRODUCT:
             totals["products"] += 1
             if key in by_bucket:
                 by_bucket[key]["products"] += 1
@@ -153,6 +159,14 @@ def collect(
             # band of its own would make the commonest band a non-answer.
             if order.aligner_category:
                 categories[order.aligner_category] += 1
+
+        for line in order.accessories:
+            if line.accessory is None:
+                continue
+            slot = shelf[line.accessory.code]
+            slot["label"] = line.accessory.name
+            slot["orders"] += 1
+            slot["units"] += max(line.quantity or 1, 1)
 
         if doctor_id is None and order.doctor is not None:
             slot = doctors[order.doctor_id]
@@ -223,11 +237,13 @@ def collect(
                 "label": label,
                 "aligners": by_bucket[key]["aligners"],
                 "products": by_bucket[key]["products"],
+                "accessories": by_bucket[key]["accessories"],
                 "paid": paid_bucket[key],
             }
             for key, label in shape
         ],
         "products": ranked(products),
+        "accessories": ranked(shelf),
         "categories": [
             {
                 "key": key,

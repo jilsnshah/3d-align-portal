@@ -20,6 +20,11 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     hint: "Retainers, splints, trays and guards — made from a scan, no planning stage.",
   },
   {
+    key: "accessory",
+    label: "Accessories",
+    hint: "Stock items — nothing made, nothing scanned, packed and sent.",
+  },
+  {
     key: "enquiry",
     label: "Enquiries",
     hint: "Submitted for assessment, still on an EN reference.",
@@ -180,6 +185,10 @@ export default function DoctorOrders() {
           </Empty>
         ) : series === "enquiry" ? (
           <Empty>No open enquiries — everything has moved into planning.</Empty>
+        ) : series === "accessory" ? (
+          <Empty>
+            No accessory orders yet. <Link to="/catalogue">See what is on the shelf.</Link>
+          </Empty>
         ) : series === "product" ? (
           <Empty>
             No product orders yet. <Link to="/catalogue">See what 3D Align makes.</Link>

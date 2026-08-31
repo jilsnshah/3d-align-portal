@@ -55,8 +55,20 @@ const PRODUCT_STATUSES = [
   "CANCELLED",
 ];
 
+// Nothing is made for an accessory order, so the bench's stages never apply:
+// it is ordered, packed, sent.
+const ACCESSORY_STATUSES = [
+  "DRAFT",
+  "SUBMITTED",
+  "PRODUCT_FABRICATION",
+  "DISPATCHING",
+  "COMPLETED",
+  "CANCELLED",
+];
+
 function statusesFor(series: CaseSeries): string[] {
   if (series === "enquiry") return ENQUIRY_STATUSES;
+  if (series === "accessory") return ACCESSORY_STATUSES;
   if (series === "product") return PRODUCT_STATUSES;
   return STATUSES;
 }
@@ -73,6 +85,11 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     hint: "Retainers, splints, trays and guards — made from the scan, no planning.",
   },
   {
+    key: "accessory",
+    label: "Accessories",
+    hint: "Stock items — nothing on the bench, straight to packing.",
+  },
+  {
     key: "enquiry",
     label: "Enquiries",
     hint: "EN numbers — not yet through planning, no AL number spent.",
@@ -87,7 +104,9 @@ export default function StaffOrders() {
   const status = params.get("status") ?? "";
   const requested = params.get("series");
   const series: CaseSeries =
-    requested === "enquiry" || requested === "product" ? requested : "aligner";
+    requested === "enquiry" || requested === "product" || requested === "accessory"
+      ? requested
+      : "aligner";
   const [search, setSearch] = useState("");
 
   const statusOptions = statusesFor(series);

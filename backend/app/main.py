@@ -43,6 +43,9 @@ async def lifespan(app: FastAPI):
         from .services.catalogue import ensure_products
 
         ensure_products(db)
+        from .services.accessories import ensure_accessories
+
+        ensure_accessories(db)
         from .routers.files import purge_expired
 
         removed = purge_expired(db)

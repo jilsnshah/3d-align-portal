@@ -276,6 +276,9 @@ class Order(Base, TimestampMixin):
     files: Mapped[list[OrderFile]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
     )
+    accessories: Mapped[list["OrderAccessory"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan"
+    )
     quotes: Mapped[list[Quote]] = relationship(
         back_populates="order", cascade="all, delete-orphan", order_by="Quote.version"
     )
@@ -388,7 +391,12 @@ class Order(Base, TimestampMixin):
         slot level: a single photograph is not a records set, and the lab cannot
         quote from one view."""
         blockers = []
-        for category in enums.REQUIRED_SUBMIT_CATEGORIES:
+        # What a case must show before the lab will look at it depends on what
+        # it is. This read the aligner list for every kind, so a product order
+        # was refused for want of a panoramic radiograph the form had already
+        # told the clinic was optional — and an accessory order, which needs
+        # nothing at all, could never have been submitted.
+        for category in enums.required_submit_categories(self.kind):
             spec = enums.slots_for(category)
             if spec:
                 missing = self.missing_slots(category)
@@ -1239,6 +1247,55 @@ class ProductSize(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     product: Mapped[Product] = relationship(back_populates="sizes")
+
+
+class Accessory(Base, TimestampMixin):
+    """Something the lab keeps on a shelf rather than makes.
+
+    An IPR strip, a retainer case, a cleanser. Nothing is fitted and nothing is
+    scanned, so an accessory has no size, no per-tooth price and no bench work
+    behind it — only a price and a count.
+    """
+
+    __tablename__ = "accessories"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    code: Mapped[str] = mapped_column(String(12), unique=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(400), default="")
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class OrderAccessory(Base, TimestampMixin):
+    """One accessory line on an order, and how many of it.
+
+    An order carries a list of these rather than a single item, because a
+    clinic restocking asks for two strips, a cleanser and five cases in one
+    breath and should not have to raise three orders to say so.
+    """
+
+    __tablename__ = "order_accessories"
+    __table_args__ = (
+        UniqueConstraint("order_id", "accessory_id", name="uq_order_accessory"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    accessory_id: Mapped[str] = mapped_column(ForeignKey("accessories.id"))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # Written down at the moment of ordering rather than read back off the
+    # catalogue. A lab that reprices a cleanser must not change what a clinic
+    # was quoted last month.
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
+    accessory: Mapped[Accessory] = relationship()
+    order: Mapped["Order"] = relationship(back_populates="accessories")
+
+    @property
+    def line_total(self) -> Decimal:
+        return Decimal(self.unit_price or 0) * max(self.quantity or 1, 1)
 
 
 class AlignerPrice(Base, TimestampMixin):

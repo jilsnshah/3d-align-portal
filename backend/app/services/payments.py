@@ -162,10 +162,11 @@ def sync(db: Session, order: Order) -> list:
     """
     settings = _settings(db)
 
-    # A product is one charge and nothing else. There is no plan to unlock and
-    # no training fit to make, so neither fee is ever raised against it — and
-    # its price is only knowable once the clinic has chosen a size and how many.
-    if order.kind == OrderKind.PRODUCT:
+    # A product or a box of accessories is one charge and nothing else. There
+    # is no plan to unlock and no training fit to make, so neither fee is ever
+    # raised against it — and the price is only knowable once the clinic has
+    # said what it wants and how many.
+    if order.kind in (OrderKind.PRODUCT, OrderKind.ACCESSORY):
         from . import catalogue
 
         total = catalogue.line_total(order)

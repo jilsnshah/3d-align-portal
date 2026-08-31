@@ -90,6 +90,18 @@ def product_catalogue(db: Session = Depends(get_db)):
     return [schemas.ProductOut.model_validate(p) for p in catalogue.catalogue(db)]
 
 
+@router.get("/accessories", response_model=list[schemas.AccessoryOut])
+def accessory_catalogue(db: Session = Depends(get_db)):
+    """What the lab keeps on a shelf.
+
+    Open to any signed-in clinic, the same as the product catalogue: a price
+    list is not a secret, and the order it feeds is guarded on its own.
+    """
+    from ..services import accessories
+
+    return accessories.catalogue(db)
+
+
 @router.get("/stats", response_model=schemas.StatsOut)
 def practice_stats(
     view: str = Query(default="year", pattern="^(year|month)$"),

@@ -243,6 +243,21 @@ def _branch_label(address) -> str:
     return label or city
 
 
+def _status_label(order: Order) -> str:
+    """What the stage is called, in the words that fit what is being done.
+
+    An accessory order shares the product statuses because the shape of the
+    journey is the same, but "In fabrication" is the wrong thing to say about
+    picking five retainer cases off a shelf.
+    """
+    if order.kind == OrderKind.ACCESSORY:
+        if order.status == OrderStatus.PRODUCT_FABRICATION:
+            return "Being packed"
+        if order.status == OrderStatus.SUBMITTED:
+            return "Ordered"
+    return STATUS_LABELS[order.status]
+
+
 def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
     # The aligner count and the confirmed band are plan findings. Before the
     # plan is paid for, the clinic sees the estimate it already had.
@@ -261,7 +276,7 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         kind=order.kind,
         product_label=catalogue.describe(order),
         status=order.status,
-        status_label=STATUS_LABELS[order.status],
+        status_label=_status_label(order),
         category=category,
         category_label=category_label(category) if category else "",
         category_confirmed=False if locked else order.aligner_category_confirmed,
@@ -347,17 +362,19 @@ def _product_charge_lines(order: Order, settings) -> list:
     each = Decimal(size.price) if size is not None else Decimal("0")
     per_tooth = Decimal(product.per_tooth_price or 0) if product is not None else Decimal("0")
 
-    lines = [
-        schemas.ChargeLine(
-            label=product.name if product is not None else "Product",
-            amount=each,
-            note=(
-                f"{size.label} · each"
-                if size is not None and product is not None and product.has_choice_of_size
-                else "Each"
-            ),
+    lines = []
+    if product is not None:
+        lines.append(
+            schemas.ChargeLine(
+                label=product.name,
+                amount=each,
+                note=(
+                    f"{size.label} · each"
+                    if size is not None and product.has_choice_of_size
+                    else "Each"
+                ),
+            )
         )
-    ]
     if teeth and per_tooth:
         lines.append(
             schemas.ChargeLine(
@@ -367,13 +384,30 @@ def _product_charge_lines(order: Order, settings) -> list:
                 note=f"{per_tooth:,.2f} per tooth · each",
             )
         )
+    # line_total covers the whole order, accessories included. The subtotal
+    # line above the accessories must be the appliance alone, or the reader
+    # sees the shelf items counted once in the subtotal and again below it.
     goods = catalogue.line_total(order)
-    if quantity > 1:
+    appliance = (each + per_tooth * teeth) * quantity
+    if product is not None and quantity > 1:
         lines.append(
             schemas.ChargeLine(
                 label=f"{quantity} sets",
-                amount=goods,
+                amount=appliance,
                 note="Price of one, times how many",
+            )
+        )
+
+    for line in sorted(order.accessories, key=lambda l: l.accessory.sort_order):
+        lines.append(
+            schemas.ChargeLine(
+                label=line.accessory.name,
+                amount=Decimal(line.line_total),
+                note=(
+                    f"{Decimal(line.unit_price):,.2f} each · {line.quantity}"
+                    if (line.quantity or 1) > 1
+                    else "One"
+                ),
             )
         )
 
@@ -408,6 +442,8 @@ def charge_lines(order: Order, settings) -> list:
     # neither fixed fee — so it gets its own breakdown rather than an aligner
     # one with every line reading "not set yet".
     if order.kind == OrderKind.PRODUCT:
+        return _product_charge_lines(order, settings)
+    if order.kind == OrderKind.ACCESSORY:
         return _product_charge_lines(order, settings)
 
     plan = order.approved_plan or order.current_plan
@@ -561,6 +597,17 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
         plan_locked=plan_locked,
         payments=[_payment_out(order, p, settings) for p in order.payments],
         charges=charge_lines(order, settings),
+        accessories=[
+            schemas.AccessoryLineOut(
+                accessory_id=line.accessory_id,
+                code=line.accessory.code,
+                name=line.accessory.name,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                line_total=line.line_total,
+            )
+            for line in sorted(order.accessories, key=lambda l: l.accessory.sort_order)
+        ],
         shipments=[_shipment_out(order, s) for s in order.shipments],
         appointment=appointment_out(order.appointment) if order.appointment else None,
         invoice=schemas.InvoiceOut.model_validate(order.invoice) if order.invoice else None,

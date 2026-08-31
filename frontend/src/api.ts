@@ -173,7 +173,7 @@ export interface Quote {
 }
 
 /** Enquiries carry an EN reference; cases that reached planning carry an AL one. */
-export type CaseSeries = "enquiry" | "aligner" | "product";
+export type CaseSeries = "enquiry" | "aligner" | "product" | "accessory";
 
 export interface TreatmentPlan {
   id: string;
@@ -261,6 +261,24 @@ export interface DeliveryCharge {
   has_address: boolean;
 }
 
+export interface Accessory {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  price: string;
+}
+
+/** One accessory on an order, priced as it was when it was ordered. */
+export interface AccessoryLine {
+  accessory_id: string;
+  code: string;
+  name: string;
+  quantity: number;
+  unit_price: string;
+  line_total: string;
+}
+
 export interface StatsSlice {
   key: string;
   label: string;
@@ -274,6 +292,7 @@ export interface StatsBucket {
   label: string;
   aligners: number;
   products: number;
+  accessories: number;
   paid: string;
 }
 
@@ -287,12 +306,15 @@ export interface Stats {
     orders: number;
     aligners: number;
     products: number;
+    accessories: number;
     cancelled: number;
     patients: number;
     paid: string;
   };
   series: StatsBucket[];
   products: StatsSlice[];
+  /** Shelf items, counted wherever they rode. */
+  accessories: StatsSlice[];
   categories: StatsSlice[];
   /** Lab-side only. A doctor is never shown another practice's volumes. */
   doctors: StatsSlice[];
@@ -351,6 +373,8 @@ export interface OrderSummary {
 }
 
 export interface OrderDetail extends OrderSummary {
+  /** Shelf items on this order, priced as they were ordered. */
+  accessories: AccessoryLine[];
   patient_id: string;
   enquiry_number: string;
   has_simulation: boolean;
@@ -915,6 +939,7 @@ export const api = {
   chooseScanRoute: (id: string, body: unknown) => post<OrderDetail>(`/orders/${id}/scan-route`, body),
   products: () => get<Product[]>("/products"),
   deliveryCharge: () => get<DeliveryCharge>("/delivery-charge"),
+  accessories: () => get<Accessory[]>("/accessories"),
   practiceStats: (q: { view: string; year: number; month: number }) =>
     get<Stats>(`/stats?view=${q.view}&year=${q.year}&month=${q.month}`),
   labStats: (q: { view: string; year: number; month?: number; doctorId?: string }) =>

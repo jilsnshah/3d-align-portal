@@ -118,7 +118,9 @@ def queue(staff: User = Depends(current_admin), db: Session = Depends(get_db)):
 @router.get("/orders", response_model=list[schemas.OrderSummary])
 def list_orders(
     order_status: Optional[OrderStatus] = Query(default=None, alias="status"),
-    series: Optional[str] = Query(default=None, pattern="^(enquiry|aligner|product)$"),
+    series: Optional[str] = Query(
+        default=None, pattern="^(enquiry|aligner|product|accessory)$"
+    ),
     assigned_to: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -155,6 +157,10 @@ def list_orders(
         # Retainers, splints and the rest. Different work on a different clock
         # from a two-year aligner case, so they get their own board.
         query = query.filter(Order.kind == OrderKind.PRODUCT)
+    elif series == "accessory":
+        # Nothing is made for these — they are picked off a shelf and packed,
+        # so they belong on their own board and not in the bench's queue.
+        query = query.filter(Order.kind == OrderKind.ACCESSORY)
 
     if search and search.strip():
         needle = f"%{search.strip().lower()}%"
