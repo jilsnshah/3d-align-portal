@@ -246,9 +246,9 @@ export default function Catalogue() {
       {tab === "appliances" && heldBy && (
         <Banner tone="warn">
           <div>
-            <b>{heldBy.reference} is still open</b> — {heldBy.reason}. Appliances are made
-            and shipped before they are paid for, so we ask that one is settled before the
-            next is started.{" "}
+            <b>{heldBy.reference} has been delivered</b> and {heldBy.reason}. Appliances are
+            made and shipped before they are paid for, so we ask that one is settled before
+            the next is started.{" "}
             <Link to={`/orders?series=product`}>See that order</Link>. Accessories below can
             still be ordered.
           </div>

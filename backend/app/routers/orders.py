@@ -167,8 +167,8 @@ def create_order(
             )
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                f"{outstanding.reference} is still open — {waiting}. "
-                "Settle that order before starting another appliance.",
+                f"{outstanding.reference} has already been delivered and {waiting}. "
+                "Settle it before starting another appliance.",
             )
 
     product = size = None

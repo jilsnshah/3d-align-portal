@@ -107,6 +107,20 @@ print(f"placed                 {first['status']}")
 r = send_scan(oid)
 print(f"scan accepted          {r.status_code} {r.json().get('status')}")
 
+# Nothing is owed until it goes out, so an order still on the bench must not
+# hold up the next one. Blocking here would have stopped a clinic ordering for
+# weeks over money that was not yet due.
+hold = doc.get("/api/ordering-hold").json()
+print(f"hold while on bench    can_order={hold['can_order_products']}")
+if not hold["can_order_products"]:
+    fails.append("an order that has not shipped owes nothing and must not hold")
+mid = order_product("Mid Flight")
+print(f"a second while on bench {mid.status_code}  status={mid.json().get('status')}")
+if mid.status_code >= 300:
+    fails.append(f"a second order should be allowed before the first ships: {mid.text[:110]}")
+else:
+    doc.post(f"/api/orders/{mid.json()['id']}/cancel", json={"reason": "not needed"})
+
 r = ship(oid)
 print(f"shipped UNPAID         {r.status_code} {r.json().get('status')}")
 if r.status_code != 200:
@@ -120,7 +134,7 @@ if row["status"] == "VERIFIED":
 
 print()
 print("=" * 72)
-print("THE BRAKE — one unsettled appliance at a time")
+print("THE BRAKE — only what has actually been delivered holds anything")
 print("=" * 72)
 
 hold = doc.get("/api/ordering-hold").json()

@@ -30,7 +30,7 @@ from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
-from ..enums import DispatchMode, OrderKind, PaymentKind, PaymentStatus
+from ..enums import DispatchMode, OrderKind, OrderStatus, PaymentKind, PaymentStatus
 from ..models import Order, Payment, ShippingRate
 
 CENTS = Decimal("0.01")
@@ -243,27 +243,38 @@ def plan_unlocked(order: Order) -> bool:
     return is_settled(order, PaymentKind.TREATMENT_PLAN)
 
 
+# Payment on a by-product falls due when it ships, so these are the only
+# statuses in which anything is actually owed. A case still on the bench has a
+# charge raised against it — the clinic can see what it will cost — but nothing
+# is payable yet, and an order that owes nothing cannot hold up another.
+OWING_STATUSES = frozenset({OrderStatus.DISPATCHING, OrderStatus.COMPLETED})
+
+
 def unsettled_product_order(db: Session, doctor_id: str, exclude_id: str = "") -> Optional[Order]:
-    """An earlier by-product order this clinic has not paid for yet.
+    """An earlier by-product this clinic has received and not paid for.
 
     A by-product ships before it is paid — the lab has already made the thing,
     and holding a finished appliance over a receipt helps nobody. What stops
-    that becoming an open tab is this: the clinic settles the last one before
-    it starts the next.
+    that becoming an open tab is this: the clinic settles what it has already
+    received before it starts the next one.
+
+    Only orders that have actually shipped count. One still awaiting a scan or
+    on the bench owes nothing yet, and blocking on it would have stopped a
+    clinic ordering for weeks over money that was not due.
 
     Cancelled orders are ignored; nothing was made and nothing is owed. Only
     by-products count. An accessory is paid before it leaves the building, so
-    it can never be both delivered and unpaid, and an aligner case collects
-    per phase on its own schedule.
+    it can never be both delivered and unpaid, and an aligner case collects per
+    phase on its own schedule.
     """
-    from ..enums import OrderKind, OrderStatus
+    from ..enums import OrderKind
 
     candidates = (
         db.query(Order)
         .filter(
             Order.doctor_id == doctor_id,
             Order.kind == OrderKind.PRODUCT,
-            Order.status != OrderStatus.CANCELLED,
+            Order.status.in_(tuple(OWING_STATUSES)),
             Order.id != exclude_id,
         )
         .order_by(Order.created_at)
