@@ -2904,6 +2904,9 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 .seg {
   display: inline-flex;
+  /* A stack lays its children out stretched, so an inline-flex control still
+     spans the full width unless it is told to hug its own content. */
+  align-self: flex-start;
   padding: 3px;
   gap: 2px;
   background: var(--paper-2);
@@ -2920,6 +2923,18 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   cursor: pointer;
   transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
 }
+/* How many things are already in the basket, so switching away and back does
+   not lose track of them. */
+.seg-count {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--white);
+  font-size: var(--t-micro);
+  font-weight: 700;
+}
+
 .seg button.active {
   background: var(--white);
   color: var(--ink);
@@ -3239,10 +3254,18 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .basket-bar { padding: var(--s-3); }
   .basket-right { width: 100%; justify-content: space-between; }
 
-  /* On a phone the bar reaches the corner the contact dock lives in, and the
-     circles landed on top of "Order these". While a basket is open the dock
-     steps up out of its way; browsers without :has() keep today's behaviour
-     rather than getting something worse. */
+  /* On a phone the contact dock lands on the right edge — which on the shelf
+     is exactly where every stepper is, so the circles sat on top of the only
+     control the page has. Where a page puts its controls down that edge, the
+     dock moves to the other one. Browsers without :has() keep today's
+     behaviour rather than getting something worse. */
+  .shell:has(.addon-list) .social-dock {
+    right: auto;
+    left: max(var(--s-4), env(safe-area-inset-left));
+    align-items: flex-start;
+  }
+  /* And the basket bar spans the full width, so it clears the dock by rising
+     above it rather than by moving aside. */
   .shell:has(.basket-bar) .social-dock {
     bottom: calc(max(var(--s-4), env(safe-area-inset-bottom)) + 108px);
   }

@@ -128,6 +128,22 @@ export default function DoctorHome() {
           </span>
           <span className="start-go">See the range →</span>
         </button>
+
+        {/* Restocking is a different errand from ordering an appliance, and it
+            used to mean scrolling past the whole range to reach the shelf. */}
+        <button
+          type="button"
+          className="start-card"
+          onClick={() => navigate("/catalogue?tab=accessories")}
+        >
+          <span className="start-kicker">Accessories</span>
+          <strong>Restock the shelf</strong>
+          <span className="muted">
+            IPR strips, cleanser, retainer cases and kits. Nothing is made and no scan is
+            needed — they ship as soon as they are packed.
+          </span>
+          <span className="start-go">Open the shelf →</span>
+        </button>
       </div>
 
       {waiting.isLoading ? (
@@ -180,9 +196,14 @@ export default function DoctorHome() {
       <section className="stack-sm">
         <div className="row-between">
           <h2 style={{ margin: 0 }}>Orthodontic Aligner Integrated Appliances</h2>
-          <Link to="/catalogue" className="btn-link">
-            The full range
-          </Link>
+          <span className="row" style={{ gap: 14 }}>
+            <Link to="/catalogue?tab=accessories" className="btn-link">
+              Accessories
+            </Link>
+            <Link to="/catalogue" className="btn-link">
+              The full range
+            </Link>
+          </span>
         </div>
         {products.isLoading ? (
           <Skeleton rows={6} variant="tile" />

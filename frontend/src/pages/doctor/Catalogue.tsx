@@ -69,6 +69,7 @@ export default function Catalogue() {
   const [basket, setBasket] = useState<Record<string, number>>({});
   const [orderingAccessories, setOrderingAccessories] = useState(false);
 
+
   function setCount(id: string, count: number) {
     setBasket((was) => {
       const next = { ...was };
@@ -91,6 +92,17 @@ export default function Catalogue() {
   }));
 
   const [params, setParams] = useSearchParams();
+  /* Accessories used to live below ten appliance cards, which meant a clinic
+     restocking IPR strips scrolled past the entire range to reach them. Two
+     tabs instead, and the accessory one is addressable — so Home can point
+     straight at it rather than at the top of a page they then have to scroll. */
+  const tab = params.get("tab") === "accessories" ? "accessories" : "appliances";
+  function showTab(next: string) {
+    const query = new URLSearchParams(params);
+    if (next === "accessories") query.set("tab", "accessories");
+    else query.delete("tab");
+    setParams(query, { replace: true });
+  }
   const [ordering, setOrdering] = useState<Product | null>(null);
   const [patientId, setPatientId] = useState("");
   const [newPatientName, setNewPatientName] = useState("");
@@ -192,15 +204,15 @@ export default function Catalogue() {
   return (
     <main className="page stack">
       <div>
-        <h1>Orthodontic Aligner Integrated Appliances</h1>
+        <h1>{tab === "accessories" ? "Accessories" : "Orthodontic Aligner Integrated Appliances"}</h1>
         <p className="muted">
-          Made from an intraoral scan — no treatment plan or simulation stage, so they are
-          quick. If we already hold a scan for the patient, you can reuse it rather than
-          taking another.
+          {tab === "accessories"
+            ? "Stock items — nothing is made and no scan is needed, so these ship as soon as they are packed. Order them on their own, or add them to an appliance."
+            : "Made from an intraoral scan — no treatment plan or simulation stage, so they are quick. If we already hold a scan for the patient, you can reuse it rather than taking another."}
         </p>
         {/* Said once at the top and again on the order itself. An aligner case
             can be started without meeting a delivery cost; this cannot. */}
-        {delivery.data && delivery.data.amount !== "0.00" && (
+        {tab === "appliances" && delivery.data && delivery.data.amount !== "0.00" && (
           <p className="muted">
             Prices exclude delivery. Courier to{" "}
             {delivery.data.is_city_rate && delivery.data.city ? delivery.data.city : "your address"}{" "}
@@ -209,7 +221,29 @@ export default function Catalogue() {
         )}
       </div>
 
-      {heldBy && (
+      <div className="seg" role="tablist" aria-label="What to order">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "appliances"}
+          className={tab === "appliances" ? "active" : ""}
+          onClick={() => showTab("appliances")}
+        >
+          Appliances
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "accessories"}
+          className={tab === "accessories" ? "active" : ""}
+          onClick={() => showTab("accessories")}
+        >
+          Accessories
+          {basketLines.length > 0 && <span className="seg-count">{basketLines.length}</span>}
+        </button>
+      </div>
+
+      {tab === "appliances" && heldBy && (
         <Banner tone="warn">
           <div>
             <b>{heldBy.reference} is still open</b> — {heldBy.reason}. Appliances are made
@@ -221,6 +255,7 @@ export default function Catalogue() {
         </Banner>
       )}
 
+      {tab === "appliances" && (
       <div className="catalogue-grid">
         {products.data?.map((product) => (
           <article key={product.id} className="product-card">
@@ -262,17 +297,10 @@ export default function Catalogue() {
           </article>
         ))}
       </div>
+      )}
 
-      {(shelf.data?.length ?? 0) > 0 && (
+      {tab === "accessories" && (shelf.data?.length ?? 0) > 0 && (
         <section className="stack-sm">
-          <div>
-            <h2 style={{ marginBottom: 4 }}>Accessories</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              Stock items — nothing is made and no scan is needed, so these ship as soon as
-              they are packed. Add them to an appliance above, or order them on their own.
-            </p>
-          </div>
-
           <div className="addon-list card">
             {shelf.data?.map((item) => (
               <AccessoryRow
