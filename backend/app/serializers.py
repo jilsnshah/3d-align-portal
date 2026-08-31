@@ -23,6 +23,7 @@ from .enums import (
     PaymentStatus,
     PhaseStatus,
     REQUIRED_SUBMIT_CATEGORIES,
+    required_categories,
     required_submit_categories,
     SLOT_LABELS,
     STATUS_LABELS,
@@ -180,6 +181,14 @@ def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schem
         if not _shows_category(order, category, live):
             continue
         spec = slots_for(category)
+        # A slot is only required when the set it belongs to is. The photo
+        # series marks five of its views mandatory, which is right for an
+        # aligner case and wrong for a by-product that is never asked for
+        # photographs at all — the tiles said REQUIRED and the panel counted
+        # "5 missing" for a set nothing was waiting on.
+        category_required = category in required_categories(order.kind)
+        if not category_required:
+            spec = [(name, False) for name, _ in spec]
 
         revision = order.revision_for(FILE_GROUP[category])
         current = [f for f in live if f.revision == revision]
@@ -211,13 +220,17 @@ def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schem
                 category=category,
                 label=CATEGORY_LABELS[category],
                 revision=revision,
-                required=category in required_submit_categories(order.kind),
+                required=category_required,
                 complete=(not order.missing_slots(category))
-                if spec
+                if (spec and category_required)
                 else bool([f for f in live if f.revision == revision]),
                 slots=slots,
                 extras=extras,
-                missing=[SLOT_LABELS[s] for s in order.missing_slots(category)],
+                missing=(
+                    [SLOT_LABELS[s] for s in order.missing_slots(category)]
+                    if category_required
+                    else []
+                ),
             )
         )
     return sets

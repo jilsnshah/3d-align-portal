@@ -527,6 +527,16 @@ def send_quote(
     aligner band it thinks the case falls into, and that band's fixed price is
     the estimate the clinic approves before any scan happens."""
     order = any_order(order_id, db, staff)
+    # An Align band prices a course of treatment by how many aligners it will
+    # take. A retainer or a box of IPR strips has neither a course nor a count
+    # — it has a catalogue price fixed long before the order existed. Quoting
+    # one meant inventing a band for it and showing the clinic a figure they
+    # would never be billed.
+    if order.kind != OrderKind.ALIGNER:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{order.reference} is priced from the catalogue, not quoted.",
+        )
     assert_status(order, OrderStatus.UNDER_REVIEW, OrderStatus.QUOTED)
 
     pricing.ensure_prices(db)

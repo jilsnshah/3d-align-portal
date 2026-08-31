@@ -97,7 +97,9 @@ function RecordSetCard({
       </summary>
 
       <div className="fold-body">
-        {hasSlots && !set.complete && (
+        {/* A set with nothing outstanding prints "Still needed:" and then
+            stops, which reads as a demand nobody can satisfy. */}
+        {hasSlots && !set.complete && set.missing.length > 0 && (
           <Banner tone="warn">Still needed: {set.missing.join(", ")}</Banner>
         )}
 

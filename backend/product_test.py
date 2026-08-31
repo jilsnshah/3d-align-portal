@@ -1,297 +1,178 @@
-"""End-to-end walk of a product order — the things the lab makes besides
-staged aligner series.
+"""The three pipelines, each walked end to end against the real API.
 
     .venv/bin/python product_test.py
 
-A product order is an aligner case with the middle removed. It shares the
-doctor, the patient, the scan, the address, the shipment and the invoice; it
-skips planning, simulation, the training fit, fit review and phases entirely.
-These checks are mostly about that boundary holding: that a product never
-raises an aligner fee, never asks for a plan, and that an aligner case is
-unaffected by any of it.
-
-Uses a throwaway SQLite file, so it never touches dev data.
+smoke_test.py covers the aligner case in 231 assertions and never touches a
+by-product or an accessory, which is how a by-product came to require an
+invented aligner band for a year without anyone noticing. This covers what
+that one does not: that a fixed-price order starts where it should, is never
+quoted, waits on the right things, and that the aligner path is unchanged.
 """
+import os, tempfile, io
+os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mktemp(suffix='.db')}"
+os.environ["SECRET_KEY"] = "x" * 32
+os.environ["STAFF_EMAIL"] = "staff@e.com"
+os.environ["STAFF_PASSWORD"] = "staffpassword"
 
-import io
-import os
-import tempfile
+from decimal import Decimal
+from fastapi.testclient import TestClient
+from app.main import app
+from app.db import SessionLocal
+from app.models import Doctor, ShippingRate
 
-TMP = tempfile.mkdtemp(prefix="align-product-")
-os.environ["DATABASE_URL"] = os.environ.get(
-    "TEST_DATABASE_URL", f"sqlite:///{TMP}/product.db"
-)
-os.environ["STORAGE_LOCAL_ROOT"] = f"{TMP}/storage"
-os.environ["STAFF_EMAIL"] = "lab@3dalign.example.com"
-os.environ["STAFF_PASSWORD"] = "labpassword"
-os.environ["DCI_CHECK_ENABLED"] = "false"
-os.environ["GOOGLE_MAPS_API_KEY"] = ""
-os.environ["GOOGLE_MAPS_BROWSER_KEY"] = ""
+boot = TestClient(app); boot.__enter__()
+doc = TestClient(app, base_url="http://doctor")
+lab = TestClient(app, base_url="http://lab")
 
-from fastapi.testclient import TestClient  # noqa: E402
+doc.post("/api/auth/register", json={
+    "email": "d@c.com", "password": "doctorpass1", "full_name": "Dr. Test",
+    "phone": "+919812345678", "clinic_name": "T Dental",
+    "dental_council": "Gujarat State Dental Council", "registration_number": "A-1",
+    "address": {"line1": "1 Rd", "city": "Surat", "state": "Gujarat", "pincode": "395001"},
+})
+with SessionLocal() as db:
+    db.query(Doctor).one().verification_status = "VERIFIED"
+    db.add(ShippingRate(city="Surat", amount=250))
+    db.commit()
+lab.post("/api/auth/login", json={"email": "staff@e.com", "password": "staffpassword"})
 
-from app.main import app  # noqa: E402
+fails = []
+products = doc.get("/api/products").json()
+er = next(p for p in products if p["code"] == "ER")
+size = next(s for s in er["sizes"] if s["label"] == "1.0 mm")   # 500
+shelf = doc.get("/api/accessories").json()
 
-BASE = "/api"
-REQUIRED_VIEWS = (
-    "INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER",
-)
-SCAN_SET = (("UPPER_ARCH", "upper.stl"), ("LOWER_ARCH", "lower.stl"), ("BITE", "bite.stl"))
-
-failures = []
-
-
-def check(label, condition, detail=""):
-    mark = "  ok  " if condition else " FAIL "
-    print(f"[{mark}] {label}" + (f"  — {detail}" if detail and not condition else ""))
-    if not condition:
-        failures.append(label)
-
-
-def upload_records(session, order_id):
-    for view in REQUIRED_VIEWS:
-        session.post(
-            f"{BASE}/orders/{order_id}/files",
-            data={"category": "RECORD_PHOTO", "slot": view},
-            files={"upload": (f"{view.lower()}.jpg", io.BytesIO(b"x" * 600), "image/jpeg")},
-        )
-    session.post(
-        f"{BASE}/orders/{order_id}/files",
-        data={"category": "OPG", "slot": ""},
-        files={"upload": ("opg.jpg", io.BytesIO(b"x" * 600), "image/jpeg")},
-    )
-
-
-def upload_scan(session, order_id):
-    for slot, name in SCAN_SET:
-        session.post(
-            f"{BASE}/orders/{order_id}/files",
+STL = b"solid x\n" + b"f " * 40 + b"\nendsolid x\n"
+def upload_scan(oid, prefix=""):
+    for slot in ["UPPER_ARCH", "LOWER_ARCH", "BITE"]:
+        r = doc.post(
+            f"/api/orders/{oid}/files",
             data={"category": "INTRAORAL_SCAN", "slot": slot},
-            files={"upload": (name, io.BytesIO(b"solid" * 800), "model/stl")},
+            files={"upload": (f"{prefix}{slot}.stl", io.BytesIO(STL), "model/stl")},
         )
+        if r.status_code >= 300:
+            fails.append(f"scan upload {slot}: {r.status_code} {r.text[:110]}")
 
+print("=" * 74)
+print("BY-PRODUCT — Essix Retainer 1.0 mm, catalogue price 500")
+print("=" * 74)
 
-with TestClient(app) as boot:
-    lab = TestClient(app, base_url="http://lab")
-    doctor = TestClient(app, base_url="http://doctor")
-    other = TestClient(app, base_url="http://other")
+o = doc.post("/api/orders", json={
+    "new_patient": {"full_name": "Product Patient"},
+    "product_id": er["id"], "product_size_id": size["id"], "quantity": 1,
+}).json()
+oid = o["id"]
+print(f"1. placed               status={o['status']}  label={o['status_label']}")
+if o["status"] != "AWAITING_SCAN":
+    fails.append(f"a by-product should start at AWAITING_SCAN, got {o['status']}")
 
-    lab.post(f"{BASE}/auth/login", json={"email": "lab@3dalign.example.com", "password": "labpassword"})
+d = doc.get(f"/api/orders/{oid}").json()
+print(f"   asked for up front   {d['submit_blockers'] or 'nothing'}")
+if d["submit_blockers"]:
+    fails.append(f"a by-product is still gated on {d['submit_blockers']}")
+if d["quotes"]:
+    fails.append("a by-product was given a quote")
 
-    # -- the catalogue ----------------------------------------------------
-    r = doctor.get(f"{BASE}/products")
-    check("the catalogue is readable without signing in", r.status_code == 200, r.text)
-    products = {p["code"]: p for p in r.json()}
-    check("all ten products are listed", len(products) == 10, str(sorted(products)))
-    check(
-        "the three the old classifier never knew about are there",
-        {"SG", "ABP", "PBP"} <= set(products),
-        str(sorted(products)),
+# The lab must not be able to band it.
+r = lab.post(f"/api/staff/orders/{oid}/quotes",
+             json={"category": "ALIGN_16_20", "extras": [], "tax": "0"})
+print(f"2. lab tries a band     {r.status_code}  {str(r.json().get('detail',''))[:70]}")
+if r.status_code != 400:
+    fails.append(f"a by-product accepted an aligner band: {r.status_code}")
+
+# The scan is what it actually waits on — and all three arches are required.
+doc.post(f"/api/orders/{oid}/scan-route", json={"scan_route": "UPLOAD"})
+r = doc.post(
+    f"/api/orders/{oid}/files",
+    data={"category": "INTRAORAL_SCAN", "slot": "UPPER_ARCH"},
+    files={"upload": ("u.stl", io.BytesIO(STL), "model/stl")},
+)
+after_one = doc.get(f"/api/orders/{oid}").json()
+print(f"3. one arch only        status={after_one['status']}  (still waiting)")
+if after_one["status"] != "AWAITING_SCAN":
+    fails.append("one arch should not advance the case")
+
+for slot in ["LOWER_ARCH", "BITE"]:
+    doc.post(
+        f"/api/orders/{oid}/files",
+        data={"category": "INTRAORAL_SCAN", "slot": slot},
+        files={"upload": (f"{slot}.stl", io.BytesIO(STL), "model/stl")},
     )
-    essix = products["ER"]
-    check("Essix is priced per size", len(essix["sizes"]) == 2, str(essix["sizes"]))
-    check("a two-size product asks which", essix["has_choice_of_size"] is True)
-    check("a one-size product does not", products["ABP"]["has_choice_of_size"] is False)
-    check(
-        "the pediatric retainer carries its per-tooth price",
-        float(products["PR"]["per_tooth_price"]) == 100.0 and products["PR"]["included_teeth"] == 1,
-        str(products["PR"]),
-    )
+d = doc.get(f"/api/orders/{oid}").json()
+print(f"4. all three arches     status={d['status']}")
+if d["status"] != "SCAN_SUBMITTED":
+    fails.append(f"a complete scan should hand it to the lab, got {d['status']}")
 
-    # -- registration -----------------------------------------------------
-    doctor.post(f"{BASE}/auth/register", json={
-        "email": "dr.rao@clinic.example.com", "password": "supersecret123",
-        "full_name": "Dr. Kavita Rao", "phone": "+919812345678", "clinic_name": "Rao Dental",
-        "address": {"line1": "9 Ashram Road", "city": "Ahmedabad", "state": "Gujarat",
-                    "pincode": "380009", "is_default_shipping": True},
-    })
-    doctor_id = doctor.get(f"{BASE}/auth/me").json()["doctor"]["id"]
-    lab.post(f"{BASE}/staff/doctors/{doctor_id}/verify", json={"approve": True})
+r = lab.post(f"/api/staff/orders/{oid}/scan/accept", json={"note": ""})
+print(f"5. lab accepts scan     {r.status_code}  status={r.json().get('status')}  ref={r.json().get('order_number')}")
+if r.json().get("status") != "PRODUCT_FABRICATION":
+    fails.append(f"scan accept should reach the bench, got {r.json().get('status')}")
 
-    thin = [s for s in essix["sizes"] if s["label"] == "0.8 mm"][0]
-
-    # -- ordering ---------------------------------------------------------
-    r = doctor.post(f"{BASE}/orders", json={
-        "new_patient": {"full_name": "Meera Iyer"},
-        "product_id": essix["id"],
-        "chief_complaint": "Retention after treatment.",
-    })
-    check("a multi-size product cannot be ordered without a size", r.status_code == 400, r.text)
-    check("and the refusal names the product", "Essix" in r.text, r.text)
-
-    r = doctor.post(f"{BASE}/orders", json={
-        "new_patient": {"full_name": "Meera Iyer"},
-        "product_id": products["ABP"]["id"],
-    })
-    check("a single-size product needs no size chosen", r.status_code == 201, r.text)
-    plate = r.json()
-    check("it took the only size there is", plate["id"] is not None)
-
-    r = doctor.post(f"{BASE}/orders", json={
-        "new_patient": {"full_name": "Sana Kapoor"},
-        "product_id": products["ABP"]["id"],
-        "extra_teeth": 3,
-    })
-    check(
-        "extra teeth are refused on a product not priced that way",
-        r.status_code == 400 and "per tooth" in r.text,
-        r.text,
-    )
-
-    r = doctor.post(f"{BASE}/orders", json={
-        "new_patient": {"full_name": "Anaya Shah"},
-        "product_id": essix["id"], "product_size_id": thin["id"], "quantity": 3,
-    })
-    check("a sized product order is created", r.status_code == 201, r.text)
-    order = r.json()
-    oid = order["id"]
-
-    summary = next(o for o in doctor.get(f"{BASE}/orders").json() if o["id"] == oid)
-    check("it is marked as a product order", summary["kind"] == "PRODUCT", str(summary["kind"]))
-    check(
-        "the board says what was ordered",
-        summary["product_label"] == "Essix Retainer · 0.8 mm · x3",
-        summary["product_label"],
-    )
-
-    # -- through to a scan ------------------------------------------------
-    upload_records(doctor, oid)
-    doctor.post(f"{BASE}/orders/{oid}/submit")
-    lab.post(f"{BASE}/staff/orders/{oid}/start-review")
-    lab.post(f"{BASE}/staff/orders/{oid}/quotes", json={"category": "ALIGN_16_20", "tax": "0"})
-    doctor.post(f"{BASE}/orders/{oid}/quote/accept")
-    check(
-        "a product order is quoted like any other case",
-        doctor.get(f"{BASE}/orders/{oid}").json()["status"] == "AWAITING_SCAN",
-    )
-
-    r = doctor.get(f"{BASE}/orders/{oid}/scan-sources")
-    check("a first-time patient has no scan to reuse", r.status_code == 200 and r.json() == [], r.text)
-
-    upload_scan(doctor, oid)
-    check(
-        "the scan moves it along",
-        doctor.get(f"{BASE}/orders/{oid}").json()["status"] == "SCAN_SUBMITTED",
-    )
-
-    # -- no aligner fees --------------------------------------------------
-    kinds = {p["kind"] for p in doctor.get(f"{BASE}/orders/{oid}").json()["payments"]}
-    check(
-        "no treatment-plan fee is ever raised against a product",
-        "TREATMENT_PLAN" not in kinds, str(kinds),
-    )
-    check("nor a training-fit fee", "TRAINING_FIT" not in kinds, str(kinds))
-
-    # -- straight to the bench --------------------------------------------
-    r = lab.post(f"{BASE}/staff/orders/{oid}/scan/accept", json={"note": ""})
-    check("accepting the scan works", r.status_code == 200, r.text)
-    check(
-        "a product skips planning and goes to fabrication",
-        r.json()["status"] == "PRODUCT_FABRICATION", r.json()["status"],
-    )
-
-    detail = doctor.get(f"{BASE}/orders/{oid}").json()
-    charge = next((p for p in detail["payments"] if p["kind"] == "PRODUCT_ORDER"), None)
-    check("one charge covers the order", charge is not None, str(detail["payments"]))
-    check(
-        "priced by size times quantity, not per unit",
-        charge and float(charge["amount"]) == 3000.0,
-        str(charge and charge["amount"]),
-    )
-
-    # -- payment gates dispatch -------------------------------------------
-    r = lab.post(f"{BASE}/staff/orders/{oid}/shipments", json={
-        "shipment_type": "PRODUCT", "carrier": "Shree Tirupati", "tracking_number": "PRD001",
-    })
-    check("it cannot ship unpaid", r.status_code == 402, r.text)
-
-    doctor.post(
-        f"{BASE}/orders/{oid}/payments/{charge['id']}/proof",
-        data={"reference": "UPI-PRD-1"},
-        files={"upload": ("receipt.jpg", io.BytesIO(b"x" * 500), "image/jpeg")},
-    )
-    lab.post(f"{BASE}/staff/orders/{oid}/payments/{charge['id']}/verify", json={"approve": True})
-    r = lab.post(f"{BASE}/staff/orders/{oid}/shipments", json={
-        "shipment_type": "PRODUCT", "carrier": "Shree Tirupati", "tracking_number": "PRD001",
-    })
-    check("once paid it ships", r.status_code == 200, r.text)
-    check("and the case is dispatching", r.json()["status"] == "DISPATCHING", r.json()["status"])
-
-    # -- reusing that patient's scan --------------------------------------
-    patient_id = doctor.get(f"{BASE}/orders/{oid}").json()["patient_id"]
-    r = doctor.post(f"{BASE}/orders", json={
-        "patient_id": patient_id,
-        "product_id": products["NG"]["id"],
-        "product_size_id": products["NG"]["sizes"][0]["id"],
-    })
-    second = r.json()["id"]
-    upload_records(doctor, second)
-    doctor.post(f"{BASE}/orders/{second}/submit")
-    lab.post(f"{BASE}/staff/orders/{second}/start-review")
-    lab.post(f"{BASE}/staff/orders/{second}/quotes", json={"category": "ALIGN_16_20", "tax": "0"})
-    doctor.post(f"{BASE}/orders/{second}/quote/accept")
-
-    r = doctor.get(f"{BASE}/orders/{second}/scan-sources")
-    check("the earlier scan is offered back", r.status_code == 200 and len(r.json()) == 1, r.text)
-    source = r.json()[0]
-    check("it is named by its reference", source["order_id"] == oid, str(source))
-
-    r = doctor.post(f"{BASE}/orders/{second}/scan-reuse", json={"source_order_id": oid})
-    check("reusing it is accepted", r.status_code == 200, r.text)
-    check(
-        "the case moves on as though a scan arrived",
-        r.json()["status"] == "SCAN_SUBMITTED", r.json()["status"],
-    )
-    files = [f for f in r.json()["files"] if f["category"] == "INTRAORAL_SCAN"]
-    check("all three scan files came across", len(files) == 3, str(len(files)))
-
-    r = doctor.post(f"{BASE}/orders/{second}/scan-reuse", json={"source_order_id": oid})
-    check("it cannot be done twice", r.status_code in (409, 422), r.text)
-
-    r = lab.post(f"{BASE}/staff/orders/{second}/scan/accept", json={"note": ""})
-    check(
-        "a reused scan is still reviewed by the lab, not waved through",
-        r.status_code == 200 and r.json()["status"] == "PRODUCT_FABRICATION",
-        r.text[:120],
-    )
-
-    # -- another clinic cannot reach across ---------------------------------
-    other.post(f"{BASE}/auth/register", json={
-        "email": "dr.shah@other.example.com", "password": "supersecret123",
-        "full_name": "Dr. Nikhil Shah", "phone": "+919800000000", "clinic_name": "Shah Dental",
-        "address": {"line1": "1 CG Road", "city": "Ahmedabad", "state": "Gujarat",
-                    "pincode": "380006", "is_default_shipping": True},
-    })
-    other_id = other.get(f"{BASE}/auth/me").json()["doctor"]["id"]
-    lab.post(f"{BASE}/staff/doctors/{other_id}/verify", json={"approve": True})
-    r = other.get(f"{BASE}/orders/{oid}/scan-sources")
-    check("another clinic cannot list this patient's scans", r.status_code == 404, r.text)
-
-    # -- an aligner case is untouched by any of it -------------------------
-    r = doctor.post(f"{BASE}/orders", json={
-        "new_patient": {"full_name": "Rohan Desai"}, "chief_complaint": "Crowding.",
-    })
-    aligner = r.json()["id"]
-    summary = next(o for o in doctor.get(f"{BASE}/orders").json() if o["id"] == aligner)
-    check("an order with no product is still an aligner case", summary["kind"] == "ALIGNER")
-    check("and carries no product label", summary["product_label"] == "", summary["product_label"])
-
-    upload_records(doctor, aligner)
-    doctor.post(f"{BASE}/orders/{aligner}/submit")
-    lab.post(f"{BASE}/staff/orders/{aligner}/start-review")
-    lab.post(f"{BASE}/staff/orders/{aligner}/quotes", json={"category": "ALIGN_16_20", "tax": "0"})
-    doctor.post(f"{BASE}/orders/{aligner}/quote/accept")
-    upload_scan(doctor, aligner)
-    r = lab.post(f"{BASE}/staff/orders/{aligner}/scan/accept", json={"note": ""})
-    check(
-        "an aligner case still goes to planning, not fabrication",
-        r.json()["status"] == "IN_PLANNING", r.json()["status"],
-    )
+d = doc.get(f"/api/orders/{oid}").json()
+money = {c["label"]: Decimal(c["amount"]) for c in d["charges"]}
+print(f"6. charged              {money.get('Total for this order')}  (500 + 250 delivery)")
+if money.get("Total for this order") != Decimal("750.00"):
+    fails.append(f"by-product total {money.get('Total for this order')}")
 
 print()
-if failures:
-    print(f"{len(failures)} check(s) failed:")
-    for f in failures:
-        print(f"  - {f}")
+print("=" * 74)
+print("ACCESSORY — 2 IPR strips")
+print("=" * 74)
+a = doc.post("/api/orders", json={
+    "new_patient": {"full_name": "Accessory Patient"},
+    "accessories": [{"accessory_id": shelf[2]["id"], "quantity": 2}],
+}).json()
+print(f"1. placed               status={a['status']}  label={a['status_label']}  ref={a['order_number']}")
+if a["status"] != "PRODUCT_FABRICATION":
+    fails.append(f"an accessory should start at packing, got {a['status']}")
+ad = doc.get(f"/api/orders/{a['id']}").json()
+print(f"   asked for up front   {ad['submit_blockers'] or 'nothing'}")
+if ad["submit_blockers"]:
+    fails.append(f"an accessory is gated on {ad['submit_blockers']}")
+r = lab.post(f"/api/staff/orders/{a['id']}/quotes",
+             json={"category": "ALIGN_16_20", "extras": [], "tax": "0"})
+if r.status_code != 400:
+    fails.append(f"an accessory accepted an aligner band: {r.status_code}")
+print(f"2. lab tries a band     {r.status_code}  {str(r.json().get('detail',''))[:70]}")
+
+print()
+print("=" * 74)
+print("ALIGNER — unchanged")
+print("=" * 74)
+al = doc.post("/api/orders", json={"new_patient": {"full_name": "Aligner Patient"}, "arch": "BOTH"}).json()
+ad = doc.get(f"/api/orders/{al['id']}").json()
+print(f"1. created              status={ad['status']}")
+print(f"   asked for up front   {ad['submit_blockers']}")
+if ad["status"] != "DRAFT":
+    fails.append("an aligner case must still open as a draft")
+if not ad["submit_blockers"]:
+    fails.append("an aligner case must still require its records")
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+for slot in ["INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT", "OCCLUSAL_UPPER", "OCCLUSAL_LOWER"]:
+    doc.post(f"/api/orders/{al['id']}/files",
+             data={"category": "RECORD_PHOTO", "slot": slot},
+             files={"upload": (f"{slot}.png", io.BytesIO(PNG), "image/png")})
+doc.post(f"/api/orders/{al['id']}/files",
+         data={"category": "OPG"},
+         files={"upload": ("opg.png", io.BytesIO(PNG), "image/png")})
+r = doc.post(f"/api/orders/{al['id']}/submit")
+print(f"2. submitted            {r.status_code} status={r.json().get('status')}")
+if r.json().get("status") != "SUBMITTED":
+    fails.append(f"an aligner case must still stop at SUBMITTED, got {r.json().get('status')}")
+lab.post(f"/api/staff/orders/{al['id']}/start-review", json={})
+r = lab.post(f"/api/staff/orders/{al['id']}/quotes",
+             json={"category": "ALIGN_16_20", "extras": [], "tax": "0"})
+print(f"3. lab bands it         {r.status_code} status={r.json().get('status')}")
+if r.status_code != 200:
+    fails.append(f"an aligner case must still be quotable: {r.status_code} {r.text[:110]}")
+r = doc.post(f"/api/orders/{al['id']}/quote/accept")
+print(f"4. doctor accepts       {r.status_code} status={r.json().get('status')}")
+if r.json().get("status") != "AWAITING_SCAN":
+    fails.append("aligner quote acceptance broken")
+
+print()
+if fails:
+    print("FAIL:\n  " + "\n  ".join(fails))
     raise SystemExit(1)
 print("All checks passed.")

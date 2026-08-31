@@ -87,6 +87,10 @@ export default function StaffOrderDetail() {
       case "invoice":
         return <InvoiceCard key={key} order={data} />;
       case "files":
+        // Nothing is made and nothing is fitted, so an accessory order has no
+        // records, no scan and no photographs. The whole card goes, not just
+        // its contents — an empty card is furniture.
+        if (data.kind === "ACCESSORY") return null;
         return (
           <div className="card" key={key}>
             <FileExplorer order={data} onChanged={invalidate} />

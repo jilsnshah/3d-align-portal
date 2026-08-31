@@ -34,12 +34,12 @@ log = logging.getLogger(__name__)
 S = OrderStatus
 
 ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
-    S.DRAFT: {S.SUBMITTED, S.CANCELLED},
-    # An accessory order is stock: nothing to review, nothing to quote, nothing
-    # to scan. It goes straight to the shelf to be picked. Only an accessory
-    # order takes that edge — the submit route is what decides, and an aligner
-    # case still walks the full path.
-    S.SUBMITTED: {S.UNDER_REVIEW, S.PRODUCT_FABRICATION, S.CANCELLED},
+    # Placing the order is the whole of the decision for anything sold at a
+    # fixed catalogue price. A by-product goes straight to the scan it is made
+    # from; an accessory goes straight to the shelf to be picked. Only an
+    # aligner case is submitted for the lab to read and quote.
+    S.DRAFT: {S.SUBMITTED, S.AWAITING_SCAN, S.PRODUCT_FABRICATION, S.CANCELLED},
+    S.SUBMITTED: {S.UNDER_REVIEW, S.CANCELLED},
     S.UNDER_REVIEW: {S.RECORDS_REQUESTED, S.QUOTED, S.CANCELLED},
     S.RECORDS_REQUESTED: {S.UNDER_REVIEW, S.CANCELLED},
     # Re-sending a quote keeps the order in QUOTED with a new version.
@@ -103,10 +103,11 @@ ALLOWED: dict[OrderStatus, set[OrderStatus]] = {
 # Who may drive each move. Anything not listed is staff-only.
 DOCTOR_MOVES: set[tuple[OrderStatus, OrderStatus]] = {
     (S.DRAFT, S.SUBMITTED),
-    # Placing an order for stock is the whole of the decision — there is
-    # nothing for the lab to accept first. The submit route only takes this
-    # edge for an accessory order; every other kind stops at SUBMITTED.
-    (S.SUBMITTED, S.PRODUCT_FABRICATION),
+    # A fixed-price order needs nothing from the lab before it starts, so the
+    # clinic places it and it begins. Which of the two edges a case may take is
+    # decided by its kind, in the guard below.
+    (S.DRAFT, S.AWAITING_SCAN),
+    (S.DRAFT, S.PRODUCT_FABRICATION),
     (S.RECORDS_REQUESTED, S.UNDER_REVIEW),
     (S.QUOTED, S.AWAITING_SCAN),
     # Uploading an STL hands the scan to the lab. Accepting it is staff-only.
@@ -217,10 +218,14 @@ def transition(
         raise TransitionError(
             f"Cannot move {order.reference} from {STATUS_LABELS[frm]} to {STATUS_LABELS[to]}."
         )
-    # Straight from ordered to picking is an accessory's path and no other's.
-    # Enforced here rather than only at the caller, so the permission cannot be
-    # widened by a second route being added later that forgets the check.
-    if (frm, to) == (S.SUBMITTED, S.PRODUCT_FABRICATION) and order.kind != OrderKind.ACCESSORY:
+    # The two shortcuts out of DRAFT belong to one kind each. Enforced here
+    # rather than only at the caller, so the permission cannot be widened by a
+    # second route being added later that forgets to check.
+    if (frm, to) == (S.DRAFT, S.AWAITING_SCAN) and order.kind != OrderKind.PRODUCT:
+        raise TransitionError(
+            f"{order.reference} has to be quoted and accepted before a scan is asked for."
+        )
+    if (frm, to) == (S.DRAFT, S.PRODUCT_FABRICATION) and order.kind != OrderKind.ACCESSORY:
         raise TransitionError(
             f"{order.reference} has to be reviewed before it reaches the bench."
         )
@@ -278,6 +283,10 @@ def _notify(
 ) -> None:
     """Tell whoever did not make the change."""
     title = NOTICE.get(to, STATUS_LABELS[to])
+    # A by-product was never quoted, so "quote accepted" is the wrong headline
+    # for the alert that asks its clinic for a scan.
+    if to == S.AWAITING_SCAN and order.kind != OrderKind.ALIGNER:
+        title = "Scan required"
     body = f"{order.reference} — {order.patient.full_name}"
     if note:
         body = f"{body}\n{note}"

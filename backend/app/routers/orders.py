@@ -195,6 +195,16 @@ def create_order(
     db.add(order)
     if payload.accessories:
         _set_accessories(db, order, payload.accessories)
+
+    # A fixed-price order has nothing left to fill in, so it does not sit as a
+    # draft waiting to be submitted — placing it is what starts it. An aligner
+    # case still opens as a draft, because its records are gathered there.
+    if kind in (OrderKind.PRODUCT, OrderKind.ACCESSORY) and order.shipping_address_id:
+        db.flush()
+        if not order.storage_folder_ref:
+            order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
+        _begin(db, order, user)
+
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.DOCTOR)
@@ -273,6 +283,38 @@ def _set_delivery_address(db, order, doctor, address_id) -> None:
     order.shipping_address_id = address.id
 
 
+def _begin(db: Session, order: Order, user: User) -> None:
+    """Start the order on whatever its first real stage is.
+
+    An aligner case is submitted for the lab to read: it needs photographs
+    looked at and a band picked before anyone knows what it costs, so it waits
+    at SUBMITTED.
+
+    A by-product and an accessory are sold at a catalogue price that was fixed
+    long before the order existed. There is nothing to estimate and nothing to
+    accept, so placing the order is the whole of the decision — the by-product
+    goes to the scan it is made from, and the accessory to the shelf.
+    """
+    if order.kind == OrderKind.PRODUCT:
+        transition(
+            db,
+            order,
+            OrderStatus.AWAITING_SCAN,
+            user,
+            note="Ordered at the catalogue price — waiting on the scan.",
+        )
+    elif order.kind == OrderKind.ACCESSORY:
+        transition(
+            db,
+            order,
+            OrderStatus.PRODUCT_FABRICATION,
+            user,
+            note="Accessories only — nothing to make, straight to packing.",
+        )
+    else:
+        transition(db, order, OrderStatus.SUBMITTED, user)
+
+
 @router.post("/{order_id}/submit", response_model=schemas.OrderDetail)
 def submit_order(
     order_id: str,
@@ -295,19 +337,7 @@ def submit_order(
     if not order.storage_folder_ref:
         order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
 
-    transition(db, order, OrderStatus.SUBMITTED, user)
-    # Stock needs no review, no quote and no scan. An accessory order goes
-    # straight to the shelf to be picked, which is also where it takes its
-    # number. Only this kind takes that edge; everything else walks the path
-    # it always has.
-    if order.kind == OrderKind.ACCESSORY:
-        transition(
-            db,
-            order,
-            OrderStatus.PRODUCT_FABRICATION,
-            user,
-            note="Accessories only — nothing to make, straight to packing.",
-        )
+    _begin(db, order, user)
     db.commit()
     db.refresh(order)
     return order_detail(order, UserRole.DOCTOR)

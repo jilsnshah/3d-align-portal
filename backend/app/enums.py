@@ -145,11 +145,16 @@ class FileCategory(str, Enum):
 # Enforced by /orders/{id}/submit.
 REQUIRED_SUBMIT_CATEGORIES = [FileCategory.RECORD_PHOTO, FileCategory.OPG]
 
-# A product is made from the scan, not planned from the records. Asking a clinic
-# for a panoramic radiograph before it will quote a bleaching tray is a barrier
-# with nothing behind it, so the photographs stand on their own — they are what
-# the lab looks at to see the case is what it says it is.
-REQUIRED_SUBMIT_CATEGORIES_PRODUCT = [FileCategory.RECORD_PHOTO]
+# A by-product is made from the scan, and it is priced from the catalogue before
+# anyone touches it. There is nothing for the lab to read before the order can
+# be placed — no band to pick, no estimate to prepare — so nothing is asked for
+# up front. The scan is what the case actually waits on, and it is collected at
+# the scan stage like every other scan.
+#
+# Photographs, where a product wants them, are taken by the technician during
+# the scan visit. Demanding a five-view series before a clinic may order a
+# bleaching tray is a barrier with nothing behind it.
+REQUIRED_SUBMIT_CATEGORIES_PRODUCT: list = []
 
 
 # An accessory is stock. There is nothing to look at before packing a box of
@@ -158,11 +163,29 @@ REQUIRED_SUBMIT_CATEGORIES_ACCESSORY: list = []
 
 
 def required_submit_categories(kind) -> list:
+    """What must be on the case before the clinic may place the order."""
     if kind == OrderKind.ACCESSORY:
         return REQUIRED_SUBMIT_CATEGORIES_ACCESSORY
     if kind == OrderKind.PRODUCT:
         return REQUIRED_SUBMIT_CATEGORIES_PRODUCT
     return REQUIRED_SUBMIT_CATEGORIES
+
+
+def required_categories(kind) -> list:
+    """Everything the case will be asked for before it is finished.
+
+    Wider than the submit list, and the difference is the point: a by-product
+    needs a scan but is not held up waiting for one before it can be ordered.
+    What gates the order and what the case eventually needs are two questions,
+    and answering them with one list is what made a bleaching tray demand a
+    five-view photo series up front.
+    """
+    if kind == OrderKind.ACCESSORY:
+        # Nothing is made and nothing is fitted. Nothing is ever asked for.
+        return []
+    if kind == OrderKind.PRODUCT:
+        return [FileCategory.INTRAORAL_SCAN]
+    return REQUIRED_SUBMIT_CATEGORIES + [FileCategory.INTRAORAL_SCAN]
 
 
 class Slot(str, Enum):

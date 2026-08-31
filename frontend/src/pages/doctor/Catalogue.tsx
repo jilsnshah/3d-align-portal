@@ -446,8 +446,8 @@ export default function Catalogue() {
                 </div>
                 <p className="muted" style={{ margin: 0 }}>
                   {shipping > 0
-                    ? "Payable in one charge once the order is placed. You will be asked for photographs and a scan next."
-                    : "Delivery is not charged to your address. You will be asked for photographs and a scan next."}
+                    ? "Payable in one charge. The scan is the only thing we need — no photographs, no planning stage."
+                    : "Delivery is not charged to your address. The scan is the only thing we need."}
                 </p>
               </div>
             </Banner>

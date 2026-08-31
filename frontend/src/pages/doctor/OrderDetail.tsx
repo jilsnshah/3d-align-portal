@@ -8,6 +8,7 @@ import PhaseTracker from "../../components/PhaseTracker";
 import FitIssueThread from "../../components/FitIssueThread";
 import { api, formatDate, formatMoney } from "../../api";
 import type { OrderDetail as Order, Slot } from "../../api";
+import { completedCopy, waitingCopyFor } from "../../workflow";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
 import SlotCalendar from "../../components/SlotCalendar";
@@ -88,6 +89,10 @@ export default function DoctorOrderDetail() {
       case "invoice":
         return <InvoiceCard key={key} order={data} />;
       case "files":
+        // Nothing is made and nothing is fitted, so an accessory order has no
+        // records, no scan and no photographs. The whole card goes, not just
+        // its contents — an empty card is furniture.
+        if (data.kind === "ACCESSORY") return null;
         return (
           <div className="card" key={key}>
             <FileExplorer order={data} onChanged={invalidate} />
@@ -716,10 +721,10 @@ function DoctorActions({
       return <Banner tone="danger">This case was cancelled. {order.cancel_reason}</Banner>;
 
     case "COMPLETED":
-      return <Banner tone="ok">Case complete. All aligners have been delivered.</Banner>;
+      return <Banner tone="ok">{completedCopy(order.kind)}</Banner>;
 
     default:
-      return <Waiting>{waitingCopy(order.status)}</Waiting>;
+      return <Waiting>{waitingCopyFor(order.kind, order.status) ?? waitingCopy(order.status)}</Waiting>;
   }
 }
 
@@ -743,6 +748,8 @@ function waitingCopy(status: Order["status"]): string {
       return "Your aligner series is in production.";
     case "DISPATCHING":
       return "Aligners are shipping. Tracking appears above as each batch goes out.";
+    case "PRODUCT_FABRICATION":
+      return "Your order is with the lab.";
     default:
       return "Nothing needs your attention right now.";
   }

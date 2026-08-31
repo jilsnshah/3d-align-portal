@@ -1,35 +1,25 @@
-import type { OrderStatus } from "../api";
+import type { OrderKind, OrderStatus } from "../api";
 import { StatusPill } from "./ui";
+import { STUCK, stageIndex, stagesFor } from "../workflow";
 
-/** How far through the case is, next to what it is doing.
+/** How far through the order is, next to what it is doing.
  *
- *  The status alone says which stage a case sits in but not how much of the
- *  journey is behind it, so a board of forty cases gives no sense of which are
- *  nearly done. The same six stages the case page shows, compressed to a bar.
+ *  The status alone says which stage an order sits in but not how much of the
+ *  journey is behind it, so a board of forty gives no sense of which are nearly
+ *  done. The stages come from the shared workflow definition, because a
+ *  by-product's journey is four stages and an accessory's is three — measuring
+ *  either against the aligner's six left both stuck at nought.
  */
-const STAGES: OrderStatus[][] = [
-  ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "RECORDS_REQUESTED"],
-  ["QUOTED"],
-  ["AWAITING_SCAN", "SCAN_SUBMITTED"],
-  ["IN_PLANNING", "PLAN_SHARED"],
-  ["TRAINING_ALIGNER_PRODUCTION", "TRAINING_ALIGNER_SHIPPED", "FIT_REVIEW", "FIT_ISSUE"],
-  ["ALIGNER_PRODUCTION", "DISPATCHING", "PHASE_REVIEW"],
-];
-
-/** Stages that mean something has stalled rather than progressed. */
-const STUCK: Partial<Record<OrderStatus, true>> = {
-  RECORDS_REQUESTED: true,
-  FIT_ISSUE: true,
-};
-
 export default function CaseProgress({
   status,
   label,
+  kind = "ALIGNER",
   phaseDone,
   phaseTotal,
 }: {
   status: OrderStatus;
   label: string;
+  kind?: OrderKind;
   /** For a case in delivery, how many of its phases are finished. */
   phaseDone?: number;
   phaseTotal?: number;
@@ -39,15 +29,16 @@ export default function CaseProgress({
   }
 
   const done = status === "COMPLETED";
-  const index = STAGES.findIndex((group) => group.includes(status));
+  const stages = stagesFor(kind);
+  const index = stageIndex(kind, status);
   // Phases only describe the delivery stage. A case that has been divided but
   // is back at the scan stage after a refinement is not "phase 3 of 5" — it is
   // waiting for a scan, and saying otherwise reads as progress it has not made.
-  const inDelivery = index === STAGES.length - 1;
+  const inDelivery = index === stages.length - 1;
   const phases = inDelivery && phaseTotal && phaseTotal > 0 ? phaseTotal : 0;
   const inner = phases ? Math.min((phaseDone ?? 0) / phases, 1) : 0;
-  const reached = done ? STAGES.length : index < 0 ? 0 : index + inner;
-  const percent = Math.round((reached / STAGES.length) * 100);
+  const reached = done ? stages.length : index < 0 ? 0 : index + inner;
+  const percent = Math.round((reached / stages.length) * 100);
 
   return (
     <div className="case-progress">

@@ -314,6 +314,7 @@ function Section({
                     <CaseProgress
                       status={order.status}
                       label={order.status_label}
+                      kind={order.kind}
                       phaseDone={order.phases_done}
                       phaseTotal={order.phases_total}
                     />

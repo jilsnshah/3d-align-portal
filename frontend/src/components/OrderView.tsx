@@ -8,31 +8,8 @@ import { CATEGORY_LABEL, formatBytes, formatDate, formatMoney, formatRange } fro
 import type { FileCategory, OrderDetail } from "../api";
 import { api } from "../api";
 import { CategoryPill, ConfirmButton, StatusPill } from "./ui";
+import { stageIndex, stagesFor } from "../workflow";
 import type { ReactNode } from "react";
-
-/* The 17 statuses collapse into six phases a human can hold in their head.
-   The rail answers "where is this case" without reading the timeline. */
-const PHASES: { key: string; label: string; statuses: OrderDetail["status"][] }[] = [
-  {
-    key: "records",
-    label: "Records",
-    statuses: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "RECORDS_REQUESTED"],
-  },
-  { key: "quote", label: "Quote", statuses: ["QUOTED"] },
-  { key: "scan", label: "Scan", statuses: ["AWAITING_SCAN", "SCAN_SUBMITTED"] },
-  { key: "plan", label: "Treatment plan", statuses: ["IN_PLANNING", "PLAN_SHARED"] },
-  {
-    key: "fit",
-    label: "Training aligner",
-    statuses: [
-      "TRAINING_ALIGNER_PRODUCTION",
-      "TRAINING_ALIGNER_SHIPPED",
-      "FIT_REVIEW",
-      "FIT_ISSUE",
-    ],
-  },
-  { key: "delivery", label: "Delivery", statuses: ["ALIGNER_PRODUCTION", "DISPATCHING"] },
-];
 
 const NEEDS_ATTENTION: Partial<Record<OrderDetail["status"], string>> = {
   RECORDS_REQUESTED: "action needed",
@@ -43,11 +20,15 @@ export function ProgressRail({ order }: { order: OrderDetail }) {
   if (order.status === "CANCELLED") return null;
 
   const done = order.status === "COMPLETED";
-  const currentIndex = PHASES.findIndex((phase) => phase.statuses.includes(order.status));
+  // The stages a by-product goes through are not the stages an aligner case
+  // goes through. Both used to render the aligner's six, so a retainer showed
+  // "Treatment plan" and "Training aligner" it would never reach.
+  const stages = stagesFor(order.kind);
+  const currentIndex = stageIndex(order.kind, order.status);
 
   return (
     <div className="progress" role="list" aria-label="Case progress">
-      {PHASES.map((phase, index) => {
+      {stages.map((phase, index) => {
         const isCurrent = !done && index === currentIndex;
         const isDone = done || (currentIndex > -1 && index < currentIndex);
         const flag = isCurrent ? NEEDS_ATTENTION[order.status] : undefined;
@@ -130,7 +111,9 @@ export function OrderHeader({ order }: { order: OrderDetail }) {
           {order.priority === "EXPRESS" && <span className="pill pill-gold">Express</span>}
         </div>
         <p className="sub">
-          {order.patient_name} · {archLabel(order.arch)} · {order.doctor_name}
+          {order.patient_name}
+          {order.kind === "ALIGNER" && ` · ${archLabel(order.arch)}`}
+          {order.product_label && ` · ${order.product_label}`} · {order.doctor_name}
           {order.clinic_name ? `, ${order.clinic_name}` : ""}
         </p>
       </div>
@@ -143,9 +126,10 @@ function archLabel(arch: OrderDetail["arch"]): string {
 }
 
 export function CaseSummary({ order }: { order: OrderDetail }) {
+  const isAligner = order.kind === "ALIGNER";
   return (
     <div className="card">
-      <h4 style={{ marginBottom: 12 }}>Case</h4>
+      <h4 style={{ marginBottom: 12 }}>{isAligner ? "Case" : "Order"}</h4>
       <dl className="kv">
         <dt>Patient</dt>
         <dd>{order.patient_name}</dd>
@@ -155,22 +139,39 @@ export function CaseSummary({ order }: { order: OrderDetail }) {
             <dd className="mono">{order.enquiry_number}</dd>
           </>
         )}
-        <dt>Align category</dt>
-        <dd>
-          <CategoryPill
-            label={order.category_label}
-            confirmed={order.category_confirmed}
-          />
-        </dd>
-        <dt>Arches</dt>
-        <dd>{archLabel(order.arch)}</dd>
+        {/* An Align band prices a course of treatment by aligner count, and the
+            arches say which the treatment covers. Neither means anything on a
+            retainer or a box of IPR strips. */}
+        {isAligner && (
+          <>
+            <dt>Align category</dt>
+            <dd>
+              <CategoryPill
+                label={order.category_label}
+                confirmed={order.category_confirmed}
+              />
+            </dd>
+            <dt>Arches</dt>
+            <dd>{archLabel(order.arch)}</dd>
+          </>
+        )}
+        {order.product_label && (
+          <>
+            <dt>Ordered</dt>
+            <dd>{order.product_label}</dd>
+          </>
+        )}
         <dt>Priority</dt>
         <dd>{order.priority === "EXPRESS" ? "Express" : "Standard"}</dd>
-        <dt>Submitted</dt>
-        <dd>{formatDate(order.submitted_at)}</dd>
+        {isAligner && (
+          <>
+            <dt>Submitted</dt>
+            <dd>{formatDate(order.submitted_at)}</dd>
+          </>
+        )}
         {order.approved_at && (
           <>
-            <dt>Quote accepted</dt>
+            <dt>{isAligner ? "Quote accepted" : "Ordered on"}</dt>
             <dd>{formatDate(order.approved_at)}</dd>
           </>
         )}
@@ -601,6 +602,7 @@ export function InvoiceCard({ order }: { order: OrderDetail }) {
 
 export function Timeline({ order }: { order: OrderDetail }) {
   const events = [...order.events].reverse();
+  const kind = order.kind;
   return (
     <div className="card">
       <h4 style={{ marginBottom: 14 }}>History</h4>
@@ -612,7 +614,7 @@ export function Timeline({ order }: { order: OrderDetail }) {
             <div key={event.id} className="tl-item">
               <div className="tl-dot" />
               <div className="tl-body">
-                <div className="tl-title">{statusLabel(event.to_status)}</div>
+                <div className="tl-title">{statusLabel(event.to_status, kind)}</div>
                 <div className="tl-meta">
                   {event.actor_name} · {formatDate(event.created_at)}
                 </div>
@@ -647,8 +649,24 @@ const LABELS: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
-function statusLabel(status: string): string {
-  return LABELS[status] ?? status;
+/* A by-product was never quoted and an accessory is never fabricated, so the
+   aligner wording is wrong on both. Only the entries that differ are listed;
+   everything else falls through to the shared map above. */
+const KIND_LABELS: Record<string, Record<string, string>> = {
+  PRODUCT: {
+    DRAFT: "Order started",
+    AWAITING_SCAN: "Ordered — scan requested",
+    PRODUCT_FABRICATION: "In fabrication",
+  },
+  ACCESSORY: {
+    DRAFT: "Order started",
+    PRODUCT_FABRICATION: "Being packed",
+  },
+};
+
+function statusLabel(status: string, kind?: string): string {
+  const override = kind ? KIND_LABELS[kind]?.[status] : undefined;
+  return override ?? LABELS[status] ?? status;
 }
 
 export function ActionPanel({

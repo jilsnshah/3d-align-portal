@@ -338,7 +338,7 @@ export interface ScanSource {
   taken_at: string;
 }
 
-export type OrderKind = "ALIGNER" | "PRODUCT";
+export type OrderKind = "ALIGNER" | "PRODUCT" | "ACCESSORY";
 
 export interface OrderSummary {
   id: string;
