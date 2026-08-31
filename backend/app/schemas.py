@@ -116,6 +116,21 @@ class StatsOut(BaseModel):
     branches: list[StatsSlice] = []
 
 
+class OrderingHoldOut(BaseModel):
+    """Whether this clinic may start another appliance right now.
+
+    A by-product ships before it is paid for, so an unsettled one holds the
+    next. Told to the clinic on the shelf rather than only when they press the
+    button, because a form that fills in and then refuses is a form that wasted
+    their time.
+    """
+
+    can_order_products: bool
+    # The order in the way, when there is one.
+    reference: str = ""
+    reason: str = ""
+
+
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)

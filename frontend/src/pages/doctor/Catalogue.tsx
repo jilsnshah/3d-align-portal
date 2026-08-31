@@ -8,7 +8,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
 import type { Accessory as AccessoryType, Product } from "../../api";
@@ -55,6 +55,12 @@ export default function Catalogue() {
      not a line it meets for the first time on the payment screen. */
   const delivery = useQuery({ queryKey: ["delivery-charge"], queryFn: api.deliveryCharge });
   const shelf = useQuery({ queryKey: ["accessories"], queryFn: api.accessories });
+  /* An appliance ships before it is paid for, so an unsettled one holds the
+     next. Told here rather than only when the button is pressed — a form that
+     fills in and then refuses has wasted the clinic's time. Accessories are
+     never held: they are paid before they leave the building. */
+  const hold = useQuery({ queryKey: ["ordering-hold"], queryFn: api.orderingHold });
+  const heldBy = hold.data && !hold.data.can_order_products ? hold.data : null;
 
   /* Accessories are counted, not chosen once: a clinic restocking asks for two
      strips, a cleanser and five cases in one breath. Held as code -> count so
@@ -152,7 +158,7 @@ export default function Catalogue() {
   // away, so the strip there is a real shortcut and not just a link to a list.
   const wanted = params.get("order");
   useEffect(() => {
-    if (!wanted || ordering || !products.data) return;
+    if (!wanted || ordering || !products.data || heldBy) return;
     const match = products.data.find((p) => p.id === wanted);
     if (match) open(match);
     // The query is consumed: a refresh should not reopen a dialog the clinic
@@ -203,6 +209,18 @@ export default function Catalogue() {
         )}
       </div>
 
+      {heldBy && (
+        <Banner tone="warn">
+          <div>
+            <b>{heldBy.reference} is still open</b> — {heldBy.reason}. Appliances are made
+            and shipped before they are paid for, so we ask that one is settled before the
+            next is started.{" "}
+            <Link to={`/orders?series=product`}>See that order</Link>. Accessories below can
+            still be ordered.
+          </div>
+        </Banner>
+      )}
+
       <div className="catalogue-grid">
         {products.data?.map((product) => (
           <article key={product.id} className="product-card">
@@ -231,8 +249,14 @@ export default function Catalogue() {
 
             <footer>
               <span className="product-from">from {rupees(from(product))}</span>
-              <button type="button" className="btn-primary" onClick={() => open(product)}>
-                Order this
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={Boolean(heldBy)}
+                title={heldBy ? `${heldBy.reference} is still open — ${heldBy.reason}.` : undefined}
+                onClick={() => open(product)}
+              >
+                {heldBy ? "Settle the open order" : "Order this"}
               </button>
             </footer>
           </article>

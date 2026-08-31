@@ -243,6 +243,43 @@ def plan_unlocked(order: Order) -> bool:
     return is_settled(order, PaymentKind.TREATMENT_PLAN)
 
 
+def unsettled_product_order(db: Session, doctor_id: str, exclude_id: str = "") -> Optional[Order]:
+    """An earlier by-product order this clinic has not paid for yet.
+
+    A by-product ships before it is paid — the lab has already made the thing,
+    and holding a finished appliance over a receipt helps nobody. What stops
+    that becoming an open tab is this: the clinic settles the last one before
+    it starts the next.
+
+    Cancelled orders are ignored; nothing was made and nothing is owed. Only
+    by-products count. An accessory is paid before it leaves the building, so
+    it can never be both delivered and unpaid, and an aligner case collects
+    per phase on its own schedule.
+    """
+    from ..enums import OrderKind, OrderStatus
+
+    candidates = (
+        db.query(Order)
+        .filter(
+            Order.doctor_id == doctor_id,
+            Order.kind == OrderKind.PRODUCT,
+            Order.status != OrderStatus.CANCELLED,
+            Order.id != exclude_id,
+        )
+        .order_by(Order.created_at)
+        .all()
+    )
+    for order in candidates:
+        row = _find(order, PaymentKind.PRODUCT_ORDER)
+        # No charge raised yet means nothing is owed on it — a draft, or an
+        # order whose price is not yet knowable.
+        if row is None:
+            continue
+        if row.status != PaymentStatus.VERIFIED:
+            return order
+    return None
+
+
 def blocker_for(order: Order, kind: str, phase: int = 0) -> Optional[str]:
     """Why this step cannot happen yet, or None when it can."""
     row = _find(order, kind, phase)

@@ -1143,14 +1143,18 @@ def create_shipment(
     elif payload.shipment_type == ShipmentType.PRODUCT:
         assert_status(order, OrderStatus.PRODUCT_FABRICATION, OrderStatus.DISPATCHING)
         next_status = OrderStatus.DISPATCHING
-        # One charge covers the whole order, and it is paid before the appliance
-        # leaves the lab — there is no phase behind which to collect it later.
-        blocker = payment_service.blocker_for(order, PaymentKind.PRODUCT_ORDER)
-        if blocker:
-            raise HTTPException(
-                status.HTTP_402_PAYMENT_REQUIRED,
-                f"This order has not been paid for. {blocker}",
-            )
+        # Stock is paid for before it leaves; an appliance the lab has already
+        # made to a clinic's prescription is not held hostage to a receipt.
+        # What keeps that from becoming an open tab is the rule at ordering
+        # time: the clinic cannot start another appliance while the last one is
+        # unsettled.
+        if order.kind == OrderKind.ACCESSORY:
+            blocker = payment_service.blocker_for(order, PaymentKind.PRODUCT_ORDER)
+            if blocker:
+                raise HTTPException(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    f"This order has not been paid for. {blocker}",
+                )
     else:
         assert_status(order, OrderStatus.ALIGNER_PRODUCTION, OrderStatus.DISPATCHING)
         next_status = OrderStatus.DISPATCHING

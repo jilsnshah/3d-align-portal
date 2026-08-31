@@ -147,6 +147,27 @@ def create_order(
     patient = _resolve_patient(db, doctor, payload)
     address = _resolve_address(db, doctor, payload.shipping_address_id)
 
+    # A by-product ships before it is paid for, so the brake is here: one
+    # unsettled appliance at a time. Checked before anything is created, so a
+    # blocked clinic never ends up with a half-built draft it cannot use.
+    if payload.product_id:
+        outstanding = payment_service.unsettled_product_order(db, doctor.id)
+        if outstanding is not None:
+            row = next(
+                (p for p in outstanding.payments if p.kind == PaymentKind.PRODUCT_ORDER),
+                None,
+            )
+            waiting = (
+                "the receipt is with 3D Align for checking"
+                if row is not None and row.status == PaymentStatus.SUBMITTED
+                else "it has not been paid for yet"
+            )
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{outstanding.reference} is still open — {waiting}. "
+                "Settle that order before starting another appliance.",
+            )
+
     product = size = None
     if payload.product_id:
         product = db.get(Product, payload.product_id)

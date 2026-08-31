@@ -261,6 +261,14 @@ export interface DeliveryCharge {
   has_address: boolean;
 }
 
+/** Whether an unpaid appliance is holding up the next one. A by-product ships
+    before it is paid for, so the clinic settles one before starting another. */
+export interface OrderingHold {
+  can_order_products: boolean;
+  reference: string;
+  reason: string;
+}
+
 export interface Accessory {
   id: string;
   code: string;
@@ -940,6 +948,7 @@ export const api = {
   products: () => get<Product[]>("/products"),
   deliveryCharge: () => get<DeliveryCharge>("/delivery-charge"),
   accessories: () => get<Accessory[]>("/accessories"),
+  orderingHold: () => get<OrderingHold>("/ordering-hold"),
   practiceStats: (q: { view: string; year: number; month: number }) =>
     get<Stats>(`/stats?view=${q.view}&year=${q.year}&month=${q.month}`),
   labStats: (q: { view: string; year: number; month?: number; doctorId?: string }) =>

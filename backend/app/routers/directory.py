@@ -90,6 +90,35 @@ def product_catalogue(db: Session = Depends(get_db)):
     return [schemas.ProductOut.model_validate(p) for p in catalogue.catalogue(db)]
 
 
+@router.get("/ordering-hold", response_model=schemas.OrderingHoldOut)
+def ordering_hold(doctor: Doctor = Depends(verified_doctor), db: Session = Depends(get_db)):
+    """Whether an unpaid appliance is holding up the next one.
+
+    Accessories are never held: they are paid before they leave the building,
+    so they cannot be both delivered and unpaid.
+    """
+    from ..enums import PaymentKind, PaymentStatus
+    from ..services import payments
+
+    outstanding = payments.unsettled_product_order(db, doctor.id)
+    if outstanding is None:
+        return schemas.OrderingHoldOut(can_order_products=True)
+
+    row = next(
+        (p for p in outstanding.payments if p.kind == PaymentKind.PRODUCT_ORDER), None
+    )
+    reason = (
+        "the receipt is with 3D Align for checking"
+        if row is not None and row.status == PaymentStatus.SUBMITTED
+        else "it has not been paid for yet"
+    )
+    return schemas.OrderingHoldOut(
+        can_order_products=False,
+        reference=outstanding.reference,
+        reason=reason,
+    )
+
+
 @router.get("/accessories", response_model=list[schemas.AccessoryOut])
 def accessory_catalogue(db: Session = Depends(get_db)):
     """What the lab keeps on a shelf.

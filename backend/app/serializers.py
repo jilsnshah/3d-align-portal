@@ -438,7 +438,11 @@ def _product_charge_lines(order: Order, settings) -> list:
         schemas.ChargeLine(
             label="Total for this order",
             amount=goods + shipping,
-            note="Payable in one charge",
+            note=(
+                "Due before it ships"
+                if order.kind == OrderKind.ACCESSORY
+                else "Due once it has shipped — and before the next appliance is started"
+            ),
         )
     )
     return lines
