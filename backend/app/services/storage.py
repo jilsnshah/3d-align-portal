@@ -28,6 +28,7 @@ from typing import Optional, Union
 
 import logging
 import mimetypes
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -74,7 +75,7 @@ class LocalStorage:
         self, order_number: str, subfolder: str, filename: str, fileobj: BinaryIO, mime_type: str
     ) -> StoredFile:
         self.ensure_order_folder(order_number)
-        safe = f"{uuid.uuid4().hex[:8]}-{Path(filename).name}"
+        safe = f"{uuid.uuid4().hex[:8]}-{safe_object_name(filename)}"
         target = self.root / "Orders" / order_number / subfolder / safe
         with target.open("wb") as out:
             shutil.copyfileobj(fileobj, out)
@@ -365,7 +366,7 @@ class S3Storage:
     def save(
         self, order_number: str, subfolder: str, filename: str, fileobj: BinaryIO, mime_type: str
     ) -> StoredFile:
-        safe = f"{uuid.uuid4().hex[:8]}-{Path(filename).name}"
+        safe = f"{uuid.uuid4().hex[:8]}-{safe_object_name(filename)}"
         key = f"Orders/{order_number}/{subfolder}/{safe}"
         self.client.upload_fileobj(
             fileobj, self.bucket, key, ExtraArgs={"ContentType": mime_type}
@@ -457,6 +458,30 @@ def get_storage() -> Union[LocalStorage, DriveStorage, S3Storage]:
         else:
             _storage = LocalStorage(settings.storage_local_root)
     return _storage
+
+
+def safe_object_name(filename: str) -> str:
+    """A stored name that every backend can actually address.
+
+    Scanners emit files called "UPPER JAW.stl", and the space in that is not a
+    cosmetic problem: Supabase's S3 API refuses CopyObject on any key that
+    contains one, which is how a case ended up half-renamed with its files
+    stranded under the old reference. The clinic's original name is kept on the
+    file record and shown in the portal; this is only what the object is
+    addressed by.
+
+    Everything outside the ASCII word characters, dot and dash becomes an
+    underscore, runs collapse, and the extension is preserved.
+    """
+    stem = Path(filename).name.strip()
+    ext = Path(stem).suffix[:12]
+    base = stem[: len(stem) - len(ext)] if ext else stem
+
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._-")
+    ext = re.sub(r"[^A-Za-z0-9.]+", "", ext)
+    # A name made entirely of characters we strip still has to be addressable.
+    base = base[:120] or "file"
+    return f"{base}{ext}"
 
 
 def guess_mime(filename: str, provided: Optional[str]) -> str:

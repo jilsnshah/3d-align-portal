@@ -29,11 +29,13 @@ SECRET = os.environ.get("S3_TEST_SECRET", "")
 REGION = os.environ.get("S3_TEST_REGION", "us-east-1")
 BUCKET = os.environ.get("S3_TEST_BUCKET", "align-storage-test")
 
-if not (ENDPOINT and KEY and SECRET):
-    print("S3_TEST_ENDPOINT / S3_TEST_KEY / S3_TEST_SECRET not set — skipped.")
-    raise SystemExit(0)
+HAVE_S3 = bool(ENDPOINT and KEY and SECRET)
 
-from app.services.storage import S3Storage, StorageError  # noqa: E402
+from app.services.storage import (  # noqa: E402
+    S3Storage,
+    StorageError,
+    safe_object_name,
+)
 
 passed = failed = 0
 
@@ -48,7 +50,48 @@ def check(name, condition, detail=""):
         print(f"  FAIL {name} {detail}")
 
 
+def check_object_names() -> None:
+    """Stored names have to be addressable by every backend.
+
+    A scanner emits "UPPER JAW.stl", and Supabase's S3 API refuses CopyObject
+    on any key containing a space — which is how a case ended up half-renamed
+    with its files stranded under the old reference. The clinic's own name is
+    kept on the file record and used for the download; this is only what the
+    object is addressed by.
+    """
+    for raw, want in [
+        ("UPPER JAW.stl", "UPPER_JAW.stl"),
+        ("LOWER JAW.stl", "LOWER_JAW.stl"),
+        ("BITE.stl", "BITE.stl"),
+        ("Dr Mehta  scan (final).STL", "Dr_Mehta_scan_final.STL"),
+        ("receipt.pdf", "receipt.pdf"),
+        ("no-extension", "no-extension"),
+    ]:
+        check(f"{raw!r} stores as {want!r}", safe_object_name(raw) == want,
+              safe_object_name(raw))
+
+    # Nothing that could climb out of the folder or break a key.
+    for hostile in ["../../etc/passwd", "a/b/c.stl", "tab\tname.stl", "", "   "]:
+        got = safe_object_name(hostile)
+        check(
+            f"{hostile!r} is safe -> {got!r}",
+            got and "/" not in got and " " not in got and not got.startswith(".."),
+            got,
+        )
+
+
 def main() -> int:
+    # Name safety needs no bucket, so it runs whether or not S3 is configured —
+    # and it is the check that matters most, because a key a backend cannot
+    # address is how a case ends up half-renamed.
+    check_object_names()
+
+    if not HAVE_S3:
+        print("\n  S3_TEST_ENDPOINT / S3_TEST_KEY / S3_TEST_SECRET not set —"
+              " skipping the round-trip against a real bucket.")
+        print(f"\n{passed} passed, {failed} failed")
+        return 1 if failed else 0
+
     import boto3
 
     raw = boto3.client(
@@ -72,10 +115,16 @@ def main() -> int:
     # iterated by line, which would hand back one chunk the size of the file.
     blob = b"solid test\n" + bytes(range(256)) * 6000
 
-    stored = store.save(enquiry, "scans", "upper arch.stl", io.BytesIO(blob), "model/stl")
+    # A scanner's own name, spaces and all — the shape that broke CopyObject.
+    stored = store.save(enquiry, "scans", "UPPER JAW.stl", io.BytesIO(blob), "model/stl")
     check(
         "save keys the file under the case",
-        stored.ref.startswith(f"Orders/{enquiry}/scans/") and stored.ref.endswith("-upper arch.stl"),
+        stored.ref.startswith(f"Orders/{enquiry}/scans/"),
+        stored.ref,
+    )
+    check(
+        "the stored key carries no space",
+        " " not in stored.ref and stored.ref.endswith("-UPPER_JAW.stl"),
         stored.ref,
     )
     check("save reports the stored size", stored.size_bytes == len(blob), stored.size_bytes)
