@@ -21,6 +21,7 @@ from ..services import payments as payment_service
 from ..db import get_db
 from ..deps import current_user
 from ..enums import (
+    category_applies,
     AppointmentStatus,
     CATEGORY_FOLDER,
     FILE_GROUP,
@@ -122,6 +123,17 @@ async def upload_file(
 ):
     order = _visible_order(order_id, db, user)
     is_staff = user.role in LAB_ROLES
+
+    # Before any status question: does this kind of order have such a file at
+    # all? Progress and phase-fit photographs open at DISPATCHING, and a
+    # by-product reaches DISPATCHING on its way out of the door — so gating on
+    # status alone let an appliance collect photographs of phases it never had.
+    if not category_applies(order.kind, category):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"A {category.replace('_', ' ').lower()} does not belong on "
+            f"{order.reference}. That is an aligner case's file.",
+        )
 
     if is_staff:
         # A treatment plan or simulation only exists once there is a verified

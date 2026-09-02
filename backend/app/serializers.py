@@ -23,6 +23,7 @@ from .enums import (
     PaymentStatus,
     PhaseStatus,
     REQUIRED_SUBMIT_CATEGORIES,
+    category_applies,
     required_categories,
     required_submit_categories,
     SLOT_LABELS,
@@ -136,7 +137,10 @@ STAGE_CATEGORIES = {
 
 def _shows_category(order: Order, category, live) -> bool:
     """A category appears if it holds files, is core to every case, or the case
-    has reached the stage it belongs to."""
+    has reached the stage it belongs to — and if this kind of order has any use
+    for it in the first place."""
+    if not category_applies(order.kind, category):
+        return False
     if live:
         return True
     if category in CORE_CATEGORIES:

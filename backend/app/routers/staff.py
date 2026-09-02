@@ -1119,6 +1119,20 @@ def create_shipment(
     db: Session = Depends(get_db),
 ):
     order = any_order(order_id, db, staff)
+    # A training aligner and a phase belong to a planned course of treatment.
+    # A by-product and a box of accessories go out once, in one parcel — and
+    # the phase path was reachable on them, because it is gated on DISPATCHING
+    # and they reach DISPATCHING like anything else that ships.
+    if (
+        payload.shipment_type != ShipmentType.PRODUCT
+        and order.kind != OrderKind.ALIGNER
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{order.reference} ships in one parcel. "
+            f"Phases and training aligners belong to an aligner case.",
+        )
+
     # Raise any charge that has become due since the case last moved, so the
     # gates below are checked against an up-to-date ledger rather than an empty
     # one.

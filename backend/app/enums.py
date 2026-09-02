@@ -355,6 +355,33 @@ PLAN_GATED_CATEGORIES = {FileCategory.TREATMENT_PLAN, FileCategory.SIMULATION_MO
 MIN_STEPS_PER_PHASE = 5
 
 
+# Files that only exist because a case is a planned course of treatment. A
+# by-product is made from a scan and shipped; an accessory is picked off a
+# shelf. Neither has a plan to share, a training aligner to fit, or phases to
+# photograph the progress of.
+#
+# These were gated on status alone, which was not enough: PROGRESS_PHOTO and
+# PHASE_FIT_PHOTO open at DISPATCHING, and a by-product reaches DISPATCHING on
+# its way out of the door.
+ALIGNER_ONLY_CATEGORIES = {
+    FileCategory.TREATMENT_PLAN,
+    FileCategory.SIMULATION_MODEL,
+    FileCategory.FIT_ISSUE_PHOTO,
+    FileCategory.PROGRESS_PHOTO,
+    FileCategory.PHASE_FIT_PHOTO,
+}
+
+
+def category_applies(kind, category) -> bool:
+    """Whether this kind of order has any use for this kind of file."""
+    if category in ALIGNER_ONLY_CATEGORIES:
+        return kind == OrderKind.ALIGNER
+    if kind == OrderKind.ACCESSORY:
+        # Nothing is made and nothing is fitted, so nothing is collected.
+        return False
+    return True
+
+
 class FileGroup(str, Enum):
     """Files that get re-requested as a set share a revision counter, so a
     replacement scan reads as v2 rather than as a second, ambiguous v1."""
