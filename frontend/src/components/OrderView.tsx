@@ -503,7 +503,12 @@ export function ShipmentsCard({
             {order.shipments.map((shipment) => (
               <tr key={shipment.id}>
                 <td>
-                  {shipment.shipment_type === "TRAINING_ALIGNER"
+                  {/* A product parcel has no phase number, and printing
+                      "Phase —" for it read as a phase whose number had gone
+                      missing rather than as something that never had one. */}
+                  {shipment.shipment_type === "PRODUCT"
+                    ? order.product_label || "Order"
+                    : shipment.shipment_type === "TRAINING_ALIGNER"
                     ? `Training aligner${shipment.fit_round && shipment.fit_round > 1 ? ` · round ${shipment.fit_round}` : ""}`
                     : shipment.shipment_type === "FULL_CASE"
                       ? "Full case"

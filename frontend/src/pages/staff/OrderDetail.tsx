@@ -1035,6 +1035,46 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
 
     case "ALIGNER_PRODUCTION":
     case "DISPATCHING":
+      // A by-product and a box of accessories went out in one parcel. They
+      // have no dispatch mode, so this arm used to fall through to the phased
+      // copy and offer to ship "phase 1 of a plan with 0 steps".
+      if (order.kind !== "ALIGNER") {
+        const outstanding = order.shipments.filter((s) => s.status !== "DELIVERED");
+        return (
+          <ActionPanel
+            title="On its way"
+            why={
+              outstanding.length > 0
+                ? "One parcel, already dispatched. The order completes itself the moment it is marked delivered."
+                : "Everything has been delivered."
+            }
+          >
+            {outstanding.length === 0 ? (
+              <Banner tone="ok">
+                Delivered. This order is finished — nothing further to ship.
+              </Banner>
+            ) : (
+              <p className="dim">
+                Waiting on delivery of{" "}
+                {outstanding.length === 1 ? "the parcel" : `${outstanding.length} parcels`}. Mark
+                it delivered in the shipments list below, or the clinic can confirm receipt
+                themselves.
+              </p>
+            )}
+            <ErrorText error={complete.error} />
+            {order.status === "DISPATCHING" && (
+              <button
+                type="button"
+                className="btn-dark"
+                disabled={complete.isPending || outstanding.length > 0}
+                onClick={() => complete.mutate()}
+              >
+                Close the order
+              </button>
+            )}
+          </ActionPanel>
+        );
+      }
       return (
         <ActionPanel
           title={order.dispatch_mode === "FULL" ? "Dispatch the full case" : "Dispatch a phase"}

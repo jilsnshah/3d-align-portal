@@ -142,6 +142,14 @@ if "INTRAORAL_SCAN" not in sets:
 if "RECORD_PHOTO" not in sets:
     fails.append("a by-product should still show clinical photographs")
 
+# One parcel, delivered, nothing after it — the order finishes itself rather
+# than waiting for someone to confirm what the delivery already said.
+ship = doc.get(f"/api/orders/{oid}").json()["shipments"][0]
+r = doc.post(f"/api/orders/{oid}/shipments/{ship['id']}/delivered")
+print(f"  marked delivered       {r.status_code}  status={r.json().get('status')}")
+if r.json().get("status") != "COMPLETED":
+    fails.append(f"a delivered by-product should complete itself, got {r.json().get('status')}")
+
 print()
 print("ACCESSORY")
 a = doc.post("/api/orders", json={

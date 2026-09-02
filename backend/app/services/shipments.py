@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..enums import OrderStatus, ShipmentStatus, ShipmentType, UserRole
+from ..enums import OrderKind, OrderStatus, ShipmentStatus, ShipmentType, UserRole
 from ..models import Notification, Shipment, User, utcnow
 from ..transitions import transition
 
@@ -35,6 +35,27 @@ def mark_delivered(db: Session, shipment: Shipment, actor: User) -> None:
             OrderStatus.FIT_REVIEW,
             actor,
             note="Training aligner delivered — fit confirmation requested.",
+        )
+        return
+
+    # A by-product and a box of accessories go out in one parcel. Once it has
+    # arrived there is nothing left to make, ship or review, so the order is
+    # finished — asking someone to press "complete" afterwards is asking them
+    # to confirm something the delivery already said.
+    #
+    # An aligner case is not finished by a delivery: the clinic wears the batch,
+    # sends its photographs, and the lab decides what ships next.
+    if (
+        order.kind in (OrderKind.PRODUCT, OrderKind.ACCESSORY)
+        and order.status == OrderStatus.DISPATCHING
+        and all(s.status == ShipmentStatus.DELIVERED for s in order.shipments)
+    ):
+        transition(
+            db,
+            order,
+            OrderStatus.COMPLETED,
+            actor,
+            note="Delivered — nothing further on this order.",
         )
         return
 
