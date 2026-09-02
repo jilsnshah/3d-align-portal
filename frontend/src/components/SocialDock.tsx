@@ -24,19 +24,31 @@ function whatsappHref(name?: string, clinic?: string): string {
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
+/* The lab is not writing to itself. Opening the same number with no prefilled
+   message lands them in their own WhatsApp, which is where the clinics they
+   are answering already are. */
+function labWhatsappHref(): string {
+  return `https://wa.me/${WHATSAPP_NUMBER}`;
+}
+
 export default function SocialDock() {
   const { me } = useAuth();
+  // Everyone on the lab's side of the case — they own these accounts rather
+  // than write to them.
+  const isLab = me?.role !== "DOCTOR";
 
   const channels = [
     {
       key: "whatsapp",
-      label: "Chat on WhatsApp",
-      href: whatsappHref(me?.doctor?.full_name, me?.doctor?.clinic_name),
+      label: isLab ? "Open the lab's WhatsApp" : "Chat on WhatsApp",
+      href: isLab
+        ? labWhatsappHref()
+        : whatsappHref(me?.doctor?.full_name, me?.doctor?.clinic_name),
       icon: WHATSAPP_ICON,
     },
     {
       key: "instagram",
-      label: "3D Align on Instagram",
+      label: isLab ? "Open the lab's Instagram" : "3D Align on Instagram",
       href: `https://instagram.com/${INSTAGRAM_HANDLE}`,
       icon: INSTAGRAM_ICON,
     },

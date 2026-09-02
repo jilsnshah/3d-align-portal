@@ -149,10 +149,11 @@ export default function Layout() {
 
       <Outlet />
 
-      {/* The lab is a phone call away in practice; a doctor should not have
-          to dig for the number. Staff and technicians sit inside the lab and
-          have no use for it. */}
-      {!isAdmin && !isTech && <SocialDock />}
+      {/* The lab runs on WhatsApp in practice. A doctor uses this to reach the
+          lab; the lab uses it to open its own account and answer them, and to
+          get at the Instagram it posts cases to. Same two channels, different
+          errand — so the copy changes but the dock does not. */}
+      <SocialDock />
     </div>
   );
 }
