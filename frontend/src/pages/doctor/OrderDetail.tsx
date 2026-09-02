@@ -8,9 +8,10 @@ import PhaseTracker from "../../components/PhaseTracker";
 import FitIssueThread from "../../components/FitIssueThread";
 import { api, formatDate, formatMoney } from "../../api";
 import type { OrderDetail as Order, Slot } from "../../api";
-import { completedCopy, waitingCopyFor } from "../../workflow";
+import { completedCopy, stageIndex, waitingCopyFor } from "../../workflow";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
+import StageBrowser from "../../components/StageBrowser";
 import SlotCalendar from "../../components/SlotCalendar";
 import {
   ActionPanel,
@@ -44,6 +45,12 @@ export default function DoctorOrderDetail() {
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
     void queryClient.invalidateQueries({ queryKey: ["unread"] });
   };
+
+  /* Which stage is being looked at, or null for the case's own. Held
+     here because the rail sets it and the browser reads it, and because
+     every action panel below has to know to stand down while a past
+     stage is open. */
+  const [viewing, setViewing] = useState<number | null>(null);
 
   const confirmDelivery = useMutation({
     mutationFn: (shipmentId: string) => api.confirmDelivery(orderId, shipmentId),
@@ -102,14 +109,26 @@ export default function DoctorOrderDetail() {
   };
 
   const openIssue = data.phase_issues.find((i) => i.status === "OPEN") ?? null;
+  // The rail reports which stage is open; anything other than the case's own
+  // means the page is being read rather than worked.
+  const liveStage = stageIndex(data.kind, data.status);
+  const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
 
   return (
     <main className="page">
       <OrderHeader order={data} />
-      <ProgressRail order={data} />
+      <ProgressRail order={data} viewing={viewing} onView={setViewing} />
 
       <div className="split">
         <div className="stack">
+          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
+
+          {/* While a past stage is open the page offers nothing to do. An
+              action taken against a stage the case has already left is not a
+              thing that should be possible, so the panels stand down rather
+              than being disabled one by one. */}
+          {lookingBack ? null : (
+            <>
           {/* A batch that does not fit is the most urgent thing on the page, so
               it is offered before anything else the clinic might do. */}
           {openIssue ? (
@@ -135,7 +154,12 @@ export default function DoctorOrderDetail() {
               }
             />
           )}
-          {sections.map((key, index) => render(key, index === 0))}
+            </>
+          )}
+          {/* The cabinet uploads and bins files, so it is an editing
+              surface too. What that stage collected is shown above,
+              read-only, by the browser itself. */}
+          {lookingBack ? null : sections.map((key, index) => render(key, index === 0))}
         </div>
         <div className="stack">
           <PhaseTracker order={data} />

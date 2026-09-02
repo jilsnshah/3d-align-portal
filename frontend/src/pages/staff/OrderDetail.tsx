@@ -6,6 +6,8 @@ import { api, formatDate, formatMoney, formatRange } from "../../api";
 import type { OrderDetail as Order } from "../../api";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
+import StageBrowser from "../../components/StageBrowser";
+import { stageIndex } from "../../workflow";
 import PaymentReview from "../../components/PaymentReview";
 import PhaseTracker from "../../components/PhaseTracker";
 import {
@@ -42,6 +44,12 @@ export default function StaffOrderDetail() {
     void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
     void queryClient.invalidateQueries({ queryKey: ["queue"] });
   };
+
+  /* Which stage is being looked at, or null for the case's own. Held
+     here because the rail sets it and the browser reads it, and because
+     every action panel below has to know to stand down while a past
+     stage is open. */
+  const [viewing, setViewing] = useState<number | null>(null);
 
   const markDelivered = useMutation({
     mutationFn: (shipmentId: string) => api.updateShipment(shipmentId, { mark_delivered: true }),
@@ -99,20 +107,31 @@ export default function StaffOrderDetail() {
     }
   };
 
+  const liveStage = stageIndex(data.kind, data.status);
+  const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
+
   return (
     <main className="page">
       <OrderHeader order={data} />
-      <ProgressRail order={data} />
+      <ProgressRail order={data} viewing={viewing} onView={setViewing} />
 
       <div className="split">
         <div className="stack">
-          {isTechnician ? (
+          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
+
+          {/* While a past stage is open the page offers nothing to do. Acting
+              on a stage the case has already left is not a thing that should
+              be possible, so the panel stands down entirely. */}
+          {lookingBack ? null : isTechnician ? (
             <TechnicianPanel order={data} onDone={invalidate} />
           ) : (
             <StaffActions order={data} onDone={invalidate} />
           )}
 
-          {sections.map((key, index) => render(key, index === 0))}
+          {/* The cabinet uploads and bins files, so it is an editing
+              surface too. What that stage collected is shown above,
+              read-only, by the browser itself. */}
+          {lookingBack ? null : sections.map((key, index) => render(key, index === 0))}
 
           {!isTechnician && canInvoice && (
             <div className="card">

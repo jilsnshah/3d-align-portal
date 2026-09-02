@@ -48,6 +48,21 @@ const ACCESSORY: Stage[] = [
   { key: "delivery", label: "Delivery", statuses: ["DISPATCHING"] },
 ];
 
+/** Which files were gathered at each stage, so looking back at one shows what
+    was actually collected there rather than the whole cabinet. */
+const STAGE_FILES: Record<string, string[]> = {
+  records: ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"],
+  ordered: ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"],
+  scan: ["INTRAORAL_SCAN"],
+  plan: ["TREATMENT_PLAN", "SIMULATION_MODEL"],
+  fit: ["FIT_ISSUE_PHOTO"],
+  delivery: ["PROGRESS_PHOTO", "PHASE_FIT_PHOTO"],
+};
+
+export function filesForStage(stageKey: string): string[] {
+  return STAGE_FILES[stageKey] ?? [];
+}
+
 export function stagesFor(kind: OrderKind): Stage[] {
   if (kind === "ACCESSORY") return ACCESSORY;
   if (kind === "PRODUCT") return PRODUCT;

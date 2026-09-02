@@ -3377,3 +3377,95 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   }
 
 }
+
+/* --- Stage browser -------------------------------------------------------
+   The page only ever showed now. Stepping back through the stages a case has
+   been through answers "what did we send at records" without reading the whole
+   timeline — and it never offers a way to change any of it, because acting on
+   a stage the case has left is not a thing that should be possible. */
+
+.stage-browser { padding: var(--s-4) var(--s-5); }
+.stage-browser.past { border-color: var(--gold-line); background: var(--gold-wash); }
+
+.stage-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.stage-nav-title { text-align: center; min-width: 0; }
+.stage-nav-title b { font-size: var(--t-h3); display: block; letter-spacing: -0.005em; }
+.stage-nav-step {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stage-readonly {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-2) var(--s-3);
+  background: var(--white);
+  border: 1px dashed var(--gold-line);
+  border-radius: var(--r-sm);
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+}
+
+.stage-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-5);
+  margin-top: var(--s-4);
+}
+.stage-body > * { min-width: 0; }
+
+.stage-head {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stage-events { list-style: none; margin: 0; padding: 0; font-size: var(--t-sm); }
+.stage-events li {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.stage-events li:last-child { border-bottom: none; }
+.stage-when { color: var(--ink-3); font-size: var(--t-xs); }
+
+.stage-files { margin-bottom: var(--s-3); font-size: var(--t-sm); }
+.stage-cat {
+  display: block;
+  font-weight: 600;
+  font-size: var(--t-xs);
+  margin-bottom: 2px;
+}
+.stage-files ul { list-style: none; margin: 0; padding: 0; }
+.stage-files li { padding: 2px 0; }
+
+/* A rail step you can open reads as a control, not as a label. */
+button.progress-step {
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+button.progress-step:hover .progress-label { color: var(--ink); }
+.progress-step.viewing .progress-bar { background: var(--gold); }
+.progress-step.viewing .progress-label { color: var(--gold-deep); font-weight: 600; }
+
+@media (max-width: 680px) {
+  .stage-events li { grid-template-columns: 1fr; gap: 0; }
+  .stage-nav-title b { font-size: var(--t-body); }
+}

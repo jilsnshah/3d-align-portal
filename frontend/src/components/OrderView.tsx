@@ -16,7 +16,16 @@ const NEEDS_ATTENTION: Partial<Record<OrderDetail["status"], string>> = {
   FIT_ISSUE: "issue raised",
 };
 
-export function ProgressRail({ order }: { order: OrderDetail }) {
+export function ProgressRail({
+  order,
+  viewing,
+  onView,
+}: {
+  order: OrderDetail;
+  /** Which stage is being looked at, or null for the case's own. */
+  viewing?: number | null;
+  onView?: (index: number | null) => void;
+}) {
   if (order.status === "CANCELLED") return null;
 
   const done = order.status === "COMPLETED";
@@ -34,13 +43,35 @@ export function ProgressRail({ order }: { order: OrderDetail }) {
         const flag = isCurrent ? NEEDS_ATTENTION[order.status] : undefined;
         const state = flag ? "blocked" : isCurrent ? "current" : isDone ? "done" : "";
 
-        return (
-          <div className={`progress-step ${state}`} key={phase.key} role="listitem">
+        // A stage the case has been through can be opened and read. One it has
+        // not reached cannot, because there is nothing there yet.
+        const reachable = currentIndex < 0 || index <= currentIndex;
+        const isViewed = viewing != null && viewing === index;
+        const body = (
+          <>
             <div className="progress-bar" />
             <span className="progress-label">
               {phase.label}
               {isCurrent && <span className="progress-now">{flag ?? order.status_label}</span>}
             </span>
+          </>
+        );
+        const className = `progress-step ${state}${isViewed ? " viewing" : ""}`;
+
+        return onView && reachable ? (
+          <button
+            type="button"
+            className={className}
+            key={phase.key}
+            aria-current={isViewed ? "true" : undefined}
+            title={`Look back at ${phase.label}`}
+            onClick={() => onView(isViewed ? null : index)}
+          >
+            {body}
+          </button>
+        ) : (
+          <div className={className} key={phase.key} role="listitem">
+            {body}
           </div>
         );
       })}
