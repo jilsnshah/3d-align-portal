@@ -51,21 +51,27 @@ EXTRA_SCAN: dict = {
 # tray per arch and the clinic says how many of each.
 BOTH_ARCHES = {"TMJ", "JA"}
 
-# 3D Align's own catalogue cards, served from the app rather than hotlinked.
-# The originals sit on Instagram behind signed URLs that expire within days, so
-# linking to them would have given working pictures for a week and broken tiles
-# after that. These are copies, shipped with the frontend.
+# Pages from 3D Align's own product catalogue, one per appliance, shipped with
+# the frontend and served from the app.
 #
-# The remaining products have no card yet and keep the lettered placeholder,
-# which says what the thing is rather than pretending to show it.
+# Read off the title printed on each page rather than the page order. The
+# catalogue runs to eight pages but names seven appliances: the Essix Retainer
+# has a page each for 1.0 mm and 0.8 mm, and one card per product is enough —
+# the tile already lists both thicknesses and their prices.
+#
+# The Sports Guard card is not in the catalogue PDF and came separately; it is
+# the same card in the same series. Anterior Bite Plate and Posterior Bite Plate
+# have none and keep the lettered placeholder, which says what the thing is
+# rather than pretending to show it.
 IMAGES: dict = {
-    "ER": "/products/ER.jpg",
-    "GER": "/products/GER.jpg",
-    "PR": "/products/PR.jpg",
-    "NG": "/products/NG.jpg",
-    "TMJ": "/products/TMJ.jpg",
-    "SG": "/products/SG.jpg",
-    "JA": "/products/JA.jpg",
+    "PR": "/products/PR.jpg",     # page 1 — Pediatric Retainer
+    "JA": "/products/JA.jpg",     # page 2 — Mandibular Jaw Correction Appliance
+    "GER": "/products/GER.jpg",   # page 3 — Guided Essix Retainer
+    "ER": "/products/ER.jpg",     # page 4 — Essix Retainer
+    "NG": "/products/NG.jpg",     # page 6 — Bruxism Splint
+    "TMJ": "/products/TMJ.jpg",   # page 7 — TMJ Splint
+    "LEACH": "/products/LEACH.jpg",  # page 8 — Bleaching Trays
+    "SG": "/products/SG.jpg",     # supplied separately — Sports Guard
 }
 
 
@@ -111,10 +117,18 @@ def ensure_products(db: Session) -> list:
         # cannot build from.
         product.extra_scan_slot = EXTRA_SCAN.get(code, "")
         product.both_arches = code in BOTH_ARCHES
-        # Only filled in, never cleared: a lab that has put its own photograph
-        # against a product keeps it, and one that has none gains ours.
-        if IMAGES.get(code) and not product.image_url:
-            product.image_url = IMAGES[code]
+        # The catalogue cards we ship are ours to keep correct, so a product
+        # whose picture is one of them follows the map — including when it
+        # leaves the map, which is how a card withdrawn from the catalogue
+        # stops being served from a path that no longer exists. A photograph
+        # the lab has put up itself lives somewhere else and is left alone.
+        wanted = IMAGES.get(code, "")
+        current = product.image_url or ""
+        ours = current.startswith("/products/")
+        if wanted and (ours or not current):
+            product.image_url = wanted
+        elif not wanted and ours:
+            product.image_url = ""
 
         held = {size.label for size in product.sizes}
         added = [(label, price) for label, price in sizes if label not in held]

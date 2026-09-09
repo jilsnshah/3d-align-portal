@@ -284,5 +284,61 @@ check("but an appliance with accessories on it still needs a patient",
       r.status_code == 400, f"{r.status_code} {r.text[:110]}")
 
 print()
+print("=" * 72)
+print("THE CATALOGUE CARDS")
+print("=" * 72)
+import pathlib  # noqa: E402
+
+from app.services.catalogue import IMAGES  # noqa: E402
+
+PUBLIC = pathlib.Path(__file__).resolve().parent.parent / "frontend" / "public"
+for code, url in sorted(IMAGES.items()):
+    on_disk = PUBLIC / url.lstrip("/")
+    check(f"{code}'s card is actually shipped", on_disk.is_file(), str(on_disk))
+
+for code, product in sorted(catalogue.items()):
+    if code in IMAGES:
+        check(f"{code} shows its card", product["image_url"] == IMAGES[code],
+              product["image_url"])
+    else:
+        check(f"{code} has no card and says so", product["image_url"] == "",
+              product["image_url"])
+
+# The cards are ours to keep correct, so one withdrawn from the catalogue has
+# to stop being served from a path that no longer exists — while a photograph
+# the lab put up itself is left alone.
+from app.db import SessionLocal as _S  # noqa: E402
+from app.models import Product as _P  # noqa: E402
+from app.services.catalogue import ensure_products  # noqa: E402
+
+with _S() as db:
+    er = db.query(_P).filter(_P.code == "ER").one()
+    abp = db.query(_P).filter(_P.code == "ABP").one()
+    er.image_url = "/products/WITHDRAWN.jpg"
+    abp.image_url = "https://the-lab-put-this-here.example/abp.png"
+    db.commit()
+    ensure_products(db)
+    db.commit()
+    db.refresh(er)
+    db.refresh(abp)
+    check("a card we no longer ship is replaced by the one we do",
+          er.image_url == IMAGES["ER"], er.image_url)
+    check("and a picture the lab put up itself is left alone",
+          abp.image_url == "https://the-lab-put-this-here.example/abp.png", abp.image_url)
+
+    # And withdrawing one entirely clears it rather than leaving a dead path.
+    er.image_url = "/products/GONE.jpg"
+    db.commit()
+    saved = IMAGES.pop("ER")
+    try:
+        ensure_products(db)
+        db.commit()
+        db.refresh(er)
+        check("a product dropped from the map loses its card", er.image_url == "",
+              er.image_url)
+    finally:
+        IMAGES["ER"] = saved
+
+print()
 print(f"{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)
