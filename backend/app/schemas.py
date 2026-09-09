@@ -5,7 +5,15 @@ from typing import Literal, Optional
 from datetime import date as date_type, datetime, time as time_type
 from decimal import Decimal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from . import enums
 
@@ -231,11 +239,28 @@ class ProductOut(ORMModel):
     per_tooth_price: Decimal
     included_teeth: int
     image_url: str = ""
+    # A second bite this appliance needs, and what to call it. Empty for the
+    # appliances that are made from the ordinary three scans.
+    extra_scan_slot: str = ""
+    extra_scan_label: str = ""
+    # True for appliances only ever made as a pair, where the clinic says how
+    # many sets rather than how many of each arch.
+    both_arches: bool = False
     # Read from priced_sizes, not sizes: a retired size keeps its row so the
     # orders that used it still resolve, and reading the raw list would put it
     # back in front of the clinic as something orderable.
     sizes: list[ProductSizeOut] = Field(validation_alias=AliasChoices("priced_sizes", "sizes"))
     has_choice_of_size: bool
+
+    @model_validator(mode="after")
+    def _name_the_extra_scan(self):
+        """Spell out the extra bite, so the form can name what it is asking for
+        rather than printing a slot code at a clinician."""
+        if self.extra_scan_slot and not self.extra_scan_label:
+            self.extra_scan_label = enums.SLOT_LABELS.get(
+                self.extra_scan_slot, self.extra_scan_slot
+            )
+        return self
 
 
 class ScanSourceOut(BaseModel):
@@ -310,6 +335,11 @@ class OrderCreateIn(BaseModel):
     product_id: Optional[str] = None
     product_size_id: Optional[str] = None
     quantity: int = Field(default=1, ge=1, le=50)
+    # How many trays for each arch. Sent instead of quantity for an appliance
+    # made per arch; the total is worked out from them, so nothing has to agree
+    # about which of the three fields wins.
+    quantity_upper: Optional[int] = Field(default=None, ge=0, le=50)
+    quantity_lower: Optional[int] = Field(default=None, ge=0, le=50)
     extra_teeth: int = Field(default=0, ge=0, le=32)
 
     # Shelf items, riding on a product order or standing as an order of their
@@ -1192,6 +1222,10 @@ class OrderSummary(BaseModel):
     branch_id: str = ""
     branch_label: str = ""
     arch: enums.Arch
+    # How the order divides between the arches, where that was a question.
+    quantity: int = 1
+    quantity_upper: int = 0
+    quantity_lower: int = 0
     priority: enums.Priority
     needs_doctor_action: bool
     created_at: datetime

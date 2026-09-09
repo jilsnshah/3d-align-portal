@@ -106,9 +106,18 @@ export default function Catalogue() {
   }
   const [ordering, setOrdering] = useState<Product | null>(null);
   const [patientId, setPatientId] = useState("");
-  const [newPatientName, setNewPatientName] = useState("");
+  // Two fields, as everywhere else. This form was still sending one after the
+  // split and every order for a new patient was refused.
+  const [newFirst, setNewFirst] = useState("");
+  const [newLast, setNewLast] = useState("");
+  const newPatient = { first_name: newFirst.trim(), last_name: newLast.trim() };
   const [sizeId, setSizeId] = useState("");
+  // Most appliances are a tray per arch, so the clinic says how many of each.
+  // A TMJ splint and a jaw-correction appliance are only ever made as a pair,
+  // and for those one number is the whole question.
   const [quantity, setQuantity] = useState(1);
+  const [upper, setUpper] = useState(1);
+  const [lower, setLower] = useState(1);
   const [extraTeeth, setExtraTeeth] = useState(0);
 
   function open(product: Product) {
@@ -116,12 +125,19 @@ export default function Catalogue() {
     // A product with one form is settled the moment it is chosen.
     setSizeId(product.has_choice_of_size ? "" : product.sizes[0]?.id ?? "");
     setQuantity(1);
+    setUpper(1);
+    setLower(1);
     setExtraTeeth(0);
   }
 
+  const paired = ordering?.both_arches ?? false;
+  // What the order actually comes to, and the one number the price is worked
+  // from — the same number "how many sets" always meant, so nothing repriced.
+  const count = paired ? quantity : upper + lower;
+
   const size = ordering?.sizes.find((s) => s.id === sizeId) ?? null;
   const goods = ordering && size
-    ? (Number(size.price) + Number(ordering.per_tooth_price) * extraTeeth) * quantity
+    ? (Number(size.price) + Number(ordering.per_tooth_price) * extraTeeth) * count
     : 0;
   const shipping = Number(delivery.data?.amount ?? 0);
   const total = goods + basketTotal + shipping;
@@ -130,10 +146,14 @@ export default function Catalogue() {
     mutationFn: () =>
       api.createOrder({
         patient_id: patientId || null,
-        new_patient: patientId ? null : { full_name: newPatientName },
+        new_patient: patientId ? null : newPatient,
         product_id: ordering!.id,
         product_size_id: sizeId,
-        quantity,
+        // A paired appliance is counted in sets; everything else per arch, and
+        // the server adds them up rather than trusting a total sent alongside.
+        ...(paired
+          ? { quantity }
+          : { quantity_upper: upper, quantity_lower: lower }),
         extra_teeth: extraTeeth,
         accessories: asPayload,
       }),
@@ -142,30 +162,27 @@ export default function Catalogue() {
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
-  /* An accessory order names a patient the same way every other order does —
-     the lab ships to a clinic, but the case still belongs to someone. */
+  /* Shelf items name nobody. Restocking IPR strips is the practice buying
+     supplies, not clinical work on a person — asking which patient a box of
+     retainer cases is for made the clinic invent one. */
   const createAccessoryOrder = useMutation({
     mutationFn: () =>
       api.createOrder({
-        patient_id: patientId || null,
-        new_patient:
-          !patientId && newPatientName.trim().length >= 2
-            ? { full_name: newPatientName }
-            : null,
         accessories: asPayload,
       }),
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
-  /* Restocking is the practice buying supplies, so nobody has to be named.
-     A clinic that wants the order filed against a case still can. */
+  /* Restocking is the practice buying supplies. Nothing else is asked. */
   const accessoryBlocker = asPayload.length === 0 ? "Add something first." : "";
 
   const blocker = !sizeId
     ? "Choose a thickness."
-    : !patientId && newPatientName.trim().length < 2
+    : !patientId && newFirst.trim().length < 2
       ? "Name the patient."
-      : "";
+      : count < 1
+        ? "Say how many you need."
+        : "";
 
   // Arriving from the home page with ?order=<id> opens that product straight
   // away, so the strip there is a real shortcut and not just a link to a list.
@@ -395,13 +412,14 @@ export default function Catalogue() {
             </Field>
 
             {!patientId && (
-              <Field label="Patient's full name">
-                <input
-                  value={newPatientName}
-                  onChange={(e) => setNewPatientName(e.target.value)}
-                  placeholder="As it should appear on the case"
-                />
-              </Field>
+              <div className="grid-2">
+                <Field label="First name">
+                  <input value={newFirst} onChange={(e) => setNewFirst(e.target.value)} />
+                </Field>
+                <Field label="Last name">
+                  <input value={newLast} onChange={(e) => setNewLast(e.target.value)} />
+                </Field>
+              </div>
             )}
 
             {ordering.has_choice_of_size && (
@@ -417,15 +435,61 @@ export default function Catalogue() {
               </Field>
             )}
 
-            <Field label="How many sets?">
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={quantity}
-                onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-              />
-            </Field>
+            {paired ? (
+              /* Only ever made as an upper-and-lower pair, so there is no arch
+                 to choose — saying so is more use than a control that offers a
+                 choice the appliance does not have. */
+              <Field label="How many sets?" hint="Made as an upper and lower pair.">
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={quantity}
+                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+                />
+              </Field>
+            ) : (
+              <>
+                <div className="grid-2">
+                  <Field label="Upper arch">
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={upper}
+                      onChange={(e) => setUpper(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </Field>
+                  <Field label="Lower arch">
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={lower}
+                      onChange={(e) => setLower(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </Field>
+                </div>
+                <p className="dim" style={{ marginTop: -6 }}>
+                  {count > 0
+                    ? `${count} tray${count === 1 ? "" : "s"} in total.`
+                    : "Set a count against at least one arch."}
+                </p>
+              </>
+            )}
+
+            {ordering.extra_scan_label && (
+              /* Said before the order is placed, not discovered at the scan
+                 stage: this appliance is built to a jaw position, and the lab
+                 cannot make it from the ordinary three scans. */
+              <Banner tone="warn">
+                A {ordering.name.toLowerCase()} also needs{" "}
+                {/^[aeiou]/i.test(ordering.extra_scan_label) ? "an" : "a"}{" "}
+                <b>{ordering.extra_scan_label.toLowerCase()}</b> — a second bite taken
+                where the appliance will hold the jaw. You will be asked for it with the
+                other three scans.
+              </Banner>
+            )}
 
             {Number(ordering.per_tooth_price) > 0 && (
               <Field
@@ -548,20 +612,6 @@ export default function Catalogue() {
                 Cancel
               </button>
             </div>
-
-            <Field
-              label="For a patient?"
-              hint="Optional — leave it as practice stock if these are for the shelf."
-            >
-              <select value={patientId} onChange={(e) => setPatientId(e.target.value)}>
-                <option value="">Practice stock — no patient</option>
-                {patients.data?.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name}
-                  </option>
-                ))}
-              </select>
-            </Field>
 
             <Banner tone="ok">
               <div className="order-total">

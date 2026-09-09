@@ -144,10 +144,16 @@ def create_order(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    # Only an order that is purely shelf items can go without a patient. An
-    # appliance is made for someone, even when accessories ride along with it.
+    # An order that is purely shelf items names nobody. Restocking IPR strips is
+    # the practice buying supplies, not clinical work on a person, and asking
+    # which patient a box of retainer cases is for made clinics invent one. A
+    # name sent for such an order is ignored rather than refused: it is not an
+    # error to have asked, there is simply nothing for it to mean.
+    #
+    # An appliance is still made for someone, even when accessories ride along
+    # with it, so this applies only when there is no appliance.
     stock_only = bool(payload.accessories) and not payload.product_id
-    patient = _resolve_patient(db, doctor, payload, optional=stock_only)
+    patient = None if stock_only else _resolve_patient(db, doctor, payload)
     address = _resolve_address(db, doctor, payload.shipping_address_id)
 
     # A by-product ships before it is paid for, so the brake is here: one
@@ -190,6 +196,36 @@ def create_order(
                 f"The {product.name} is not priced per tooth.",
             )
 
+    # How the order divides between the arches, and what that makes the total.
+    #
+    # An appliance made only as a pair is counted in sets: one number, both
+    # arches, and asking which arch would offer a choice that does not exist.
+    # Everything else is a tray per arch, so the clinic says how many of each
+    # and the total is their sum — which keeps quantity meaning exactly what it
+    # meant before, so no price moved when this was split.
+    upper = lower = 0
+    if product is not None and not product.both_arches:
+        if payload.quantity_upper is not None or payload.quantity_lower is not None:
+            upper = payload.quantity_upper or 0
+            lower = payload.quantity_lower or 0
+            if upper + lower < 1:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Say how many {product.name}s you need — upper, lower, or both.",
+                )
+        else:
+            # A caller that still sends one number gets the old behaviour: a
+            # count with no arch split recorded against it.
+            upper = lower = 0
+
+    if product is not None and not product.both_arches and (upper or lower):
+        count = upper + lower
+        arch = Arch.BOTH if upper and lower else (Arch.UPPER if upper else Arch.LOWER)
+    else:
+        count = payload.quantity
+        # A paired appliance is both arches by definition.
+        arch = Arch.BOTH if (product is not None and product.both_arches) else payload.arch
+
     # An order with shelf items and no appliance is an accessory order; one
     # with both is a product order carrying extras. Nothing at all is an
     # aligner case, which is unchanged by any of this.
@@ -207,13 +243,15 @@ def create_order(
         kind=kind,
         product_id=product.id if product else None,
         product_size_id=size.id if size else None,
-        quantity=payload.quantity,
+        quantity=count,
+        quantity_upper=upper,
+        quantity_lower=lower,
         extra_teeth=payload.extra_teeth,
         # Written down now rather than read back off the catalogue later, so a
         # repricing cannot move what this clinic already agreed to.
         unit_price=size.price if size is not None else None,
         unit_per_tooth_price=product.per_tooth_price if product is not None else None,
-        arch=payload.arch,
+        arch=arch,
         # Only an aligner case has doors to choose between. Pinning the other
         # kinds to the default keeps the field from ever being read as meaning
         # something on an order that has no such choice.
@@ -1138,14 +1176,13 @@ def cancel_draft(
 
 
 def _resolve_patient(
-    db: Session, doctor: Doctor, payload: schemas.OrderCreateIn, optional: bool = False
+    db: Session, doctor: Doctor, payload: schemas.OrderCreateIn
 ) -> Optional[Patient]:
-    """Who the order is for, or None where that is not a question.
+    """Who the order is for.
 
-    Restocking IPR strips is the practice buying supplies. Making the clinic
-    name a patient for it meant inventing one, so an accessory order may name
-    nobody — while still allowing a name where the clinic wants the order
-    filed against a case.
+    Every appliance is made for someone, so this is asked of every order that
+    makes one. A pure shelf order never reaches here — it names nobody, and the
+    caller decides that before asking.
     """
     if payload.patient_id:
         patient = db.get(Patient, payload.patient_id)
@@ -1157,8 +1194,6 @@ def _resolve_patient(
         db.add(patient)
         db.flush()
         return patient
-    if optional:
-        return None
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose an existing patient or add a new one.")
 
 

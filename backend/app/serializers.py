@@ -184,7 +184,7 @@ def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schem
         live = [f for f in order.files if f.category == category and not f.is_deleted]
         if not _shows_category(order, category, live):
             continue
-        spec = slots_for(category)
+        spec = order.slot_spec(category)
         # A slot is only required when the set it belongs to is. The photo
         # series marks five of its views mandatory, which is right for an
         # aligner case and wrong for a by-product that is never asked for
@@ -318,6 +318,9 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         branch_id=order.shipping_address_id or "",
         branch_label=_branch_label(order.shipping_address),
         arch=order.arch,
+        quantity=order.quantity or 1,
+        quantity_upper=order.quantity_upper or 0,
+        quantity_lower=order.quantity_lower or 0,
         priority=order.priority,
         needs_doctor_action=order.status in DOCTOR_ACTION_STATUSES,
         created_at=order.created_at,

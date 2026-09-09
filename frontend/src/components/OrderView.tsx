@@ -192,6 +192,29 @@ export function CaseSummary({ order }: { order: OrderDetail }) {
             <dd>{order.product_label}</dd>
           </>
         )}
+        {/* Which arches, and how many of each — the lab is making trays, and
+            "3 sets" never said whether that was three uppers or a mixture. A
+            paired appliance leaves both at zero and says so instead. */}
+        {order.kind === "PRODUCT" && (
+          <>
+            <dt>Arches</dt>
+            <dd>
+              {order.quantity_upper || order.quantity_lower ? (
+                [
+                  order.quantity_upper ? `${order.quantity_upper} upper` : "",
+                  order.quantity_lower ? `${order.quantity_lower} lower` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              ) : (
+                <>
+                  Upper and lower
+                  {order.quantity > 1 ? ` · ${order.quantity} sets` : ""}
+                </>
+              )}
+            </dd>
+          </>
+        )}
         <dt>Priority</dt>
         <dd>{order.priority === "EXPRESS" ? "Express" : "Standard"}</dd>
         {isAligner && (

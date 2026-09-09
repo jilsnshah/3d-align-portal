@@ -34,7 +34,6 @@ from ..enums import (
     STATUS_LABELS,
     FileCategory,
     Slot,
-    slots_for,
     OrderStatus,
     LAB_ROLES,
     UserRole,
@@ -172,7 +171,10 @@ async def upload_file(
             status.HTTP_400_BAD_REQUEST, "Intraoral scans must be uploaded as .stl files."
         )
 
-    expected = [name for name, _ in slots_for(category)]
+    # The order's own spec, not the category's: an appliance built to a
+    # corrected jaw position takes a fourth scan that no other order accepts,
+    # and reading the shared list would have refused the very file it needs.
+    expected = [name for name, _ in order.slot_spec(category)]
     if expected and slot not in expected:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

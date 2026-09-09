@@ -34,7 +34,11 @@ ADDITIONS = [
         ("first_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
         ("last_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
     ]),
-    ("products", [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")]),
+    ("products", [
+        ("image_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
+        ("extra_scan_slot", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ("both_arches", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ]),
     ("product_sizes", []),
     ("accessories", [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")]),
     ("order_phases", []),
@@ -76,9 +80,11 @@ ADDITIONS = [
     ("appointments", [
         ("needs_attention_at", "DATETIME"),
         ("attention_reason", "VARCHAR(300) NOT NULL DEFAULT ''"),
-        ("is_day_visit", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("is_day_visit", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ]),
     ("orders", [
+        ("quantity_upper", "INTEGER NOT NULL DEFAULT 0"),
+        ("quantity_lower", "INTEGER NOT NULL DEFAULT 0"),
         ("intake", "VARCHAR(40) NOT NULL DEFAULT 'QUOTE_FIRST'"),
         # Backfilled by backfill_case_numbers.py, which also re-packs the AL
         # series so it only covers cases that actually reached planning.
@@ -117,7 +123,7 @@ ADDITIONS = [
         ("decision_notes", "TEXT NOT NULL DEFAULT ''"),
     ]),
     ("quotes", [
-        ("is_final", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("is_final", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("category_price_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("subtotal_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("total_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),

@@ -245,7 +245,15 @@ class Order(Base, TimestampMixin):
     # Only set on a product order.
     product_id: Mapped[Optional[str]] = mapped_column(ForeignKey("products.id"))
     product_size_id: Mapped[Optional[str]] = mapped_column(ForeignKey("product_sizes.id"))
+    # The total, and what every price is multiplied by. Kept as the total so
+    # that splitting it by arch changed no figure anyone had already been shown.
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # How that total divides between the arches. A clinic ordering two upper
+    # trays and one lower was previously ordering "three sets" and writing which
+    # in the notes, if at all — and the lab made whatever it guessed. Both zero
+    # on an appliance made only as a pair, where the question does not arise.
+    quantity_upper: Mapped[int] = mapped_column(Integer, default=0)
+    quantity_lower: Mapped[int] = mapped_column(Integer, default=0)
     # What the size and the per-tooth rate cost at the moment of ordering.
     # Read live off the catalogue before, so repricing an Essix moved the total
     # on every unpaid order that already existed — including ones the clinic
@@ -416,9 +424,27 @@ class Order(Base, TimestampMixin):
             if f.category == category and not f.is_deleted and f.revision == revision and f.slot
         }
 
+    def slot_spec(self, category: str) -> list:
+        """Which slots this order's set is made of.
+
+        Almost always the category's own list. A scan for an appliance built to
+        a corrected jaw position carries one more: the bite taken where the
+        appliance will hold it. Asked for here rather than in SLOT_SPEC because
+        it belongs to the product, not to scans in general.
+        """
+        spec = enums.slots_for(category)
+        if category == enums.FileCategory.INTRAORAL_SCAN and self.product is not None:
+            extra = self.product.extra_scan_slot
+            if extra:
+                return spec + [(extra, True)]
+        return spec
+
+    def required_slots_for(self, category: str) -> list:
+        return [slot for slot, needed in self.slot_spec(category) if needed]
+
     def missing_slots(self, category: str) -> list:
         filled = self.filled_slots(category)
-        return [s for s in enums.required_slots(category) if s not in filled]
+        return [s for s in self.required_slots_for(category) if s not in filled]
 
     @property
     def has_intraoral_scan(self) -> bool:
@@ -1264,6 +1290,17 @@ class Product(Base, TimestampMixin):
     # A photograph of the thing. Empty until the lab has one, and the shelf
     # shows a marked placeholder rather than a broken tile in the meantime.
     image_url: Mapped[str] = mapped_column(String(500), default="")
+    # Some appliances cannot be made from the ordinary three scans. A TMJ splint
+    # is built to a corrected jaw position and a jaw-correction appliance to an
+    # advanced one, so each needs a second bite taken where the appliance will
+    # hold the jaw. Which one depends on what is being corrected, so it is a
+    # property of the product rather than of every scan.
+    extra_scan_slot: Mapped[str] = mapped_column(String(40), default="")
+    # Appliances that are only ever made as an upper-and-lower pair. Everything
+    # else is a tray per arch, and the clinic says how many of each it wants —
+    # asking that of a jaw-correction appliance would offer a choice that does
+    # not exist.
+    both_arches: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

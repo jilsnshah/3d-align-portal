@@ -17,6 +17,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from ..enums import Slot
 from ..models import Order, Product, ProductSize
 
 CENTS = Decimal("0.01")
@@ -37,6 +38,18 @@ SEED: list = [
     ("PBP", "Posterior Bite Plate", 0, 0, [("standard", 2500)]),
     ("JA", "Mandibular Jaw Correction", 0, 0, [("standard", 4000)]),
 ]
+
+# Appliances built to a jaw position rather than to the jaw as it sits. Each
+# needs a second bite, taken where the appliance will hold the jaw — without
+# it the lab is guessing at the very thing the appliance exists to change.
+EXTRA_SCAN: dict = {
+    "TMJ": Slot.CORRECTION_BITE,
+    "JA": Slot.ADVANCEMENT_BITE,
+}
+
+# Appliances only ever made as an upper-and-lower pair. Everything else is a
+# tray per arch and the clinic says how many of each.
+BOTH_ARCHES = {"TMJ", "JA"}
 
 
 def money(value) -> Decimal:
@@ -63,6 +76,8 @@ def ensure_products(db: Session) -> list:
                 name=name,
                 per_tooth_price=money(per_tooth),
                 included_teeth=included,
+                extra_scan_slot=EXTRA_SCAN.get(code, ""),
+                both_arches=code in BOTH_ARCHES,
                 sort_order=order,
             )
             db.add(product)
@@ -71,6 +86,13 @@ def ensure_products(db: Session) -> list:
                     ProductSize(label=label, price=money(price), sort_order=index)
                 )
             continue
+
+        # What an appliance needs is not a price, so unlike prices it is
+        # corrected on every boot: a lab already running must learn that a TMJ
+        # splint wants a correction bite, or it will keep being handed scans it
+        # cannot build from.
+        product.extra_scan_slot = EXTRA_SCAN.get(code, "")
+        product.both_arches = code in BOTH_ARCHES
 
         held = {size.label for size in product.sizes}
         added = [(label, price) for label, price in sizes if label not in held]

@@ -256,6 +256,13 @@ export interface Product {
   sizes: ProductSize[];
   /** False when there is only one form of it, which is not a choice worth asking. */
   has_choice_of_size: boolean;
+  /** A second bite this appliance is built to, where it needs one. Empty for
+      everything made from the ordinary three scans. */
+  extra_scan_slot: string;
+  extra_scan_label: string;
+  /** Only ever made as an upper-and-lower pair, so the clinic says how many
+      sets rather than how many of each arch. */
+  both_arches: boolean;
 }
 
 /** What delivery will cost on a product order placed right now.
@@ -389,6 +396,11 @@ export interface OrderSummary {
   branch_id: string;
   branch_label: string;
   arch: "UPPER" | "LOWER" | "BOTH";
+  /** How the order divides between the arches, where that was a question. A
+      paired appliance leaves both at zero: it had no arch to choose. */
+  quantity: number;
+  quantity_upper: number;
+  quantity_lower: number;
   priority: "STANDARD" | "EXPRESS";
   needs_doctor_action: boolean;
   created_at: string;

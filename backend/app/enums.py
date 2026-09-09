@@ -237,6 +237,11 @@ class Slot(str, Enum):
     UPPER_ARCH = "UPPER_ARCH"
     LOWER_ARCH = "LOWER_ARCH"
     BITE = "BITE"
+    # A second bite, taken with the jaw held where the appliance will hold it.
+    # Only some appliances need one, and which one depends on what is being
+    # corrected — so this is asked for per product rather than of every scan.
+    CORRECTION_BITE = "CORRECTION_BITE"
+    ADVANCEMENT_BITE = "ADVANCEMENT_BITE"
 
     # Intraoral photographs
     INTRAORAL_FRONTAL = "INTRAORAL_FRONTAL"
@@ -267,6 +272,8 @@ SLOT_LABELS: dict[str, str] = {
     Slot.UPPER_ARCH: "Upper arch",
     Slot.LOWER_ARCH: "Lower arch",
     Slot.BITE: "Bite registration",
+    Slot.CORRECTION_BITE: "Correction bite",
+    Slot.ADVANCEMENT_BITE: "Advancement bite",
     Slot.INTRAORAL_FRONTAL: "Frontal, in occlusion",
     Slot.BUCCAL_RIGHT: "Buccal right",
     Slot.BUCCAL_LEFT: "Buccal left",
