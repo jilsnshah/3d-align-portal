@@ -32,7 +32,18 @@ export default function ProductImage({
   return (
     <div className="tile-media" style={{ aspectRatio: ratio }}>
       {usable ? (
-        <img src={src} alt={name} loading="lazy" onError={() => setBroken(true)} />
+        /* These are 3D Align's own catalogue cards — whole posters with the
+           appliance named on them, not cut-out product shots. Cropping one to
+           fill a landscape tile would show a slice of black and none of the
+           appliance, so the card is shown entire on a ground dark enough for
+           its own to disappear into. */
+        <img
+          className="tile-poster"
+          src={src}
+          alt={name}
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
       ) : (
         <span className="tile-mark" aria-hidden="true">
           <span className="tile-code">{code}</span>

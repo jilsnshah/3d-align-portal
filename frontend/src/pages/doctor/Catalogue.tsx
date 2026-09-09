@@ -277,7 +277,12 @@ export default function Catalogue() {
       <div className="catalogue-grid">
         {products.data?.map((product) => (
           <article key={product.id} className="product-card">
-            <ProductImage src={product.image_url} code={product.code} name={product.name} />
+            <ProductImage
+              src={product.image_url}
+              code={product.code}
+              name={product.name}
+              ratio="4 / 5"
+            />
 
             <div className="product-body">
               <h3>{product.name}</h3>

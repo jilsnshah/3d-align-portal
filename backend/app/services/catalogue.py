@@ -51,6 +51,23 @@ EXTRA_SCAN: dict = {
 # tray per arch and the clinic says how many of each.
 BOTH_ARCHES = {"TMJ", "JA"}
 
+# 3D Align's own catalogue cards, served from the app rather than hotlinked.
+# The originals sit on Instagram behind signed URLs that expire within days, so
+# linking to them would have given working pictures for a week and broken tiles
+# after that. These are copies, shipped with the frontend.
+#
+# The remaining products have no card yet and keep the lettered placeholder,
+# which says what the thing is rather than pretending to show it.
+IMAGES: dict = {
+    "ER": "/products/ER.jpg",
+    "GER": "/products/GER.jpg",
+    "PR": "/products/PR.jpg",
+    "NG": "/products/NG.jpg",
+    "TMJ": "/products/TMJ.jpg",
+    "SG": "/products/SG.jpg",
+    "JA": "/products/JA.jpg",
+}
+
 
 def money(value) -> Decimal:
     return Decimal(value or 0).quantize(CENTS, rounding=ROUND_HALF_UP)
@@ -78,6 +95,7 @@ def ensure_products(db: Session) -> list:
                 included_teeth=included,
                 extra_scan_slot=EXTRA_SCAN.get(code, ""),
                 both_arches=code in BOTH_ARCHES,
+                image_url=IMAGES.get(code, ""),
                 sort_order=order,
             )
             db.add(product)
@@ -93,6 +111,10 @@ def ensure_products(db: Session) -> list:
         # cannot build from.
         product.extra_scan_slot = EXTRA_SCAN.get(code, "")
         product.both_arches = code in BOTH_ARCHES
+        # Only filled in, never cleared: a lab that has put its own photograph
+        # against a product keeps it, and one that has none gains ours.
+        if IMAGES.get(code) and not product.image_url:
+            product.image_url = IMAGES[code]
 
         held = {size.label for size in product.sizes}
         added = [(label, price) for label, price in sizes if label not in held]
