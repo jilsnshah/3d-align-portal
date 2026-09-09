@@ -69,7 +69,7 @@ shelf = doc.get("/api/accessories").json()
 
 def order_product(client, name):
     return client.post("/api/orders", json={
-        "new_patient": {"full_name": name},
+        "new_patient": {"first_name": name, "last_name": ""},
         "product_id": er["id"], "product_size_id": size["id"], "quantity": 1,
     }).json()
 
@@ -206,7 +206,7 @@ check("the confirmed payment is untouched by it", len(led["history"]) == 1)
 
 # An aligner case raises several charges of its own; the rejected one has to
 # stay at the top of the list whatever else appears under it.
-al = doc.post("/api/orders", json={"new_patient": {"full_name": "Aligner Case"},
+al = doc.post("/api/orders", json={"new_patient": {"first_name": "Aligner", "last_name": "Case"},
                                    "arch": "BOTH"}).json()
 for slot in ["INTRAORAL_FRONTAL", "BUCCAL_RIGHT", "BUCCAL_LEFT",
              "OCCLUSAL_UPPER", "OCCLUSAL_LOWER"]:

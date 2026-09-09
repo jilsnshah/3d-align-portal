@@ -48,7 +48,7 @@ def missing_categories(order: Order) -> list[FileCategory]:
         for f in order.files
         if not f.is_deleted and f.revision == order.revision_for(FILE_GROUP[f.category])
     }
-    return [c for c in required_submit_categories(order.kind) if c not in present]
+    return [c for c in required_submit_categories(order.kind, order.intake) if c not in present]
 
 
 from .enums import CATEGORY_TITLES
@@ -190,7 +190,7 @@ def record_sets(order: Order, viewer_role=None, plan_locked=False) -> list[schem
         # aligner case and wrong for a by-product that is never asked for
         # photographs at all — the tiles said REQUIRED and the panel counted
         # "5 missing" for a set nothing was waiting on.
-        category_required = category in required_categories(order.kind)
+        category_required = category in required_categories(order.kind, order.intake)
         if not category_required:
             spec = [(name, False) for name, _ in spec]
 
@@ -291,6 +291,7 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         id=order.id,
         order_number=order.reference,
         kind=order.kind,
+        intake=order.intake,
         product_label=catalogue.describe(order),
         status=order.status,
         status_label=_status_label(order),

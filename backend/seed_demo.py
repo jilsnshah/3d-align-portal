@@ -143,7 +143,7 @@ def new_case(patient: str, complaint: str, priority: str = "STANDARD") -> str:
         doctor.post(
             f"{BASE}/orders",
             json={
-                "new_patient": {"full_name": patient},
+                "new_patient": {"first_name": patient, "last_name": ""},
                 "arch": "BOTH",
                 "priority": priority,
                 "chief_complaint": complaint,

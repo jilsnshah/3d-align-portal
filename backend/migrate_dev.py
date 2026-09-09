@@ -13,26 +13,35 @@ from app.db import engine
 
 # Tables introduced later are created by create_all(); this only patches columns
 # added to tables that already exist.
-ADDITIONS = {
-    "users": [
+# A list of pairs rather than a dict, and deliberately so: a dict literal with
+# the same table named twice keeps only the last one and says nothing about it.
+# That silently dropped two columns from this file once — the migration
+# reported success, the deploy went out, and every request touching that table
+# returned 500. A repeated table here is now merely redundant, not destructive.
+ADDITIONS = [
+    ("users", [
         ("full_name", "VARCHAR(200) NOT NULL DEFAULT ''"),
         ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
-    ],
-    "addresses": [
+    ]),
+    ("addresses", [
         ("latitude", "FLOAT"),
         ("longitude", "FLOAT"),
         ("geocode_source", "VARCHAR(20) NOT NULL DEFAULT ''"),
         ("geocoded_at", "TIMESTAMP"),
-    ],
-    "shipping_rates": [],
-    "products": [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")],
-    "product_sizes": [],
-    "accessories": [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")],
-    "order_phases": [],
-    "phase_fit_issues": [("awaiting", "VARCHAR(10) NOT NULL DEFAULT 'LAB'")],
-    "phase_issue_messages": [],
-    "payments": [],
-    "booking_settings": [
+    ]),
+    ("shipping_rates", []),
+    ("patients", [
+        ("first_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
+        ("last_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
+    ]),
+    ("products", [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")]),
+    ("product_sizes", []),
+    ("accessories", [("image_url", "VARCHAR(500) NOT NULL DEFAULT ''")]),
+    ("order_phases", []),
+    ("phase_fit_issues", [("awaiting", "VARCHAR(10) NOT NULL DEFAULT 'LAB'")]),
+    ("phase_issue_messages", []),
+    ("payments", []),
+    ("booking_settings", [
         ("lab_geocode_source", "VARCHAR(30) NOT NULL DEFAULT ''"),
         ("upi_vpa", "VARCHAR(120) NOT NULL DEFAULT ''"),
         ("upi_payee_name", "VARCHAR(120) NOT NULL DEFAULT '3D Align'"),
@@ -52,24 +61,25 @@ ADDITIONS = {
         ("fallback_speed_kmph", "FLOAT NOT NULL DEFAULT 22.0"),
         ("service_radius_km", "FLOAT NOT NULL DEFAULT 120.0"),
         ("day_visit_over_km", "FLOAT NOT NULL DEFAULT 45.0"),
-    ],
-    "travel_estimates": [
+    ]),
+    ("travel_estimates", [
         ("bucket", "VARCHAR(10) NOT NULL DEFAULT ''"),
         ("expires_at", "TIMESTAMP"),
-    ],
-    "time_off": [
+    ]),
+    ("time_off", [
         ("status", "VARCHAR(20) NOT NULL DEFAULT 'APPROVED'"),
         ("requested_by_id", "VARCHAR(36)"),
         ("decided_by_id", "VARCHAR(36)"),
         ("decided_at", "DATETIME"),
         ("decision_note", "VARCHAR(300) NOT NULL DEFAULT ''"),
-    ],
-    "appointments": [
+    ]),
+    ("appointments", [
         ("needs_attention_at", "DATETIME"),
         ("attention_reason", "VARCHAR(300) NOT NULL DEFAULT ''"),
         ("is_day_visit", "BOOLEAN NOT NULL DEFAULT 0"),
-    ],
-    "orders": [
+    ]),
+    ("orders", [
+        ("intake", "VARCHAR(40) NOT NULL DEFAULT 'QUOTE_FIRST'"),
         # Backfilled by backfill_case_numbers.py, which also re-packs the AL
         # series so it only covers cases that actually reached planning.
         ("enquiry_number", "VARCHAR(30) NOT NULL DEFAULT ''"),
@@ -93,35 +103,37 @@ ADDITIONS = {
         ("extra_teeth", "INTEGER NOT NULL DEFAULT 0"),
         ("scan_reused_from_id", "VARCHAR(36)"),
         ("scan_received_at", "TIMESTAMP"),
-    ],
-    "order_files": [
+    ]),
+    ("order_files", [
         ("revision", "INTEGER NOT NULL DEFAULT 1"),
         ("slot", "VARCHAR(40) NOT NULL DEFAULT ''"),
         ("deleted_at", "TIMESTAMP"),
         ("deleted_by_id", "VARCHAR(36)"),
-    ],
-    "shipments": [
+    ]),
+    ("shipments", [
         ("fit_round", "INTEGER"),
         ("phase_decision", "VARCHAR(20)"),
         ("phase_round", "INTEGER"),
         ("decision_notes", "TEXT NOT NULL DEFAULT ''"),
-    ],
-    "quotes": [
+    ]),
+    ("quotes", [
         ("is_final", "BOOLEAN NOT NULL DEFAULT 0"),
         ("category_price_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("subtotal_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("total_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
-    ],
-    "aligner_prices": [
+        ("discount", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
+        ("discount_reason", "VARCHAR(255) NOT NULL DEFAULT ''"),
+    ]),
+    ("aligner_prices", [
         ("price_min", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("price_max", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
-    ],
-    "fit_reviews": [("fit_round", "INTEGER NOT NULL DEFAULT 1")],
-    "treatment_plans": [
+    ]),
+    ("fit_reviews", [("fit_round", "INTEGER NOT NULL DEFAULT 1")]),
+    ("treatment_plans", [
         ("final_discount", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
         ("final_discount_reason", "VARCHAR(160) NOT NULL DEFAULT ''"),
-    ],
-}
+    ]),
+]
 
 # Roles were renamed when technicians arrived.
 ROLE_RENAMES = [("STAFF", "ADMIN")]
@@ -136,7 +148,7 @@ inspector = inspect(engine)
 applied = 0
 
 with engine.begin() as conn:
-    for table, columns in ADDITIONS.items():
+    for table, columns in ADDITIONS:
         if table not in inspector.get_table_names():
             print(f"  skip {table} (table does not exist yet)")
             continue
@@ -185,6 +197,42 @@ with engine.begin() as conn:
             conn.exec_driver_sql("ALTER TABLE orders ALTER COLUMN patient_id DROP NOT NULL")
             print("  ~ orders.patient_id is now nullable")
             applied += 1
+
+    # Patients were named in one box before they were named in two. Split what
+    # is already there on the first space: "Riya Mehta" becomes Riya + Mehta,
+    # and a single-word name keeps it as the first name with no last. Only rows
+    # that have not been split already, so a clinic that has since corrected a
+    # name by hand does not have it overwritten.
+    split = conn.exec_driver_sql(
+        """
+        UPDATE patients SET
+            first_name = CASE
+                WHEN full_name LIKE '% %'
+                    THEN SUBSTR(full_name, 1, INSTR(full_name, ' ') - 1)
+                ELSE full_name
+            END,
+            last_name = CASE
+                WHEN full_name LIKE '% %'
+                    THEN SUBSTR(full_name, INSTR(full_name, ' ') + 1)
+                ELSE ''
+            END
+        WHERE COALESCE(first_name, '') = '' AND COALESCE(full_name, '') <> ''
+        """
+        if sqlite
+        else """
+        UPDATE patients SET
+            first_name = SPLIT_PART(full_name, ' ', 1),
+            last_name = CASE
+                WHEN POSITION(' ' IN full_name) > 0
+                    THEN SUBSTRING(full_name FROM POSITION(' ' IN full_name) + 1)
+                ELSE ''
+            END
+        WHERE COALESCE(first_name, '') = '' AND COALESCE(full_name, '') <> ''
+        """
+    )
+    if split.rowcount and split.rowcount > 0:
+        print(f"  ~ patients.full_name split into first/last ({split.rowcount} row(s))")
+        applied += split.rowcount
 
     # Orders placed before the price was written down take today's catalogue
     # figure, which is what they were already being charged. Doing it once here

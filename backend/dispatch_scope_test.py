@@ -75,7 +75,7 @@ def audit(label, oid, expect_status):
 
 print("BY-PRODUCT")
 o = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "P"}, "product_id": er["id"],
+    "new_patient": {"first_name": "P", "last_name": ""}, "product_id": er["id"],
     "product_size_id": size["id"], "quantity": 1,
 }).json()
 oid = o["id"]

@@ -106,7 +106,7 @@ def case_awaiting_scan(patient, complaint):
         doctor.post(
             f"{BASE}/orders",
             json={
-                "new_patient": {"full_name": patient},
+                "new_patient": {"first_name": patient, "last_name": ""},
                 "arch": "BOTH",
                 "chief_complaint": complaint,
                 "clinical_notes": "Periodontally stable. No active caries.",

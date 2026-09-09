@@ -121,7 +121,7 @@ order = check(
     doctor.post(
         f"{BASE}/orders",
         json={
-            "new_patient": {"full_name": PATIENT},
+            "new_patient": {"first_name": PATIENT, "last_name": ""},
             "arch": "BOTH",
             "chief_complaint": "Crowding with a rotated 12. Wants a clear option.",
             "clinical_notes": "Periodontally stable. IPR acceptable to the patient.",

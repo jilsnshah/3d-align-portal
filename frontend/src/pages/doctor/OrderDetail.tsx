@@ -111,7 +111,7 @@ export default function DoctorOrderDetail() {
   const openIssue = data.phase_issues.find((i) => i.status === "OPEN") ?? null;
   // The rail reports which stage is open; anything other than the case's own
   // means the page is being read rather than worked.
-  const liveStage = stageIndex(data.kind, data.status);
+  const liveStage = stageIndex(data.kind, data.status, data.intake);
   const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
 
   return (
@@ -417,6 +417,14 @@ function DoctorActions({
           <p style={{ fontSize: "1.35rem", fontWeight: 680 }} className="num">
             {formatMoney(quote.total, quote.currency)}
           </p>
+          {/* A discount the clinic is not told about is a discount they cannot
+              pass on to the patient, so it is named rather than folded in. */}
+          {Number(quote.discount) > 0 && (
+            <p className="quote-discount">
+              Includes {formatMoney(quote.discount, quote.currency)} off
+              {quote.discount_reason ? ` — ${quote.discount_reason}` : ""}
+            </p>
+          )}
           <ErrorText error={acceptQuote.error} />
           <button
             type="button"

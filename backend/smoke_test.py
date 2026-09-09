@@ -169,7 +169,7 @@ with TestClient(app) as client:
     )
     check("doctor registers", r.status_code == 201, r.text)
 
-    r = doctor.post("/api/orders", json={"new_patient": {"full_name": "Riya Patel"}})
+    r = doctor.post("/api/orders", json={"new_patient": {"first_name": "Riya", "last_name": "Patel"}})
     check("unverified doctor is blocked", r.status_code == 403, r.text)
 
     r = staff.post("/api/auth/login", json={"email": "staff@3dalign.example.com", "password": "staffpassword"})
@@ -230,7 +230,7 @@ with TestClient(app) as client:
     r = doctor.post(
         "/api/orders",
         json={
-            "new_patient": {"full_name": "Riya Patel", "sex": "F"},
+            "new_patient": {"first_name": "Riya", "last_name": "Patel", "sex": "F"},
             "arch": "BOTH",
             "priority": "STANDARD",
             "chief_complaint": "Crowding, upper anteriors.",
@@ -1426,7 +1426,7 @@ with TestClient(app) as client:
         r = doctor.post(
             "/api/orders",
             json={
-                "new_patient": {"full_name": name, "sex": "F"},
+                "new_patient": {"first_name": name, "last_name": "", "sex": "F"},
                 "arch": "BOTH",
                 "priority": "STANDARD",
                 "chief_complaint": "Spacing.",

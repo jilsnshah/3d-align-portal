@@ -32,8 +32,8 @@ export function ProgressRail({
   // The stages a by-product goes through are not the stages an aligner case
   // goes through. Both used to render the aligner's six, so a retainer showed
   // "Treatment plan" and "Training aligner" it would never reach.
-  const stages = stagesFor(order.kind);
-  const currentIndex = stageIndex(order.kind, order.status);
+  const stages = stagesFor(order.kind, order.intake);
+  const currentIndex = stageIndex(order.kind, order.status, order.intake);
 
   return (
     <div className="progress" role="list" aria-label="Case progress">
@@ -202,7 +202,16 @@ export function CaseSummary({ order }: { order: OrderDetail }) {
         )}
         {order.approved_at && (
           <>
-            <dt>{isAligner ? "Quote accepted" : "Ordered on"}</dt>
+            {/* A case that came in with its scan accepted no quote, so dating
+                the row by one would be recording something that never
+                happened. It is simply when the case opened. */}
+            <dt>
+              {!isAligner
+                ? "Ordered on"
+                : order.intake === "SCAN_DIRECT"
+                  ? "Case opened"
+                  : "Quote accepted"}
+            </dt>
             <dd>{formatDate(order.approved_at)}</dd>
           </>
         )}
@@ -639,6 +648,7 @@ export function InvoiceCard({ order }: { order: OrderDetail }) {
 export function Timeline({ order }: { order: OrderDetail }) {
   const events = [...order.events].reverse();
   const kind = order.kind;
+  const intake = order.intake;
   return (
     <div className="card">
       <h4 style={{ marginBottom: 14 }}>History</h4>
@@ -650,7 +660,7 @@ export function Timeline({ order }: { order: OrderDetail }) {
             <div key={event.id} className="tl-item">
               <div className="tl-dot" />
               <div className="tl-body">
-                <div className="tl-title">{statusLabel(event.to_status, kind)}</div>
+                <div className="tl-title">{statusLabel(event.to_status, kind, intake)}</div>
                 <div className="tl-meta">
                   {event.actor_name} · {formatDate(event.created_at)}
                 </div>
@@ -700,7 +710,18 @@ const KIND_LABELS: Record<string, Record<string, string>> = {
   },
 };
 
-function statusLabel(status: string, kind?: string): string {
+/* An aligner case that came in with its scan never had a quote to accept, so
+   the one entry that says it did is replaced. It is not a different kind, so
+   it cannot go in the map above. */
+const SCAN_DIRECT_LABELS: Record<string, string> = {
+  DRAFT: "Case started",
+  AWAITING_SCAN: "Scan requested",
+};
+
+function statusLabel(status: string, kind?: string, intake?: string): string {
+  if (kind === "ALIGNER" && intake === "SCAN_DIRECT" && SCAN_DIRECT_LABELS[status]) {
+    return SCAN_DIRECT_LABELS[status];
+  }
   const override = kind ? KIND_LABELS[kind]?.[status] : undefined;
   return override ?? LABELS[status] ?? status;
 }

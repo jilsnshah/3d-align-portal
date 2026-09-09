@@ -142,6 +142,35 @@ class FileCategory(str, Enum):
     OTHER = "OTHER"
 
 
+class AlignerIntake(str, Enum):
+    """Which door an aligner case came in by.
+
+    A clinic weighing up whether to treat at all needs the estimate before
+    anything else: the lab reads the photographs, picks a band, and the clinic
+    accepts a figure before a scanner is switched on. A clinic that already has
+    the patient in the chair with the scan in hand needs none of that — it needs
+    the lab to take the scan and get on with it.
+
+    Both are aligner cases and both meet at the scan. The difference is only
+    what happens before that, which is why this is a field on the order rather
+    than a fourth kind: nothing downstream of SCAN_SUBMITTED reads it.
+    """
+
+    # Photographs, an expected quote, acceptance, then the scan. The original
+    # path, and still the default for anything that does not say otherwise.
+    QUOTE_FIRST = "QUOTE_FIRST"
+    # Straight to the scan. No photographs are demanded and no estimate is
+    # raised; the price is settled at the treatment plan like every case's
+    # real price always was.
+    SCAN_DIRECT = "SCAN_DIRECT"
+
+
+ALIGNER_INTAKE_LABELS: dict[str, str] = {
+    AlignerIntake.QUOTE_FIRST: "Expected quote first",
+    AlignerIntake.SCAN_DIRECT: "Submitted with the scan",
+}
+
+
 # Enforced by /orders/{id}/submit.
 REQUIRED_SUBMIT_CATEGORIES = [FileCategory.RECORD_PHOTO, FileCategory.OPG]
 
@@ -162,16 +191,22 @@ REQUIRED_SUBMIT_CATEGORIES_PRODUCT: list = []
 REQUIRED_SUBMIT_CATEGORIES_ACCESSORY: list = []
 
 
-def required_submit_categories(kind) -> list:
+def required_submit_categories(kind, intake=None) -> list:
     """What must be on the case before the clinic may place the order."""
     if kind == OrderKind.ACCESSORY:
         return REQUIRED_SUBMIT_CATEGORIES_ACCESSORY
     if kind == OrderKind.PRODUCT:
         return REQUIRED_SUBMIT_CATEGORIES_PRODUCT
+    # A case coming in with its scan is not being read for an estimate, so the
+    # photographs the estimate was read from are not what it waits on. Asking
+    # for them anyway would make the direct door slower than the one it exists
+    # to be an alternative to.
+    if intake == AlignerIntake.SCAN_DIRECT:
+        return []
     return REQUIRED_SUBMIT_CATEGORIES
 
 
-def required_categories(kind) -> list:
+def required_categories(kind, intake=None) -> list:
     """Everything the case will be asked for before it is finished.
 
     Wider than the submit list, and the difference is the point: a by-product
@@ -184,6 +219,8 @@ def required_categories(kind) -> list:
         # Nothing is made and nothing is fitted. Nothing is ever asked for.
         return []
     if kind == OrderKind.PRODUCT:
+        return [FileCategory.INTRAORAL_SCAN]
+    if intake == AlignerIntake.SCAN_DIRECT:
         return [FileCategory.INTRAORAL_SCAN]
     return REQUIRED_SUBMIT_CATEGORIES + [FileCategory.INTRAORAL_SCAN]
 

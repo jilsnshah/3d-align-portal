@@ -73,12 +73,16 @@ export interface Address {
   is_default_shipping: boolean;
 }
 
+/** Which door an aligner case came in by. */
+export type AlignerIntake = "QUOTE_FIRST" | "SCAN_DIRECT";
+
 export interface Patient {
   id: string;
   full_name: string;
   date_of_birth: string;
   sex: string;
-  external_ref: string;
+  first_name: string;
+  last_name: string;
   created_at: string;
 }
 
@@ -161,6 +165,10 @@ export interface Quote {
   subtotal_max: string;
   total_max: string;
   subtotal: string;
+  /** Taken off the estimate before tax, so the accepted figure is the offered
+      one. Both ends of the band move by the same amount. */
+  discount: string;
+  discount_reason: string;
   tax: string;
   total: string;
   currency: string;
@@ -357,6 +365,9 @@ export interface OrderSummary {
   order_number: string;
   /** An aligner case, or one of the other things the lab makes. */
   kind: OrderKind;
+  /** Which door an aligner case came in by. Always QUOTE_FIRST on the other
+      kinds, which have only one way in. */
+  intake: AlignerIntake;
   /** Already spelled out: "Essix Retainer · 0.8 mm · x3". Empty for aligners. */
   product_label: string;
   status: OrderStatus;

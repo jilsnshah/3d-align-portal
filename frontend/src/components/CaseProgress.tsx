@@ -1,4 +1,4 @@
-import type { OrderKind, OrderStatus } from "../api";
+import type { AlignerIntake, OrderKind, OrderStatus } from "../api";
 import { StatusPill } from "./ui";
 import { STUCK, stageIndex, stagesFor } from "../workflow";
 
@@ -14,12 +14,14 @@ export default function CaseProgress({
   status,
   label,
   kind = "ALIGNER",
+  intake = "QUOTE_FIRST",
   phaseDone,
   phaseTotal,
 }: {
   status: OrderStatus;
   label: string;
   kind?: OrderKind;
+  intake?: AlignerIntake;
   /** For a case in delivery, how many of its phases are finished. */
   phaseDone?: number;
   phaseTotal?: number;
@@ -29,8 +31,8 @@ export default function CaseProgress({
   }
 
   const done = status === "COMPLETED";
-  const stages = stagesFor(kind);
-  const index = stageIndex(kind, status);
+  const stages = stagesFor(kind, intake);
+  const index = stageIndex(kind, status, intake);
   // Phases only describe the delivery stage. A case that has been divided but
   // is back at the scan stage after a refinement is not "phase 3 of 5" — it is
   // waiting for a scan, and saying otherwise reads as progress it has not made.

@@ -309,7 +309,7 @@ def create_patient(
     doctor: Doctor = Depends(verified_doctor),
     db: Session = Depends(get_db),
 ):
-    patient = Patient(doctor_id=doctor.id, **payload.model_dump())
+    patient = Patient.from_input(doctor.id, payload)
     db.add(patient)
     db.commit()
     db.refresh(patient)

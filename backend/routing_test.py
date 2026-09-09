@@ -129,7 +129,8 @@ def at(hour, minute=0):
 
 def book(tech, address, hour, minute=0):
     doctor = db.query(Doctor).filter(Doctor.id == address.doctor_id).one()
-    patient = Patient(doctor_id=doctor.id, full_name="Test Patient")
+    patient = Patient(doctor_id=doctor.id, first_name="Test", last_name="Patient",
+                      full_name="Test Patient")
     db.add(patient)
     db.flush()
     book.seq += 1

@@ -107,7 +107,7 @@ export default function StaffOrderDetail() {
     }
   };
 
-  const liveStage = stageIndex(data.kind, data.status);
+  const liveStage = stageIndex(data.kind, data.status, data.intake);
   const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
 
   return (
@@ -231,6 +231,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
   const [category, setCategory] = useState("");
   const [extras, setExtras] = useState<{ description: string; unit_price: string; quantity: number }[]>([]);
   const [tax, setTax] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
   const prices = useQuery({ queryKey: ["pricing"], queryFn: api.pricing });
   const [plan, setPlan] = useState({
     aligners_upper: "",
@@ -272,6 +274,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             unit_price: item.unit_price,
             quantity: Number(item.quantity) || 1,
           })),
+        discount: discount || "0",
+        discount_reason: discountReason,
         tax: tax || "0",
       }),
     onSuccess: onDone,
@@ -364,8 +368,18 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     (sum, item) => sum + (Number(item.unit_price) || 0) * (Number(item.quantity) || 0),
     0,
   );
-  const totalLow = (Number(chosen?.price_min) || 0) + extrasTotal + (Number(tax) || 0);
-  const totalHigh = (Number(chosen?.price_max) || 0) + extrasTotal + (Number(tax) || 0);
+  // Taken off before tax, and off both ends of the band by the same amount:
+  // it is one discount on one case, not a proportion of a range. Mirrors what
+  // the server does, so the preview cannot promise a different figure.
+  const off = Number(discount) || 0;
+  const totalLow = (Number(chosen?.price_min) || 0) + extrasTotal - off + (Number(tax) || 0);
+  const totalHigh = (Number(chosen?.price_max) || 0) + extrasTotal - off + (Number(tax) || 0);
+  // Named for the quote: the treatment plan carries a discount of its own,
+  // and the two must not be confused for one another. Only meaningful once a
+  // band is picked — before that there is no estimate for it to exceed, and
+  // comparing against nothing called every discount too large.
+  const quoteDiscountTooBig =
+    !!chosen && off > (Number(chosen.price_min) || 0) + extrasTotal;
 
   const planTotalAligners =
     Number(plan.aligners_upper || 0) + Number(plan.aligners_lower || 0);
@@ -493,6 +507,25 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
           </div>
 
           <div className="grid-2">
+            <Field label="Discount">
+              <input
+                type="number"
+                min="0"
+                value={discount}
+                placeholder="0"
+                onChange={(e) => setDiscount(e.target.value)}
+              />
+            </Field>
+            <Field label="Reason for the discount">
+              <input
+                value={discountReason}
+                placeholder="Introductory offer, referral, staff case…"
+                onChange={(e) => setDiscountReason(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="grid-2">
             <Field label="Tax">
               <input type="number" value={tax} onChange={(e) => setTax(e.target.value)} />
             </Field>
@@ -501,15 +534,27 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               <p className="num" style={{ fontSize: "1.2rem", fontWeight: 680 }}>
                 {chosen ? formatRange(totalLow, totalHigh) : "—"}
               </p>
+              {off > 0 && chosen && !quoteDiscountTooBig && (
+                <p className="dim" style={{ marginTop: -4 }}>
+                  After {formatMoney(off)} off, before tax.
+                </p>
+              )}
             </div>
           </div>
+
+          {quoteDiscountTooBig && (
+            <Banner tone="danger">
+              The discount is more than the estimate itself. The clinic cannot be shown a
+              figure below zero.
+            </Banner>
+          )}
 
           <ErrorText error={sendQuote.error} />
           <div className="row">
             <button
               type="button"
               className="btn-primary"
-              disabled={sendQuote.isPending || !category}
+              disabled={sendQuote.isPending || !category || quoteDiscountTooBig}
               onClick={() => sendQuote.mutate()}
             >
               {order.status === "QUOTED" ? "Send revised quote" : "Send expected quote"}

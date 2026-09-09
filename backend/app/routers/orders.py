@@ -25,6 +25,7 @@ from ..enums import (
     DispatchMode,
     FileCategory,
     AWAITING_LAB,
+    AlignerIntake,
     Arch,
     PaymentKind,
     PaymentStatus,
@@ -130,7 +131,6 @@ def list_orders(
                 func.lower(Order.enquiry_number).like(needle),
                 func.lower(func.coalesce(Order.order_number, "")).like(needle),
                 func.lower(Patient.full_name).like(needle),
-                func.lower(func.coalesce(Patient.external_ref, "")).like(needle),
             )
         )
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
@@ -214,6 +214,12 @@ def create_order(
         unit_price=size.price if size is not None else None,
         unit_per_tooth_price=product.per_tooth_price if product is not None else None,
         arch=payload.arch,
+        # Only an aligner case has doors to choose between. Pinning the other
+        # kinds to the default keeps the field from ever being read as meaning
+        # something on an order that has no such choice.
+        intake=(
+            payload.intake if kind == OrderKind.ALIGNER else AlignerIntake.QUOTE_FIRST
+        ),
         priority=payload.priority,
         chief_complaint=payload.chief_complaint,
         clinical_notes=payload.clinical_notes,
@@ -226,8 +232,13 @@ def create_order(
 
     # A fixed-price order has nothing left to fill in, so it does not sit as a
     # draft waiting to be submitted — placing it is what starts it. An aligner
-    # case still opens as a draft, because its records are gathered there.
-    if kind in (OrderKind.PRODUCT, OrderKind.ACCESSORY) and order.shipping_address_id:
+    # case still opens as a draft, because its records are gathered there —
+    # unless it came in the direct door, where the scan is the only thing
+    # wanted and there is nothing to gather first.
+    starts_now = kind in (OrderKind.PRODUCT, OrderKind.ACCESSORY) or (
+        kind == OrderKind.ALIGNER and order.intake == AlignerIntake.SCAN_DIRECT
+    )
+    if starts_now and order.shipping_address_id:
         db.flush()
         if not order.storage_folder_ref:
             order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
@@ -321,16 +332,26 @@ def _set_delivery_address(db, order, doctor, address_id) -> None:
 def _begin(db: Session, order: Order, user: User) -> None:
     """Start the order on whatever its first real stage is.
 
-    An aligner case is submitted for the lab to read: it needs photographs
-    looked at and a band picked before anyone knows what it costs, so it waits
-    at SUBMITTED.
+    An aligner case that wants an estimate is submitted for the lab to read: it
+    needs photographs looked at and a band picked before anyone knows what it
+    costs, so it waits at SUBMITTED. One that came in with its scan wants none
+    of that and goes straight to the scan stage, where the upload hands it to
+    the lab exactly as a quoted case's would.
 
     A by-product and an accessory are sold at a catalogue price that was fixed
     long before the order existed. There is nothing to estimate and nothing to
     accept, so placing the order is the whole of the decision — the by-product
     goes to the scan it is made from, and the accessory to the shelf.
     """
-    if order.kind == OrderKind.PRODUCT:
+    if order.kind == OrderKind.ALIGNER and order.intake == AlignerIntake.SCAN_DIRECT:
+        transition(
+            db,
+            order,
+            OrderStatus.AWAITING_SCAN,
+            user,
+            note="Submitted with the scan — no estimate asked for.",
+        )
+    elif order.kind == OrderKind.PRODUCT:
         transition(
             db,
             order,
@@ -1132,7 +1153,7 @@ def _resolve_patient(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Patient not found.")
         return patient
     if payload.new_patient:
-        patient = Patient(doctor_id=doctor.id, **payload.new_patient.model_dump())
+        patient = Patient.from_input(doctor.id, payload.new_patient)
         db.add(patient)
         db.flush()
         return patient

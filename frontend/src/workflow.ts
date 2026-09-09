@@ -16,7 +16,7 @@
  * its own stages so there is one source of truth rather than two that agree.
  */
 
-import type { OrderKind, OrderStatus } from "./api";
+import type { AlignerIntake, OrderKind, OrderStatus } from "./api";
 
 export type Stage = { key: string; label: string; statuses: OrderStatus[] };
 
@@ -32,6 +32,20 @@ const ALIGNER: Stage[] = [
   },
   // PHASE_REVIEW belongs here and was missing from both old copies, so a case
   // waiting on the lab to read its progress photographs showed no stage at all.
+  { key: "delivery", label: "Delivery", statuses: ["ALIGNER_PRODUCTION", "DISPATCHING", "PHASE_REVIEW"] },
+];
+
+/* A case that came in with its own scan was never quoted, so it has no quote
+   stage to show. Leaving the aligner list alone for it drew a stage the case
+   will never enter and a rail that could never fill. */
+const ALIGNER_SCAN_DIRECT: Stage[] = [
+  { key: "scan", label: "Scan", statuses: ["DRAFT", "AWAITING_SCAN", "SCAN_SUBMITTED"] },
+  { key: "plan", label: "Treatment plan", statuses: ["IN_PLANNING", "PLAN_SHARED"] },
+  {
+    key: "fit",
+    label: "Training aligner",
+    statuses: ["TRAINING_ALIGNER_PRODUCTION", "TRAINING_ALIGNER_SHIPPED", "FIT_REVIEW", "FIT_ISSUE"],
+  },
   { key: "delivery", label: "Delivery", statuses: ["ALIGNER_PRODUCTION", "DISPATCHING", "PHASE_REVIEW"] },
 ];
 
@@ -63,16 +77,21 @@ export function filesForStage(stageKey: string): string[] {
   return STAGE_FILES[stageKey] ?? [];
 }
 
-export function stagesFor(kind: OrderKind): Stage[] {
+export function stagesFor(kind: OrderKind, intake: AlignerIntake = "QUOTE_FIRST"): Stage[] {
   if (kind === "ACCESSORY") return ACCESSORY;
   if (kind === "PRODUCT") return PRODUCT;
+  if (intake === "SCAN_DIRECT") return ALIGNER_SCAN_DIRECT;
   return ALIGNER;
 }
 
 /** Which stage a status sits in, or -1 for the terminal ones that sit outside
     the journey entirely. */
-export function stageIndex(kind: OrderKind, status: OrderStatus): number {
-  return stagesFor(kind).findIndex((stage) => stage.statuses.includes(status));
+export function stageIndex(
+  kind: OrderKind,
+  status: OrderStatus,
+  intake: AlignerIntake = "QUOTE_FIRST",
+): number {
+  return stagesFor(kind, intake).findIndex((stage) => stage.statuses.includes(status));
 }
 
 /** Stages that mean the case has stalled rather than progressed. */

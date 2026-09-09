@@ -557,9 +557,21 @@ def send_quote(
     )
     subtotal = money(price_low + extras_total)
     subtotal_max = money(price_high + extras_total)
+    # A discount larger than the estimate would show the clinic a negative
+    # figure to accept. Checked against the low end, because that is the one
+    # that would go under first.
+    discount = money(payload.discount)
+    if discount > subtotal:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"The discount cannot be more than the estimate itself ({subtotal}).",
+        )
     tax = money(payload.tax)
-    total = money(subtotal + tax)
-    total_max = money(subtotal_max + tax)
+    # Taken off before tax, so the clinic is not taxed on money it is not
+    # being asked for. Both ends of the band move by the same amount: it is one
+    # discount on one case, not a proportion of a range.
+    total = money(subtotal - discount + tax)
+    total_max = money(subtotal_max - discount + tax)
 
     quote = Quote(
         order_id=order.id,
@@ -569,6 +581,8 @@ def send_quote(
         category_price_max=price_high,
         subtotal=subtotal,
         subtotal_max=subtotal_max,
+        discount=discount,
+        discount_reason=payload.discount_reason.strip(),
         tax=tax,
         total=total,
         total_max=total_max,
@@ -607,8 +621,11 @@ def send_quote(
         order,
         OrderStatus.QUOTED,
         staff,
-        note=f"Expected quote v{quote.version} — {category_label(payload.category)}, "
-        f"{quote.currency} {total}–{total_max}.",
+        note=(
+            f"Expected quote v{quote.version} — {category_label(payload.category)}, "
+            f"{quote.currency} {total}–{total_max}."
+            + (f" Discount {quote.currency} {discount} applied." if discount else "")
+        ),
     )
     db.commit()
     db.refresh(order)

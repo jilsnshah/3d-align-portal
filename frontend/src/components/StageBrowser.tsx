@@ -39,8 +39,8 @@ export default function StageBrowser({
   viewing: number | null;
   onView: (index: number | null) => void;
 }) {
-  const stages = stagesFor(order.kind);
-  const current = stageIndex(order.kind, order.status);
+  const stages = stagesFor(order.kind, order.intake);
+  const current = stageIndex(order.kind, order.status, order.intake);
   // A completed or cancelled case sits outside the journey, so its last stage
   // is the furthest one anything actually happened in.
   const reached = current >= 0 ? current : stages.length - 1;

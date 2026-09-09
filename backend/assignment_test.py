@@ -155,7 +155,7 @@ with TestClient(app) as boot:
     def case_in_planning(patient):
         o = doctor.post(
             "/api/orders",
-            json={"new_patient": {"full_name": patient}, "chief_complaint": "Crowding."},
+            json={"new_patient": {"first_name": patient, "last_name": ""}, "chief_complaint": "Crowding."},
         ).json()
         upload_records(doctor, o["id"])
         doctor.post(f"/api/orders/{o['id']}/submit")
@@ -173,7 +173,7 @@ with TestClient(app) as boot:
     case_b = case_in_planning("Arjun Rao")
     early = doctor.post(
         "/api/orders",
-        json={"new_patient": {"full_name": "Early Draft"}, "chief_complaint": "Spacing."},
+        json={"new_patient": {"first_name": "Early", "last_name": "Draft"}, "chief_complaint": "Spacing."},
     ).json()["id"]
 
     check(

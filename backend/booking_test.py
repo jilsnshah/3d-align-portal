@@ -187,7 +187,7 @@ with TestClient(app) as boot:
     admin.post(f"/api/staff/doctors/{doctor_id}/verify", json={"approve": True})
 
     def case_awaiting_scan(patient):
-        o = doctor.post("/api/orders", json={"new_patient": {"full_name": patient}, "chief_complaint": "Crowding."}).json()
+        o = doctor.post("/api/orders", json={"new_patient": {"first_name": patient, "last_name": ""}, "chief_complaint": "Crowding."}).json()
         upload_records(doctor, o["id"])
         doctor.post(f"/api/orders/{o['id']}/submit")
         admin.post(f"/api/staff/orders/{o['id']}/start-review")
@@ -662,7 +662,7 @@ with TestClient(app) as boot:
             fresh = doctor.post(
                 "/api/orders",
                 json={
-                    "new_patient": {"full_name": "Vadodara Patient", "sex": "F"},
+                    "new_patient": {"first_name": "Vadodara", "last_name": "Patient", "sex": "F"},
                     "arch": "BOTH",
                     "priority": "STANDARD",
                     "chief_complaint": "Crowding.",

@@ -58,7 +58,7 @@ print("BY-PRODUCT — Essix Retainer 1.0 mm, catalogue price 500")
 print("=" * 74)
 
 o = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "Product Patient"},
+    "new_patient": {"first_name": "Product", "last_name": "Patient"},
     "product_id": er["id"], "product_size_id": size["id"], "quantity": 1,
 }).json()
 oid = o["id"]
@@ -119,7 +119,7 @@ print("=" * 74)
 print("ACCESSORY — 2 IPR strips")
 print("=" * 74)
 a = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "Accessory Patient"},
+    "new_patient": {"first_name": "Accessory", "last_name": "Patient"},
     "accessories": [{"accessory_id": shelf[2]["id"], "quantity": 2}],
 }).json()
 print(f"1. placed               status={a['status']}  label={a['status_label']}  ref={a['order_number']}")
@@ -139,7 +139,7 @@ print()
 print("=" * 74)
 print("ALIGNER — unchanged")
 print("=" * 74)
-al = doc.post("/api/orders", json={"new_patient": {"full_name": "Aligner Patient"}, "arch": "BOTH"}).json()
+al = doc.post("/api/orders", json={"new_patient": {"first_name": "Aligner", "last_name": "Patient"}, "arch": "BOTH"}).json()
 ad = doc.get(f"/api/orders/{al['id']}").json()
 print(f"1. created              status={ad['status']}")
 print(f"   asked for up front   {ad['submit_blockers']}")

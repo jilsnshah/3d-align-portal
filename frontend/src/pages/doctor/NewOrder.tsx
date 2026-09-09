@@ -1,23 +1,59 @@
-/* Four-step intake: patient → clinical detail → records → shipping.
-   The draft is created on the server at the end of step 2 so uploads have an
-   order to attach to; from there it is resumable from the case list. */
+/* Starting an aligner case, by whichever of the two doors the clinic wants.
+ *
+ * A clinic weighing up whether to treat needs the estimate first: photographs,
+ * a band, a figure to accept, and only then a scan. A clinic with the patient
+ * in the chair and the scan already taken needs none of that — asking it for a
+ * five-view photo series before it may hand over a scan is a queue with
+ * nothing at the end of it.
+ *
+ * So the first question is which door, and the steps after it differ: the
+ * direct door has no records step, because nothing is gathered before the scan.
+ * Both create the case the same way and meet on the case page, where the scan
+ * is uploaded exactly as it always was.
+ *
+ * The draft is created on the server once the clinical detail is in, so uploads
+ * have an order to attach to; from there it is resumable from the case list. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../../api";
-import type { OrderDetail } from "../../api";
+import type { AlignerIntake, OrderDetail } from "../../api";
 import FileExplorer from "../../components/FileExplorer";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 
-const STEPS = ["Patient", "Clinical", "Records", "Shipping"];
+type StepName = "start" | "patient" | "clinical" | "records" | "shipping";
+
+const STEP_LABEL: Record<StepName, string> = {
+  start: "Start",
+  patient: "Patient",
+  clinical: "Clinical",
+  records: "Records",
+  shipping: "Shipping",
+};
+
+/** A case that came in with its scan gathers nothing beforehand, so it has no
+    records step to show. Named rather than numbered: the two routes have
+    different lengths, and index arithmetic over that is how a Back button
+    ends up on the wrong screen. */
+function stepsFor(intake: AlignerIntake): StepName[] {
+  return intake === "SCAN_DIRECT"
+    ? ["start", "patient", "clinical", "shipping"]
+    : ["start", "patient", "clinical", "records", "shipping"];
+}
 
 export default function NewOrder() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [step, setStep] = useState(0);
+  const [intake, setIntake] = useState<AlignerIntake>("QUOTE_FIRST");
+  const [step, setStep] = useState<StepName>("start");
   const [draft, setDraft] = useState<OrderDetail | null>(null);
+
+  const steps = stepsFor(intake);
+  const stepAt = steps.indexOf(step);
+  const go = (delta: number) => setStep(steps[Math.min(Math.max(stepAt + delta, 0), steps.length - 1)]);
+  const direct = intake === "SCAN_DIRECT";
 
   // A picker, not a browse list — take a generous slice rather than paging.
   const patients = useQuery({
@@ -27,27 +63,53 @@ export default function NewOrder() {
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
 
   const [patientId, setPatientId] = useState("");
-  const [newPatient, setNewPatient] = useState({ full_name: "", date_of_birth: "", sex: "", external_ref: "" });
+  const [newPatient, setNewPatient] = useState({
+    first_name: "",
+    last_name: "",
+    date_of_birth: "",
+    sex: "",
+  });
   const [arch, setArch] = useState<"UPPER" | "LOWER" | "BOTH">("BOTH");
   const [priority, setPriority] = useState<"STANDARD" | "EXPRESS">("STANDARD");
   const [chiefComplaint, setChiefComplaint] = useState("");
   const [clinicalNotes, setClinicalNotes] = useState("");
   const [addressId, setAddressId] = useState("");
+  // The direct route creates the case with this address, so it cannot start
+  // empty — the select would show the first branch while sending nothing.
+  const defaultAddressId =
+    addresses.data?.find((a) => a.is_default_shipping)?.id ?? addresses.data?.[0]?.id ?? "";
+  const chosenAddressId = addressId || defaultAddressId;
 
   const createDraft = useMutation({
     mutationFn: () =>
       api.createOrder({
         patient_id: patientId || null,
         new_patient: patientId ? null : newPatient,
+        intake,
         arch,
         priority,
         chief_complaint: chiefComplaint,
         clinical_notes: clinicalNotes,
+        // A direct case starts the moment it is placed, so the branch has to
+        // be settled before that rather than patched on afterwards.
+        shipping_address_id: chosenAddressId || null,
       }),
     onSuccess: (order) => {
       setDraft(order);
       setAddressId(order.shipping_address?.id ?? "");
-      setStep(2);
+      setStep("records");
+    },
+  });
+
+  /* The direct route has nothing to gather, so the case is not created until
+     the clinic has finished choosing — and creating it is what starts it. The
+     quoted route still creates a draft early, because its records need an
+     order to attach to. */
+  const placeDirect = useMutation({
+    mutationFn: () => createDraft.mutateAsync(),
+    onSuccess: (order) => {
+      void queryClient.invalidateQueries({ queryKey: ["orders"] });
+      navigate(`/orders/${order.id}`);
     },
   });
 
@@ -75,8 +137,13 @@ export default function NewOrder() {
 
   if (patients.isLoading || addresses.isLoading) return <Loading />;
 
-  const patientReady = patientId !== "" || newPatient.full_name.trim() !== "";
+  const patientReady = patientId !== "" || newPatient.first_name.trim() !== "";
   const blockers = draft?.submit_blockers ?? [];
+  // Before the case exists there is no patient record to read the name off, so
+  // the review shows what was chosen or typed.
+  const reviewPatientName =
+    patients.data?.find((p) => p.id === patientId)?.full_name ??
+    [newPatient.first_name, newPatient.last_name].filter(Boolean).join(" ");
 
   return (
     <main className="page page-narrow">
@@ -88,6 +155,8 @@ export default function NewOrder() {
               <>
                 Draft <span className="mono">{draft.order_number}</span> — saved automatically.
               </>
+            ) : direct ? (
+              "Your scan is all 3D Align needs to start."
             ) : (
               "Records are needed before the lab can quote."
             )}
@@ -96,17 +165,66 @@ export default function NewOrder() {
       </div>
 
       <div className="steps">
-        {STEPS.map((name, index) => (
+        {steps.map((name, index) => (
           <span
             key={name}
-            className={`step${index === step ? " on" : index < step ? " done" : ""}`}
+            className={`step${index === stepAt ? " on" : index < stepAt ? " done" : ""}`}
           >
-            {index + 1}. {name}
+            {index + 1}. {STEP_LABEL[name]}
           </span>
         ))}
       </div>
 
-      {step === 0 && (
+      {step === "start" && (
+        <div className="card stack-sm">
+          <h2>How would you like to start?</h2>
+          <p className="muted" style={{ fontSize: "0.9rem", marginTop: -4 }}>
+            Both routes end in the same treatment. The difference is only whether you
+            want a price before you scan.
+          </p>
+
+          <div className="intake-choice">
+            {(
+              [
+                {
+                  value: "QUOTE_FIRST" as const,
+                  title: "I need an expected quote",
+                  blurb:
+                    "Send photographs and an OPG. 3D Align reads them, picks the aligner band and sends a price. You scan once you have accepted it.",
+                  needs: "Photographs and OPG now, scan later",
+                },
+                {
+                  value: "SCAN_DIRECT" as const,
+                  title: "I already have the scan",
+                  blurb:
+                    "Go straight to the intraoral scan. Nothing else is asked for, and the price is confirmed with the treatment plan.",
+                  needs: "Intraoral scan only",
+                },
+              ]
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`intake-card${intake === option.value ? " on" : ""}`}
+                aria-pressed={intake === option.value}
+                onClick={() => setIntake(option.value)}
+              >
+                <b>{option.title}</b>
+                <span className="intake-blurb">{option.blurb}</span>
+                <span className="intake-needs">{option.needs}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="row" style={{ marginTop: 8 }}>
+            <button type="button" className="btn-primary" onClick={() => setStep("patient")}>
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "patient" && (
         <div className="card stack-sm">
           <h2>Patient</h2>
           {patients.data && patients.data.length > 0 && (
@@ -119,7 +237,6 @@ export default function NewOrder() {
                 {patients.data.map((patient) => (
                   <option key={patient.id} value={patient.id}>
                     {patient.full_name}
-                    {patient.external_ref ? ` (${patient.external_ref})` : ""}
                   </option>
                 ))}
               </select>
@@ -128,12 +245,27 @@ export default function NewOrder() {
 
           {!patientId && (
             <>
-              <Field label="Patient name">
-                <input
-                  value={newPatient.full_name}
-                  onChange={(e) => setNewPatient({ ...newPatient, full_name: e.target.value })}
-                />
-              </Field>
+              {/* Two fields, not one. A single box got "riya" from one clinic
+                  and "Mehta, Riya J." from the next, and neither sorted nor
+                  matched the other. */}
+              <div className="grid-2">
+                <Field label="First name">
+                  <input
+                    value={newPatient.first_name}
+                    onChange={(e) =>
+                      setNewPatient({ ...newPatient, first_name: e.target.value })
+                    }
+                  />
+                </Field>
+                <Field label="Last name">
+                  <input
+                    value={newPatient.last_name}
+                    onChange={(e) =>
+                      setNewPatient({ ...newPatient, last_name: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
               <div className="grid-2">
                 <Field label="Date of birth">
                   <input
@@ -155,24 +287,19 @@ export default function NewOrder() {
                     <option value="OTHER">Other</option>
                   </select>
                 </Field>
-                <Field label="Your chart number">
-                  <input
-                    value={newPatient.external_ref}
-                    onChange={(e) =>
-                      setNewPatient({ ...newPatient, external_ref: e.target.value })
-                    }
-                  />
-                </Field>
               </div>
             </>
           )}
 
           <div className="row" style={{ marginTop: 8 }}>
+            <button type="button" className="btn-ghost" onClick={() => setStep("start")}>
+              Back
+            </button>
             <button
               type="button"
               className="btn-primary"
               disabled={!patientReady}
-              onClick={() => setStep(1)}
+              onClick={() => setStep("clinical")}
             >
               Continue
             </button>
@@ -180,7 +307,7 @@ export default function NewOrder() {
         </div>
       )}
 
-      {step === 1 && (
+      {step === "clinical" && (
         <div className="card stack-sm">
           <h2>Clinical detail</h2>
           <div className="grid-2">
@@ -217,22 +344,22 @@ export default function NewOrder() {
           </Field>
           <ErrorText error={createDraft.error} />
           <div className="row" style={{ marginTop: 8 }}>
-            <button type="button" className="btn-ghost" onClick={() => setStep(0)}>
+            <button type="button" className="btn-ghost" onClick={() => setStep("patient")}>
               Back
             </button>
             <button
               type="button"
               className="btn-primary"
               disabled={createDraft.isPending}
-              onClick={() => createDraft.mutate()}
+              onClick={() => (direct ? setStep("shipping") : createDraft.mutate())}
             >
-              {createDraft.isPending ? "Saving…" : "Save and continue"}
+              {createDraft.isPending ? "Saving…" : direct ? "Continue" : "Save and continue"}
             </button>
           </div>
         </div>
       )}
 
-      {step === 2 && draft && (
+      {step === "records" && draft && (
         <div className="stack">
           <div className="card stack-sm">
             <h2>Records</h2>
@@ -259,14 +386,14 @@ export default function NewOrder() {
           </div>
 
           <div className="row">
-            <button type="button" className="btn-ghost" onClick={() => setStep(1)}>
+            <button type="button" className="btn-ghost" onClick={() => setStep("clinical")}>
               Back
             </button>
             <button
               type="button"
               className="btn-primary"
               disabled={blockers.length > 0}
-              onClick={() => setStep(3)}
+              onClick={() => setStep("shipping")}
             >
               Continue
             </button>
@@ -274,19 +401,28 @@ export default function NewOrder() {
         </div>
       )}
 
-      {step === 3 && draft && (
+      {step === "shipping" && (draft || direct) && (
         <div className="stack">
           <div className="card stack-sm">
             <h2>Shipping</h2>
             <p className="muted" style={{ fontSize: "0.9rem" }}>
               Aligners and the training aligner ship to this address.
             </p>
+            {direct && (
+              <Banner tone="ok">
+                Placing this case opens it straight at the scan stage. Nothing else is
+                asked for, and 3D Align confirms the price with the treatment plan
+                rather than an estimate beforehand.
+              </Banner>
+            )}
             <Field label="Deliver to">
               <select
-                value={addressId}
+                value={chosenAddressId}
                 onChange={(e) => {
                   setAddressId(e.target.value);
-                  saveShipping.mutate();
+                  // Nothing exists to save against yet on the direct route —
+                  // the case is created with this address a moment later.
+                  if (draft) saveShipping.mutate();
                 }}
               >
                 {addresses.data?.map((address) => (
@@ -301,31 +437,49 @@ export default function NewOrder() {
           <div className="card">
             <h4 style={{ marginBottom: 10 }}>Review</h4>
             <dl className="kv">
-              <dt>Case</dt>
-              <dd className="mono">{draft.order_number}</dd>
+              {draft && (
+                <>
+                  <dt>Case</dt>
+                  <dd className="mono">{draft.order_number}</dd>
+                </>
+              )}
               <dt>Patient</dt>
-              <dd>{draft.patient_name}</dd>
+              <dd>{draft ? draft.patient_name : reviewPatientName}</dd>
               <dt>Arches</dt>
-              <dd>{draft.arch === "BOTH" ? "Both" : draft.arch}</dd>
+              <dd>{arch === "BOTH" ? "Both" : arch}</dd>
               <dt>Priority</dt>
-              <dd>{draft.priority === "EXPRESS" ? "Express" : "Standard"}</dd>
-              <dt>Files</dt>
-              <dd className="num">{draft.files.length}</dd>
+              <dd>{priority === "EXPRESS" ? "Express" : "Standard"}</dd>
+              <dt>Started with</dt>
+              <dd>{direct ? "Your own intraoral scan" : "Photographs for an expected quote"}</dd>
+              {!direct && draft && (
+                <>
+                  <dt>Files</dt>
+                  <dd className="num">{draft.files.length}</dd>
+                </>
+              )}
             </dl>
           </div>
 
-          <ErrorText error={submit.error} />
+          <ErrorText error={direct ? placeDirect.error : submit.error} />
           <div className="row">
-            <button type="button" className="btn-ghost" onClick={() => setStep(2)}>
+            <button type="button" className="btn-ghost" onClick={() => go(-1)}>
               Back
             </button>
             <button
               type="button"
               className="btn-primary"
-              disabled={submit.isPending || !addressId}
-              onClick={() => submit.mutate()}
+              disabled={
+                (direct ? placeDirect.isPending : submit.isPending) || !chosenAddressId
+              }
+              onClick={() => (direct ? placeDirect.mutate() : submit.mutate())}
             >
-              {submit.isPending ? "Submitting…" : "Submit to 3D Align"}
+              {direct
+                ? placeDirect.isPending
+                  ? "Placing…"
+                  : "Place case and add the scan"
+                : submit.isPending
+                  ? "Submitting…"
+                  : "Submit to 3D Align"}
             </button>
           </div>
         </div>

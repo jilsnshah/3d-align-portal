@@ -170,13 +170,42 @@ class Patient(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
 
+    # Asked for as two fields, because a single box gets "riya" from one clinic
+    # and "Mehta, Riya J." from the next, and neither sorts or matches the
+    # other. full_name is kept and kept correct — it is what every board,
+    # notification and delivery label already reads — but it is now derived
+    # from the two rather than typed on its own.
+    first_name: Mapped[str] = mapped_column(String(120), default="")
+    last_name: Mapped[str] = mapped_column(String(120), default="")
     full_name: Mapped[str] = mapped_column(String(200))
     date_of_birth: Mapped[str] = mapped_column(String(20), default="")
     sex: Mapped[str] = mapped_column(String(20), default="")
-    external_ref: Mapped[str] = mapped_column(String(80), default="")
 
     doctor: Mapped[Doctor] = relationship(back_populates="patients")
     orders: Mapped[list[Order]] = relationship(back_populates="patient")
+
+    @staticmethod
+    def join_name(first: str, last: str) -> str:
+        """The two fields as one name. Mononymous patients keep the one they
+        have rather than gaining a trailing space."""
+        return " ".join(p for p in ((first or "").strip(), (last or "").strip()) if p)
+
+    @classmethod
+    def from_input(cls, doctor_id: str, payload) -> "Patient":
+        """Build a patient from what the clinic typed, with full_name derived.
+
+        The one place the derivation lives. Two call sites build patients — the
+        patient list and the order form — and having each join the names itself
+        is how they end up joining them differently.
+        """
+        return cls(
+            doctor_id=doctor_id,
+            first_name=payload.first_name.strip(),
+            last_name=payload.last_name.strip(),
+            full_name=cls.join_name(payload.first_name, payload.last_name),
+            date_of_birth=payload.date_of_birth,
+            sex=payload.sex,
+        )
 
 
 # --------------------------------------------------------------------------
@@ -205,6 +234,13 @@ class Order(Base, TimestampMixin):
     # and a product order branches off this one field.
     kind: Mapped[enums.OrderKind] = mapped_column(
         _enum(enums.OrderKind, "order_kind"), default=enums.OrderKind.ALIGNER, index=True
+    )
+    # Which door an aligner case came in by: the expected quote first, or
+    # straight to the scan. Only meaningful on an aligner case — nothing reads
+    # it on a by-product or an accessory, both of which have exactly one way in.
+    intake: Mapped[enums.AlignerIntake] = mapped_column(
+        _enum(enums.AlignerIntake, "aligner_intake"),
+        default=enums.AlignerIntake.QUOTE_FIRST,
     )
     # Only set on a product order.
     product_id: Mapped[Optional[str]] = mapped_column(ForeignKey("products.id"))
@@ -406,7 +442,7 @@ class Order(Base, TimestampMixin):
         # was refused for want of a panoramic radiograph the form had already
         # told the clinic was optional — and an accessory order, which needs
         # nothing at all, could never have been submitted.
-        for category in enums.required_submit_categories(self.kind):
+        for category in enums.required_submit_categories(self.kind, self.intake):
             spec = enums.slots_for(category)
             if spec:
                 missing = self.missing_slots(category)
@@ -774,6 +810,11 @@ class Quote(Base, TimestampMixin):
 
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     subtotal_max: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    # Taken off the estimate before the clinic ever sees it, so what they accept
+    # is the figure they will be held to. The plan carries its own discount for
+    # the real price; this one is the estimate's.
+    discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    discount_reason: Mapped[str] = mapped_column(String(255), default="")
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     # total is the low end of the range, total_max the high end. When the price
     # is final the two are equal, so display code never needs a special case.

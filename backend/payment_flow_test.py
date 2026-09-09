@@ -54,7 +54,7 @@ shelf = doc.get("/api/accessories").json()
 
 def order_product(name):
     return doc.post("/api/orders", json={
-        "new_patient": {"full_name": name},
+        "new_patient": {"first_name": name, "last_name": ""},
         "product_id": er["id"], "product_size_id": size["id"], "quantity": 1,
     })
 
@@ -150,7 +150,7 @@ if r.status_code != 409:
 # An accessory is not held: it is paid before it leaves, so it cannot be
 # both delivered and unpaid.
 r = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "Stock"},
+    "new_patient": {"first_name": "Stock", "last_name": ""},
     "accessories": [{"accessory_id": shelf[0]["id"], "quantity": 1}],
 })
 print(f"accessory meanwhile    {r.status_code}  status={r.json().get('status')}")
@@ -159,7 +159,7 @@ if r.status_code >= 300:
 acc_id = r.json().get("id")
 
 # Nor is an aligner case.
-r = doc.post("/api/orders", json={"new_patient": {"full_name": "Aligner"}, "arch": "BOTH"})
+r = doc.post("/api/orders", json={"new_patient": {"first_name": "Aligner", "last_name": ""}, "arch": "BOTH"})
 print(f"aligner meanwhile      {r.status_code}  status={r.json().get('status')}")
 if r.status_code >= 300:
     fails.append("an aligner case must not be held by an unpaid by-product")

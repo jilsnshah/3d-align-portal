@@ -20,12 +20,13 @@ export default function Patients() {
     getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
   const rows = (patients.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
-  const [form, setForm] = useState({ full_name: "", date_of_birth: "", sex: "", external_ref: "" });
+  const BLANK = { first_name: "", last_name: "", date_of_birth: "", sex: "" };
+  const [form, setForm] = useState(BLANK);
 
   const create = useMutation({
     mutationFn: () => api.createPatient(form),
     onSuccess: () => {
-      setForm({ full_name: "", date_of_birth: "", sex: "", external_ref: "" });
+      setForm(BLANK);
       void queryClient.invalidateQueries({ queryKey: ["patients"] });
     },
   });
@@ -57,8 +58,8 @@ export default function Patients() {
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Chart no.</th>
+                    <th>First name</th>
+                    <th>Last name</th>
                     <th>Date of birth</th>
                     <th>Added</th>
                   </tr>
@@ -72,8 +73,8 @@ export default function Patients() {
                           setOpenPatient((id) => (id === patient.id ? null : patient.id))
                         }
                       >
-                        <td>{patient.full_name}</td>
-                        <td className="mono">{patient.external_ref || "—"}</td>
+                        <td>{patient.first_name || patient.full_name}</td>
+                        <td>{patient.last_name || "—"}</td>
                         <td>{patient.date_of_birth || "—"}</td>
                         <td className="dim">{formatDate(patient.created_at)}</td>
                       </tr>
@@ -102,11 +103,19 @@ export default function Patients() {
           }}
         >
           <h4>Add a patient</h4>
-          <Field label="Full name">
+          {/* Two fields, not one: a single box got "riya" from one clinic and
+              "Mehta, Riya J." from the next, and neither sorted nor matched. */}
+          <Field label="First name">
             <input
               required
-              value={form.full_name}
-              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              value={form.first_name}
+              onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Last name">
+            <input
+              value={form.last_name}
+              onChange={(e) => setForm({ ...form, last_name: e.target.value })}
             />
           </Field>
           <Field label="Date of birth">
@@ -123,12 +132,6 @@ export default function Patients() {
               <option value="M">Male</option>
               <option value="OTHER">Other</option>
             </select>
-          </Field>
-          <Field label="Your chart number">
-            <input
-              value={form.external_ref}
-              onChange={(e) => setForm({ ...form, external_ref: e.target.value })}
-            />
           </Field>
           <ErrorText error={create.error} />
           <button type="submit" className="btn-primary" disabled={create.isPending}>

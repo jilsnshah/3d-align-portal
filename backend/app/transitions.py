@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .enums import (
     LAB_ROLES,
+    AlignerIntake,
     OFFICE_ROLES,
     STATUS_LABELS,
     TERMINAL_STATUSES,
@@ -243,10 +244,21 @@ def transition(
         raise TransitionError(
             f"Cannot move {order.reference} from {STATUS_LABELS[frm]} to {STATUS_LABELS[to]}."
         )
-    # The two shortcuts out of DRAFT belong to one kind each. Enforced here
-    # rather than only at the caller, so the permission cannot be widened by a
-    # second route being added later that forgets to check.
-    if (frm, to) == (S.DRAFT, S.AWAITING_SCAN) and order.kind != OrderKind.PRODUCT:
+    # The shortcuts out of DRAFT each belong to one thing. Enforced here rather
+    # than only at the caller, so the permission cannot be widened by a second
+    # route being added later that forgets to check.
+    #
+    # A by-product goes straight to its scan because it was priced from the
+    # catalogue. An aligner case may too, but only when the clinic asked for
+    # the direct door — otherwise the estimate it is waiting for would be
+    # skipped, which is the whole of what that door means.
+    if (frm, to) == (S.DRAFT, S.AWAITING_SCAN) and not (
+        order.kind == OrderKind.PRODUCT
+        or (
+            order.kind == OrderKind.ALIGNER
+            and order.intake == AlignerIntake.SCAN_DIRECT
+        )
+    ):
         raise TransitionError(
             f"{order.reference} has to be quoted and accepted before a scan is asked for."
         )
@@ -308,9 +320,12 @@ def _notify(
 ) -> None:
     """Tell whoever did not make the change."""
     title = NOTICE.get(to, STATUS_LABELS[to])
-    # A by-product was never quoted, so "quote accepted" is the wrong headline
-    # for the alert that asks its clinic for a scan.
-    if to == S.AWAITING_SCAN and order.kind != OrderKind.ALIGNER:
+    # A by-product was never quoted, and neither was an aligner case that came
+    # in through the direct door — so "quote accepted" is the wrong headline
+    # for the alert that asks either of them for a scan.
+    if to == S.AWAITING_SCAN and (
+        order.kind != OrderKind.ALIGNER or order.intake == AlignerIntake.SCAN_DIRECT
+    ):
         title = "Scan required"
     who = order.patient.full_name if order.patient is not None else "Practice stock"
     body = f"{order.reference} — {who}"

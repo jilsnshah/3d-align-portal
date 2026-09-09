@@ -60,7 +60,7 @@ print("F10 — the price is what the clinic was shown")
 print("=" * 72)
 
 o = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "Priced Patient"},
+    "new_patient": {"first_name": "Priced", "last_name": "Patient"},
     "product_id": er["id"], "product_size_id": size["id"], "quantity": 2,
 }).json()
 oid = o["id"]
@@ -143,7 +143,7 @@ else:
 
 # A clinic that wants it filed against someone still may.
 named = doc.post("/api/orders", json={
-    "new_patient": {"full_name": "Named Patient"},
+    "new_patient": {"first_name": "Named", "last_name": "Patient"},
     "accessories": [{"accessory_id": shelf[0]["id"], "quantity": 1}],
 })
 print(f"naming one is allowed  {named.status_code}  {named.json().get('patient_name')}")

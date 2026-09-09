@@ -184,14 +184,31 @@ class PasswordChangeIn(BaseModel):
 
 
 class PatientIn(BaseModel):
-    full_name: str = Field(min_length=1, max_length=200)
+    """A patient is named in two fields, not one.
+
+    One box got "riya" from one clinic and "Mehta, Riya J." from the next, and
+    neither sorted nor matched the other. A last name is optional because not
+    every patient has one; a first name is not.
+    """
+
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(default="", max_length=120)
     date_of_birth: str = ""
     sex: str = ""
-    external_ref: str = ""
+
+    @property
+    def full_name(self) -> str:
+        return " ".join(p for p in (self.first_name.strip(), self.last_name.strip()) if p)
 
 
-class PatientOut(ORMModel, PatientIn):
+class PatientOut(ORMModel):
     id: str
+    first_name: str = ""
+    last_name: str = ""
+    # Derived from the two, and what every board and delivery label reads.
+    full_name: str
+    date_of_birth: str = ""
+    sex: str = ""
     created_at: datetime
 
 
@@ -283,6 +300,10 @@ class OrderCreateIn(BaseModel):
     chief_complaint: str = ""
     clinical_notes: str = ""
     shipping_address_id: Optional[str] = None
+
+    # Which door an aligner case comes in by. Ignored on anything else: a
+    # by-product and an accessory each have exactly one way in.
+    intake: enums.AlignerIntake = enums.AlignerIntake.QUOTE_FIRST
 
     # A product order names what it wants made. Left unset, this is an aligner
     # case and the rest of these are ignored.
@@ -398,6 +419,10 @@ class QuoteIn(BaseModel):
 
     category: enums.AlignerCategory
     extras: list[QuoteLineItemIn] = Field(default_factory=list)
+    # Taken off the estimate before the clinic sees it, so the figure they
+    # accept is the figure they were offered.
+    discount: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_reason: str = Field(default="", max_length=255)
     tax: Decimal = Decimal("0")
     currency: str = "INR"
     notes: str = ""
@@ -413,6 +438,8 @@ class QuoteOut(ORMModel):
     subtotal_max: Decimal = Decimal("0")
     total_max: Decimal = Decimal("0")
     subtotal: Decimal
+    discount: Decimal = Decimal("0")
+    discount_reason: str = ""
     tax: Decimal
     total: Decimal
     currency: str
@@ -1108,6 +1135,10 @@ class OrderSummary(BaseModel):
     order_number: str
     # Aligner case or product order. Boards list them apart.
     kind: enums.OrderKind = enums.OrderKind.ALIGNER
+    # Which door an aligner case came in by, so the page knows whether to show
+    # a quote stage at all. Always QUOTE_FIRST on the other kinds, which have
+    # no doors to choose between.
+    intake: enums.AlignerIntake = enums.AlignerIntake.QUOTE_FIRST
     # What was ordered, already spelled out: "Essix Retainer · 0.8 mm · x3".
     product_label: str = ""
     status: enums.OrderStatus

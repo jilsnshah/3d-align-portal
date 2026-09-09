@@ -3495,3 +3495,49 @@ button.progress-step:hover .progress-label { color: var(--ink); }
   .stage-events li { grid-template-columns: 1fr; gap: 0; }
   .stage-nav-title b { font-size: var(--t-body); }
 }
+
+/* --- Which door an aligner case comes in by --- */
+/* Two routes to the same treatment, so they are shown side by side and read as
+   a choice rather than as a default with an alternative buried under it. */
+.intake-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-3);
+  margin: var(--s-2) 0;
+}
+.intake-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--white);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.intake-card:hover { border-color: var(--gold-line); }
+.intake-card.on {
+  border-color: var(--gold-deep);
+  box-shadow: 0 0 0 1px var(--gold-deep) inset;
+  background: var(--gold-wash);
+}
+.intake-card b { font-size: 0.98rem; }
+.intake-blurb { color: var(--ink-2); font-size: var(--t-sm); line-height: 1.45; }
+.intake-needs {
+  margin-top: 2px;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A discount the clinic is not told about is one they cannot pass on. */
+.quote-discount {
+  margin: -6px 0 8px;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--ok-deep, var(--ink-2));
+}

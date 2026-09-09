@@ -32,10 +32,12 @@ made = 0
 for i in range(count):
     doctor = random.choice(doctors)
     address = db.query(Address).filter(Address.doctor_id == doctor.id).first()
+    first, last = random.choice(FIRST), random.choice(LAST)
     patient = Patient(
         doctor_id=doctor.id,
-        full_name=f"{random.choice(FIRST)} {random.choice(LAST)}",
-        external_ref=f"CH-{random.randint(1000, 9999)}",
+        first_name=first,
+        last_name=last,
+        full_name=Patient.join_name(first, last),
     )
     db.add(patient)
     db.flush()
