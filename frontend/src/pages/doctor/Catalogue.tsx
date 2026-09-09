@@ -281,7 +281,10 @@ export default function Catalogue() {
               src={product.image_url}
               code={product.code}
               name={product.name}
-              ratio="4 / 5"
+              /* Every card is an A-series page, so the tile is one too and the
+                 artwork fills it edge to edge. Placeholders take the same
+                 shape, which is what keeps the rows lined up. */
+              ratio="1 / 1.414"
             />
 
             <div className="product-body">

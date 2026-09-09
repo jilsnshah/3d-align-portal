@@ -52,7 +52,8 @@ EXTRA_SCAN: dict = {
 BOTH_ARCHES = {"TMJ", "JA"}
 
 # Pages from 3D Align's own product catalogue, one per appliance, shipped with
-# the frontend and served from the app.
+# the frontend and served from the app. Rendered from the flattened edition,
+# which is the artwork at full bleed rather than the earlier text-layer one.
 #
 # Read off the title printed on each page rather than the page order. The
 # catalogue runs to eight pages but names seven appliances: the Essix Retainer
