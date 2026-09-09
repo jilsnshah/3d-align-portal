@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api, formatDate, formatMoney } from "../api";
 import type { OrderDetail, Payment } from "../api";
+import type { ReactNode } from "react";
 import { Banner, ErrorText } from "./ui";
 
 /** The lab's side of the money: what has been paid, and the receipts waiting to
@@ -23,26 +24,44 @@ export default function PaymentReview({ order }: { order: OrderDetail }) {
           : "Nothing waiting to be checked."}
       </p>
       {waiting.map((p) => (
-        <Row key={p.id} order={order} payment={p} />
+        <VerifyRow key={p.id} orderId={order.id} payment={p} />
       ))}
       {rest.map((p) => (
-        <Row key={p.id} order={order} payment={p} />
+        <VerifyRow key={p.id} orderId={order.id} payment={p} />
       ))}
     </section>
   );
 }
 
-function Row({ order, payment }: { order: OrderDetail; payment: Payment }) {
+/** One charge, with the decision the lab has to make about it.
+ *
+ *  Exported because the same row is worked from two places now: inside a case,
+ *  and on the lab's own payments book. Copying it would have given the book a
+ *  second version of the one act that must not drift — the one where money is
+ *  confirmed received.
+ */
+export function VerifyRow({
+  orderId,
+  payment,
+  header,
+}: {
+  orderId: string;
+  payment: Payment;
+  /** Which case and clinic this is. The case page omits it: both are already
+      on the screen. */
+  header?: ReactNode;
+}) {
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("");
 
   const decide = useMutation({
     mutationFn: (approve: boolean) =>
-      api.verifyPayment(order.id, payment.id, approve, reason),
+      api.verifyPayment(orderId, payment.id, approve, reason),
     onSuccess: () => {
       setReason("");
-      void queryClient.invalidateQueries({ queryKey: ["staff-order", order.id] });
+      void queryClient.invalidateQueries({ queryKey: ["staff-order", orderId] });
       void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["staff-payments"] });
     },
   });
 
@@ -57,6 +76,7 @@ function Row({ order, payment }: { order: OrderDetail; payment: Payment }) {
 
   return (
     <div className="pay-row">
+      {header}
       <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
         <div>
           <b>{payment.label}</b>
@@ -87,7 +107,7 @@ function Row({ order, payment }: { order: OrderDetail; payment: Payment }) {
             <p style={{ margin: "8px 0" }}>
               <a
                 className="btn-link"
-                href={api.previewUrl(order.id, payment.proof_file_id)}
+                href={api.previewUrl(orderId, payment.proof_file_id)}
                 target="_blank"
                 rel="noreferrer"
               >

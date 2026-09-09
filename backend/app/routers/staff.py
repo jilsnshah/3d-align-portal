@@ -387,6 +387,35 @@ def _clinic_cities(db: Session) -> dict:
     return {names[k]: v for k, v in counts.items()}
 
 
+@router.get("/payments", response_model=schemas.StaffLedgerOut)
+def lab_payments(
+    doctor_id: Optional[str] = Query(default=None),
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Every charge the lab has raised, across every clinic.
+
+    The lab's first question is not what it is owed but what is waiting for a
+    person to check: a receipt sitting unread holds up whatever the charge was
+    gating, and until now the only way to find one was to open cases until you
+    hit it. That queue comes back as its own list.
+
+    An orthodontist sees this for their own cases only, through the same
+    ``visible_orders`` narrowing every other lab screen uses — they have every
+    screen, on their own cases.
+    """
+    from ..services import ledger, scheduling
+
+    query = visible_orders(db.query(Order), staff)
+    if doctor_id:
+        query = query.filter(Order.doctor_id == doctor_id)
+    orders = query.order_by(Order.created_at.desc()).all()
+
+    data = ledger.collect(db, orders, scheduling.get_settings(db), with_doctor=True)
+    data["owed_by_doctor"] = ledger.owed_by_doctor(data["pending"])
+    return schemas.StaffLedgerOut(**data)
+
+
 @router.get("/stats", response_model=schemas.StatsOut)
 def lab_stats(
     view: str = Query(default="year", pattern="^(year|month)$"),

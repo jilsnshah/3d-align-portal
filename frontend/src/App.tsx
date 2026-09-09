@@ -18,6 +18,7 @@ import StaffQueue from "./pages/staff/Queue";
 import StaffOrders from "./pages/staff/Orders";
 import StaffOrderDetail from "./pages/staff/OrderDetail";
 import StaffDoctors from "./pages/staff/Doctors";
+import StaffPayments from "./pages/staff/Payments";
 import AdminBookings from "./pages/admin/Bookings";
 import AdminTechnicians from "./pages/admin/Technicians";
 import AdminSettings from "./pages/admin/Settings";
@@ -65,6 +66,7 @@ export default function App() {
           <Route path="/staff/bookings" element={<AdminBookings />} />
           <Route path="/staff/technicians" element={<AdminTechnicians />} />
           <Route path="/staff/settings" element={<AdminSettings />} />
+          <Route path="/staff/payments" element={<StaffPayments />} />
           <Route path="/staff/stats" element={<StatsPage lab />} />
         </Route>
         <Route path="*" element={<Navigate to="/staff" replace />} />

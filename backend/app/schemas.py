@@ -532,6 +532,21 @@ class LedgerEntry(PaymentOut):
     # "Riya Mehta" for a case, "Essix Retainer · 0.8 mm · x3" for a product.
     subject: str = ""
     order_status_label: str = ""
+    # Filled only for the lab, which reads across every clinic. A practice
+    # already knows whose money it is looking at.
+    doctor_id: str = ""
+    doctor_name: str = ""
+    clinic_name: str = ""
+
+
+class DoctorOwing(BaseModel):
+    """What one clinic owes, for the lab's list of who to chase."""
+
+    doctor_id: str = ""
+    doctor_name: str = ""
+    clinic_name: str = ""
+    amount: Decimal = Decimal("0")
+    charges: int = 0
 
 
 class PaymentLedgerOut(BaseModel):
@@ -550,6 +565,20 @@ class PaymentLedgerOut(BaseModel):
 
     pending: list[LedgerEntry] = []
     history: list[LedgerEntry] = []
+
+
+class StaffLedgerOut(PaymentLedgerOut):
+    """The same charges, read from the lab's side.
+
+    The lab's first question is not what it is owed but what is waiting for a
+    person to check, so that queue is its own list rather than something to be
+    filtered out of the others.
+    """
+
+    to_verify: list[LedgerEntry] = []
+    # Who owes what, largest first. Excludes receipts already sent: those are a
+    # job on the lab's desk, not a debt to chase.
+    owed_by_doctor: list[DoctorOwing] = []
 
 
 class ChargeLine(BaseModel):

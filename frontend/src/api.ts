@@ -627,6 +627,20 @@ export interface LedgerEntry extends Payment {
   /** The patient on a case, or what was made on a product order. */
   subject: string;
   order_status_label: string;
+  /** Filled only for the lab, which reads across every clinic. A practice
+      already knows whose money it is looking at. */
+  doctor_id: string;
+  doctor_name: string;
+  clinic_name: string;
+}
+
+/** What one clinic owes, for the lab's list of who to chase. */
+export interface DoctorOwing {
+  doctor_id: string;
+  doctor_name: string;
+  clinic_name: string;
+  amount: string;
+  charges: number;
 }
 
 export interface PaymentLedger {
@@ -637,6 +651,12 @@ export interface PaymentLedger {
   financial_year: string;
   pending: LedgerEntry[];
   history: LedgerEntry[];
+}
+
+export interface StaffLedger extends PaymentLedger {
+  /** Receipts sent and not yet checked — the lab's actual work queue. */
+  to_verify: LedgerEntry[];
+  owed_by_doctor: DoctorOwing[];
 }
 
 export interface ChargeLine {
@@ -1148,6 +1168,8 @@ export const api = {
   rejectScan: (id: string, note: string) => post<OrderDetail>(`/staff/orders/${id}/scan/reject`, { note }),
   sharePlan: (id: string, body: unknown) => post<OrderDetail>(`/staff/orders/${id}/plans`, body),
   paymentLedger: () => get<PaymentLedger>("/payments"),
+  labPayments: (doctorId?: string) =>
+    get<StaffLedger>(`/staff/payments${doctorId ? `?doctor_id=${doctorId}` : ""}`),
   payProof: (orderId: string, paymentId: string, file: File, reference: string) => {
     const body = new FormData();
     body.append("upload", file);
