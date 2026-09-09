@@ -12,6 +12,7 @@ import DoctorOrders from "./pages/doctor/Orders";
 import NewOrder from "./pages/doctor/NewOrder";
 import DoctorOrderDetail from "./pages/doctor/OrderDetail";
 import Patients from "./pages/doctor/Patients";
+import DoctorPayments from "./pages/doctor/Payments";
 import Profile from "./pages/doctor/Profile";
 import StaffQueue from "./pages/staff/Queue";
 import StaffOrders from "./pages/staff/Orders";
@@ -94,6 +95,7 @@ export default function App() {
         <Route path="/viewer/:orderId" element={<Viewer />} />
         <Route path="/catalogue" element={<Catalogue />} />
         <Route path="/patients" element={<Patients />} />
+        <Route path="/payments" element={<DoctorPayments />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="/profile" element={<Profile />} />
       </Route>

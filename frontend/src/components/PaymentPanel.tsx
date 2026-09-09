@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import { api, formatMoney } from "../api";
 import type { OrderDetail, Payment } from "../api";
@@ -28,10 +29,10 @@ export default function PaymentPanel({ order }: { order: OrderDetail }) {
       {order.charges.length > 0 && <ChargeTable order={order} />}
 
       {due.map((p) => (
-        <PaymentRow key={p.id} order={order} payment={p} />
+        <PaymentRow key={p.id} orderId={order.id} payment={p} />
       ))}
       {settled.map((p) => (
-        <PaymentRow key={p.id} order={order} payment={p} />
+        <PaymentRow key={p.id} orderId={order.id} payment={p} />
       ))}
     </section>
   );
@@ -70,20 +71,37 @@ function ChargeTable({ order }: { order: OrderDetail }) {
   );
 }
 
-function PaymentRow({ order, payment }: { order: OrderDetail; payment: Payment }) {
+/** One charge, with whatever the clinic can do about it.
+ *
+ *  Exported because the same row is read from two places now: inside a case,
+ *  and on the practice-wide ledger. Copying it would have given the ledger a
+ *  second, drifting version of the one flow that must not drift — the one
+ *  where money is sent.
+ */
+export function PaymentRow({
+  orderId,
+  payment,
+  header,
+}: {
+  orderId: string;
+  payment: Payment;
+  /** Which case this is against. The case page omits it: it is already there. */
+  header?: ReactNode;
+}) {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [reference, setReference] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
   const send = useMutation({
-    mutationFn: () => api.payProof(order.id, payment.id, file!, reference),
+    mutationFn: () => api.payProof(orderId, payment.id, file!, reference),
     onSuccess: () => {
       setFile(null);
       setReference("");
       if (fileInput.current) fileInput.current.value = "";
-      void queryClient.invalidateQueries({ queryKey: ["order", order.id] });
+      void queryClient.invalidateQueries({ queryKey: ["order", orderId] });
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["payment-ledger"] });
     },
   });
 
@@ -98,6 +116,7 @@ function PaymentRow({ order, payment }: { order: OrderDetail; payment: Payment }
 
   return (
     <div className="pay-row">
+      {header}
       <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
         <div>
           <b>{payment.label}</b>

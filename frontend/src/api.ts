@@ -609,6 +609,25 @@ export interface Payment {
   label: string;
 }
 
+export interface LedgerEntry extends Payment {
+  order_id: string;
+  order_reference: string;
+  order_kind: OrderKind;
+  /** The patient on a case, or what was made on a product order. */
+  subject: string;
+  order_status_label: string;
+}
+
+export interface PaymentLedger {
+  outstanding: string;
+  in_review: string;
+  paid_total: string;
+  paid_this_year: string;
+  financial_year: string;
+  pending: LedgerEntry[];
+  history: LedgerEntry[];
+}
+
 export interface ChargeLine {
   label: string;
   amount: string;
@@ -1117,6 +1136,7 @@ export const api = {
   acceptScan: (id: string, note: string) => post<OrderDetail>(`/staff/orders/${id}/scan/accept`, { note }),
   rejectScan: (id: string, note: string) => post<OrderDetail>(`/staff/orders/${id}/scan/reject`, { note }),
   sharePlan: (id: string, body: unknown) => post<OrderDetail>(`/staff/orders/${id}/plans`, body),
+  paymentLedger: () => get<PaymentLedger>("/payments"),
   payProof: (orderId: string, paymentId: string, file: File, reference: string) => {
     const body = new FormData();
     body.append("upload", file);

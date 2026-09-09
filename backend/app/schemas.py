@@ -491,6 +491,40 @@ class PaymentVerifyIn(BaseModel):
     reason: str = ""
 
 
+class LedgerEntry(PaymentOut):
+    """One charge, carried with enough of its case to be read on its own.
+
+    The per-case panel never needed this: the case was already on the screen.
+    A ledger spanning every case has to say which one each line belongs to,
+    or the clinic is looking at a column of amounts with no way to place them.
+    """
+
+    order_id: str
+    order_reference: str
+    order_kind: enums.OrderKind
+    # "Riya Mehta" for a case, "Essix Retainer · 0.8 mm · x3" for a product.
+    subject: str = ""
+    order_status_label: str = ""
+
+
+class PaymentLedgerOut(BaseModel):
+    """Every charge this practice has, settled or not."""
+
+    # What the clinic owes right now — DUE and REJECTED. Money the lab is
+    # waiting on.
+    outstanding: Decimal = Decimal("0")
+    # Paid, receipt sent, lab has not checked it yet. Not owed, not settled.
+    in_review: Decimal = Decimal("0")
+    # Verified, ever, and verified since 1 April — the Indian financial year,
+    # which is the window a practice reconciles against.
+    paid_total: Decimal = Decimal("0")
+    paid_this_year: Decimal = Decimal("0")
+    financial_year: str = ""
+
+    pending: list[LedgerEntry] = []
+    history: list[LedgerEntry] = []
+
+
 class ChargeLine(BaseModel):
     """One line of the money breakdown shown against a case."""
 

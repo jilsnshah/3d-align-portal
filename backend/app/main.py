@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import BACKEND_ROOT, check_deployment, settings
 from .db import Base, SessionLocal, engine
-from .routers import auth, bookings, directory, files, notifications, orders, staff
+from .routers import auth, bookings, directory, files, notifications, orders, payments, staff
 from .seed import ensure_staff_account
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -68,6 +68,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
+app.include_router(payments.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(staff.router, prefix="/api")

@@ -12,6 +12,7 @@ const DOCTOR_NAV = [
   { to: "/orders", label: "Cases" },
   { to: "/catalogue", label: "Products" },
   { to: "/patients", label: "Patients" },
+  { to: "/payments", label: "Payments" },
   { to: "/stats", label: "Insights" },
   { to: "/profile", label: "Profile" },
 ];

@@ -2078,6 +2078,32 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .pay-row input[type="file"] { font-size: 0.82rem; max-width: 100%; }
 
+/* On the practice-wide ledger a charge has to say which case it belongs to.
+   Inside a case this is omitted — the case is already on the screen. */
+.pay-case {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+  font-size: var(--t-sm);
+}
+.pay-case-ref {
+  font-weight: 640;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+.pay-case-ref:hover { text-decoration: underline; }
+
+/* Settled charges: a receipt, not a control. Amounts line up in a column, so
+   they get the figures that are all one width. */
+.pay-history td.num,
+.pay-history th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pay-history td { vertical-align: top; }
+
 /* A schematic of the view each slot wants. "Buccal right" and "occlusal upper"
    are only obvious once you know the words, and a photograph in the wrong slot
    is worse than a missing one — the lab plans from it. */
