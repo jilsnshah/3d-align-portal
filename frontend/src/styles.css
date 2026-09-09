@@ -170,7 +170,7 @@ p { margin: 0; }
 td,
 th,
 .tile .n,
-.welcome-stats dd,
+.figure-n,
 .product-sizes b,
 .product-from,
 input[type="number"] {
@@ -440,8 +440,7 @@ a:hover { text-decoration-color: var(--gold); }
 
 /* A hairline of gold under the page title. Small, but it stops every screen
    from opening with unaccented black text on paper. */
-.page-head h1::after,
-.welcome h1::after {
+.page-head h1::after {
   content: "";
   display: block;
   width: 34px;
@@ -450,10 +449,6 @@ a:hover { text-decoration-color: var(--gold); }
   border-radius: 2px;
   background: linear-gradient(90deg, var(--gold-bright), var(--gold-line));
 }
-.welcome h1::after {
-  background: linear-gradient(90deg, var(--gold-bright), transparent);
-}
-
 .page-head {
   display: flex;
   flex-wrap: wrap;
@@ -2453,118 +2448,153 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: 1.12rem;
 }
 
-.welcome {
+/* The band at the top. It was a dark rectangle carrying a greeting and two
+   numbers; the greeting is now the smallest thing in it and every figure is a
+   way through to what it counts. The texture is a very faint gold wash off the
+   top-left corner — enough to keep a large dark area from reading as flat. */
+.standing {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px 40px;
-  align-items: center;
+  gap: 26px 40px;
+  align-items: flex-end;
   justify-content: space-between;
-  padding: 30px 32px;
-  background: linear-gradient(135deg, var(--black) 0%, var(--black-3) 100%);
-  border-radius: 16px;
+  padding: 26px 30px;
+  border-radius: var(--r-lg);
   color: var(--white);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(212, 175, 55, 0.16) 0%, transparent 58%),
+    linear-gradient(135deg, var(--black) 0%, var(--black-3) 100%);
 }
 
-.welcome h1 {
-  margin: 0;
-  font-size: 1.5rem;
-  color: var(--white);
-}
+.standing-who { min-width: 0; }
 
-.welcome .sub {
-  margin: 6px 0 0;
-  color: var(--gold-lift);
-  font-size: 0.92rem;
-  letter-spacing: 0.01em;
-}
-
-.welcome-stats {
-  display: flex;
-  gap: 36px;
-  margin: 0;
-}
-
-.welcome-stats dt {
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.welcome-stats dd {
-  margin: 4px 0 0;
-  font-size: 1.7rem;
+.standing-greet {
+  display: block;
+  font-size: var(--t-micro);
   font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.standing h1 {
+  margin: 5px 0 0;
+  font-size: 1.55rem;
+  line-height: 1.15;
+  letter-spacing: var(--track-h1);
+  color: var(--white);
+}
+
+.standing-clinic {
+  margin: 4px 0 0;
+  font-size: var(--t-sm);
   color: var(--gold-lift);
-  font-variant-numeric: tabular-nums;
 }
 
-.start-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+.standing-figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
 }
 
-.start-card {
+/* Hairlines between the figures rather than a border around each: they are one
+   reading, not three separate objects. */
+.figure {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 22px;
+  gap: 2px;
+  padding: 2px 22px;
+  min-width: 118px;
+  text-decoration: none;
+  color: inherit;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background var(--fast) var(--ease);
+  border-radius: var(--r-sm);
+}
+.figure:first-child { border-left: 0; padding-left: 0; }
+.figure:hover { background: rgba(255, 255, 255, 0.06); }
+.figure:hover .figure-l { color: rgba(255, 255, 255, 0.9); }
+
+.figure-n {
+  font-size: 1.65rem;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: var(--track-h1);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.92);
+}
+/* Gold marks the figure that is asking for something — a count of nought and a
+   balance of nothing are good news and stay quiet. */
+.figure.lit .figure-n { color: var(--gold-lift); }
+
+.figure-l {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  transition: color var(--fast) var(--ease);
+}
+
+.figure-h {
+  font-size: var(--t-xs);
+  color: rgba(255, 255, 255, 0.42);
+}
+
+@media (max-width: 720px) {
+  .standing { padding: 22px; gap: 20px; }
+  .standing-figures { width: 100%; }
+  .figure { flex: 1 1 0; min-width: 0; padding: 2px 14px; }
+  .figure-n { font-size: 1.35rem; }
+  .figure-h { display: none; }
+}
+
+/* Ordering, at the foot and in one row. This was three large gradient cards
+   above the work; all three destinations survive at a weight that suits how
+   often a clinic actually uses them. */
+.order-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--s-3);
+}
+
+.order-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--s-4) var(--s-4) var(--s-3);
   text-align: left;
   font: inherit;
-  /* These are cards that happen to be buttons, and the base button rule sets
-     nowrap — which clipped the description mid-word at the card edge. */
+  /* The base button rule sets nowrap, which clipped the description. */
   white-space: normal;
   background: var(--white);
   border: 1px solid var(--rule);
-  border-radius: 14px;
+  border-radius: var(--r);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
-
-.start-card {
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(160deg, var(--white) 60%, var(--gold-wash) 100%);
-}
-
-/* A gold edge that only fills in on hover, so the cards read as one family at
-   rest and the one under the cursor is unmistakable. */
-.start-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto auto 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, var(--gold-bright), var(--gold-line));
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--mid) var(--ease-out);
-}
-
-.start-card:hover::before { transform: scaleX(1); }
-
-.start-card:hover {
-  border-color: var(--gold-line);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.start-card strong { font-size: 1.12rem; }
-.start-card .muted { font-size: 0.87rem; line-height: 1.45; }
-
-.start-kicker {
-  font-size: 0.68rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--gold-deep);
-}
+.order-tile:hover { border-color: var(--gold-line); box-shadow: var(--shadow-xs); }
+.order-tile strong { font-size: var(--t-h3); }
+.order-tile .muted { font-size: var(--t-xs); line-height: 1.45; }
 
 .start-go {
   margin-top: 2px;
   font-size: 0.86rem;
   font-weight: 600;
   color: var(--gold-deep);
+}
+
+/* Not a card: nothing here needs lifting off the page, and a bordered box for
+   one line of good news reads as another thing to deal with. */
+.all-clear {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-4) 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 
 .waiting-list {
@@ -2596,6 +2626,21 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .waiting-row:last-child { border-bottom: 0; }
 .waiting-row:hover { background: var(--gold-wash); }
 
+/* How long the case has been sitting, read beside the reference rather than in
+   a column of its own: aligning a column here would mean pinning the width of
+   every pill and every ask beside it, and the number is just as legible as part
+   of the case's own line. */
+.waiting-age {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.waiting-age::before {
+  content: "·";
+  margin: 0 5px;
+  color: var(--rule-strong);
+}
+.waiting-who { min-width: 0; }
+
 .waiting-right {
   display: flex;
   align-items: center;
@@ -2605,39 +2650,14 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 .waiting-ask {
   flex: none;
-  font-size: 0.88rem;
+  font-size: var(--t-sm);
   font-weight: 600;
   color: var(--ink);
   text-align: right;
 }
 
-.product-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 12px;
-}
-
-.strip-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 14px;
-  text-align: left;
-  font: inherit;
-  white-space: normal;
-  background: var(--white);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-
-.strip-card:hover { border-color: var(--gold-line); transform: translateY(-2px); }
-.strip-card strong { font-size: 0.92rem; line-height: 1.3; }
-
 @media (prefers-reduced-motion: reduce) {
-  .start-card:hover, .strip-card:hover, .product-card:hover { transform: none; }
+  .product-card:hover { transform: none; }
 }
 
 /* --- Loading placeholders -------------------------------------------------
@@ -2847,9 +2867,6 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .page-head .row > a,
   .page-head .row > a > button { width: 100%; }
   .search input:focus { width: 100%; }
-
-  .welcome { padding: var(--s-5) var(--s-4); }
-  .welcome-stats { gap: var(--s-6); }
 
   /* The ask and the stage stack under the patient rather than being squeezed
      against them. */

@@ -1,25 +1,23 @@
 /* What a clinic sees when they sign in.
 
-   The case list is the right screen for someone auditing forty cases; it is the
-   wrong one to land on. A doctor arrives wanting one of three things: to start
-   something, to deal with whatever is waiting on them, or to check on a patient
-   they have in mind. This puts those first and keeps the table one click away.
+   A doctor opens this to answer three questions, in this order: is anything
+   waiting on me, what does it cost me, and is the rest moving. The page used to
+   open with a greeting and two numbers, then spend a third of its height on
+   three large cards inviting them to go shopping — so the work they came for
+   started below the fold.
 
-   The catalogue is on this page rather than only behind a nav item, because a
-   retainer is bought on impulse at the end of a case — not by someone who set
-   out to go shopping. */
+   Now the band at the top carries the practice's actual state, money included,
+   and every figure in it is a way through to the thing it counts. Ordering is
+   still one click away at the foot: a retainer is bought on impulse at the end
+   of a case, not by someone who set out to go shopping. */
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
-import { api, formatDate } from "../../api";
-import type { OrderStatus, OrderSummary, Product } from "../../api";
+import { api, since } from "../../api";
+import type { OrderStatus, OrderSummary } from "../../api";
 import { useAuth } from "../../auth";
 import { Skeleton, StatusPill } from "../../components/ui";
-
-function rupees(value: string | number): string {
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-}
 
 /* What the clinic actually has to do, in the words they would use. A status
    name tells them where the case is; this tells them what is being asked. */
@@ -31,6 +29,13 @@ const ASK: Partial<Record<OrderStatus, string>> = {
   PLAN_SHARED: "Review the treatment plan",
   FIT_REVIEW: "Tell us how the training aligner fits",
 };
+
+/** A headline figure, not a line item — paise on a balance this size is noise
+    that only makes the number harder to read at a glance. The exact amount is
+    on the payments page, to the paisa. */
+function roundedRupees(value: number): string {
+  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -46,6 +51,31 @@ function firstName(full: string): string {
   return parts[0] ?? full;
 }
 
+/** One figure in the band at the top. Every one of them leads somewhere: a
+    number a clinic cannot act on is a number they do not need on this page. */
+function Figure({
+  label,
+  value,
+  to,
+  hint,
+  lit,
+}: {
+  label: string;
+  value: string;
+  to: string;
+  hint: string;
+  /** Gold, for the figure that is asking for something. */
+  lit?: boolean;
+}) {
+  return (
+    <Link to={to} className={`figure${lit ? " lit" : ""}`}>
+      <span className="figure-n">{value}</span>
+      <span className="figure-l">{label}</span>
+      <span className="figure-h">{hint}</span>
+    </Link>
+  );
+}
+
 export default function DoctorHome() {
   const { me } = useAuth();
   const navigate = useNavigate();
@@ -56,15 +86,17 @@ export default function DoctorHome() {
   });
   const recent = useQuery({
     queryKey: ["orders", "recent"],
-    queryFn: () => api.orders(false, { limit: 5 }),
+    queryFn: () => api.orders(false, { limit: 8 }),
   });
-  const products = useQuery({ queryKey: ["products"], queryFn: api.products });
+  // The money the clinic owes belongs on the page they land on, not only on the
+  // one they would have to remember to open.
+  const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger });
 
   // A case that is waiting on the clinic is already the first thing on the
   // page; listing it again under "In progress" reads as two different cases
   // with the same number.
   // Everything open, not just the handful the page lists, so the count on the
-  // panel is the clinic's real book of work.
+  // band is the clinic's real book of work.
   const openCases = useQuery({
     queryKey: ["orders", "open-count"],
     queryFn: () => api.orders(false, { limit: 200 }),
@@ -85,70 +117,54 @@ export default function DoctorHome() {
       o.status !== "COMPLETED" && o.status !== "CANCELLED" && !waitingIds.has(o.id),
   );
 
+  const due = ledger.data ? Number(ledger.data.outstanding) : null;
+  const inReview = ledger.data ? Number(ledger.data.in_review) : 0;
+  const needing = waiting.data?.length ?? 0;
+
   return (
     <main className="page home">
-      <section className="welcome">
-        <div>
-          <h1>
-            {greeting()}, {firstName(me?.doctor?.full_name ?? "Doctor")}
-          </h1>
-          <p className="sub">{me?.doctor?.clinic_name}</p>
+      <section className="standing">
+        <div className="standing-who">
+          <span className="standing-greet">{greeting()}</span>
+          <h1>{firstName(me?.doctor?.full_name ?? "Doctor")}</h1>
+          <p className="standing-clinic">{me?.doctor?.clinic_name}</p>
         </div>
-        {/* The panel was a large dark rectangle saying only the time of day.
-            These are the two numbers a clinic opens the portal to check. */}
-        <dl className="welcome-stats">
-          <div>
-            <dt>Waiting on you</dt>
-            <dd>{waiting.data?.length ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>With 3D Align</dt>
-            <dd>{withLab === null ? "—" : withLab}</dd>
-          </div>
-        </dl>
+
+        <div className="standing-figures">
+          <Figure
+            label="Waiting on you"
+            value={waiting.isLoading ? "—" : String(needing)}
+            to="/orders"
+            hint={needing === 0 ? "All clear" : needing === 1 ? "1 case to act on" : `${needing} cases to act on`}
+            lit={needing > 0}
+          />
+          <Figure
+            label="With 3D Align"
+            value={withLab === null ? "—" : String(withLab)}
+            to="/orders"
+            hint="In planning or production"
+          />
+          <Figure
+            label="Due to pay"
+            value={due === null ? "—" : roundedRupees(due)}
+            to="/payments"
+            hint={
+              due === null
+                ? "Loading"
+                : due === 0
+                  ? inReview > 0
+                    ? "Receipts being checked"
+                    : "Nothing outstanding"
+                  : "Pay by UPI"
+            }
+            lit={(due ?? 0) > 0}
+          />
+        </div>
       </section>
-
-      <div className="start-grid">
-        <button type="button" className="start-card" onClick={() => navigate("/orders/new")}>
-          <span className="start-kicker">Clear aligners</span>
-          <strong>Start a new case</strong>
-          <span className="muted">
-            Send records and a scan. We plan the movement, share a 3D simulation, and make the
-            series.
-          </span>
-          <span className="start-go">Begin →</span>
-        </button>
-
-        <button type="button" className="start-card" onClick={() => navigate("/catalogue")}>
-          <span className="start-kicker">Orthodontic Aligner Integrated Appliances</span>
-          <strong>Order a product</strong>
-          <span className="muted">
-            Retainers, splints, bleaching trays and guards — made from a scan, no planning stage.
-            Price plus courier, charged together.
-          </span>
-          <span className="start-go">See the range →</span>
-        </button>
-
-        {/* Restocking is a different errand from ordering an appliance, and it
-            used to mean scrolling past the whole range to reach the shelf. */}
-        <button
-          type="button"
-          className="start-card"
-          onClick={() => navigate("/catalogue?tab=accessories")}
-        >
-          <span className="start-kicker">Accessories</span>
-          <strong>Restock the shelf</strong>
-          <span className="muted">
-            IPR strips, cleanser, retainer cases and kits. Nothing is made and no scan is
-            needed — they ship as soon as they are packed.
-          </span>
-          <span className="start-go">Open the shelf →</span>
-        </button>
-      </div>
 
       {waiting.isLoading ? (
         <Skeleton rows={3} />
-      ) : (waiting.data?.length ?? 0) > 0 ? (
+      ) : needing > 0 ? (
         <section className="stack-sm">
           <div className="row-between">
             <h2 style={{ margin: 0 }}>Waiting on you</h2>
@@ -164,11 +180,16 @@ export default function DoctorHome() {
                 className="waiting-row"
                 onClick={() => navigate(`/orders/${order.id}`)}
               >
-                <div>
+                <div className="waiting-who">
                   <strong>{order.patient_name}</strong>
                   <div className="dim">
                     <span className="mono">{order.order_number}</span>
                     {order.product_label ? ` · ${order.product_label}` : ""}
+                    {/* How long it has been sitting with them, which is what
+                        decides which one they open first. */}
+                    <span className="waiting-age" title="Since this case last moved">
+                      {since(order.updated_at)}
+                    </span>
                   </div>
                 </div>
                 <div className="waiting-right">
@@ -183,79 +204,86 @@ export default function DoctorHome() {
           </div>
         </section>
       ) : (
-        <section className="card">
-          <strong>Nothing needs you right now.</strong>{" "}
+        <section className="all-clear">
+          <strong>Nothing needs you right now.</strong>
           <span className="muted">
-            {open.length > 0
-              ? `${open.length} case${open.length === 1 ? "" : "s"} with 3D Align.`
+            {(withLab ?? 0) > 0
+              ? `${withLab} case${withLab === 1 ? "" : "s"} with 3D Align.`
               : "Start a case whenever you are ready."}
           </span>
         </section>
       )}
 
-      <section className="stack-sm">
-        <div className="row-between">
-          <h2 style={{ margin: 0 }}>Orthodontic Aligner Integrated Appliances</h2>
-          <span className="row" style={{ gap: 14 }}>
-            <Link to="/catalogue?tab=accessories" className="btn-link">
-              Accessories
-            </Link>
-            <Link to="/catalogue" className="btn-link">
-              The full range
-            </Link>
-          </span>
-        </div>
-        {products.isLoading ? (
-          <Skeleton rows={6} variant="tile" />
-        ) : (
-          <div className="product-strip">
-            {products.data?.slice(0, 6).map((product: Product) => (
-              <button
-                key={product.id}
-                type="button"
-                className="strip-card"
-                onClick={() => navigate(`/catalogue?order=${product.id}`)}
-              >
-                <span className="product-code">{product.code}</span>
-                <strong>{product.name}</strong>
-                <span className="product-from">
-                  from {rupees(Math.min(...product.sizes.map((s) => Number(s.price))))}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
       {open.length > 0 && (
         <section className="stack-sm">
           <div className="row-between">
-            <h2 style={{ margin: 0 }}>In progress</h2>
+            <h2 style={{ margin: 0 }}>With 3D Align</h2>
             <Link to="/orders" className="btn-link">
               All cases
             </Link>
           </div>
           <div className="waiting-list">
-            {open.slice(0, 4).map((order) => (
+            {open.slice(0, 5).map((order) => (
               <button
                 key={order.id}
                 type="button"
                 className="waiting-row"
                 onClick={() => navigate(`/orders/${order.id}`)}
               >
-                <div>
+                <div className="waiting-who">
                   <strong>{order.patient_name}</strong>
                   <div className="dim">
-                    <span className="mono">{order.order_number}</span> · updated{" "}
-                    {formatDate(order.updated_at)}
+                    <span className="mono">{order.order_number}</span>
+                    {order.product_label ? ` · ${order.product_label}` : ""}
+                    <span className="waiting-age" title="Since this case last moved">
+                      {since(order.updated_at)}
+                    </span>
                   </div>
                 </div>
-                <div className="waiting-ask muted">{order.status_label}</div>
+                {/* The same pill the section above uses. These rows used to set
+                    the status as plain grey text, so one screen said the same
+                    thing two different ways. */}
+                <div className="waiting-right">
+                  <StatusPill status={order.status} label={order.status_label} />
+                </div>
               </button>
             ))}
           </div>
         </section>
       )}
+
+      {/* Ordering, kept to one quiet row. It was three large cards and a strip
+          of six products above the work — two shop windows in front of the
+          desk. All three destinations survive; none of them shouts. */}
+      <section className="stack-sm">
+        <div className="row-between">
+          <h2 style={{ margin: 0 }}>Place an order</h2>
+          <Link to="/catalogue" className="btn-link">
+            The full range
+          </Link>
+        </div>
+        <div className="order-row">
+          <button type="button" className="order-tile" onClick={() => navigate("/orders/new")}>
+            <strong>New aligner case</strong>
+            <span className="muted">Records and a scan — we plan and make the series.</span>
+            <span className="start-go">Begin →</span>
+          </button>
+          <button type="button" className="order-tile" onClick={() => navigate("/catalogue")}>
+            <strong>Appliance</strong>
+            <span className="muted">Retainers, splints, trays and guards, made from a scan.</span>
+            <span className="start-go">See the range →</span>
+          </button>
+          <button
+            type="button"
+            className="order-tile"
+            onClick={() => navigate("/catalogue?tab=accessories")}
+          >
+            <strong>Accessories</strong>
+            <span className="muted">IPR strips, cleanser, cases and kits — straight off the shelf.</span>
+            <span className="start-go">Open the shelf →</span>
+          </button>
+        </div>
+      </section>
     </main>
   );
 }
