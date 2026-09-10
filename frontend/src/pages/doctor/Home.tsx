@@ -1,15 +1,14 @@
 /* The clinic's front door.
  *
- * Read as a website with a workspace inside it rather than as a dashboard. A
- * doctor arrives for one of two reasons — something is waiting on them, or they
- * want to order — and the page has to answer both without either burying the
- * other. So: a hero that says whose practice this is and puts the one action
- * they take most within reach, a ribbon of the three figures that describe the
- * practice, then the desk, then the range.
+ * Answers four questions and stops: what needs me, what has happened, where do
+ * I go, and what can I order. It is deliberately not a view of the data — the
+ * page used to print twelve case rows, which is the Cases page rendered twice
+ * and read once.
  *
- * The slideshow is 3D Align's own catalogue artwork, which the portal already
- * ships. Showing it here is the difference between a tool a clinic logs into
- * and a supplier they buy from.
+ * The change that matters is how work is counted. A doctor does not think
+ * "Isha Shah, EN-2026-0064"; they think "I owe them three scans". So what needs
+ * them is grouped by the thing being asked rather than by the case asking, and
+ * the cases themselves live one click away where they belong.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,21 +18,30 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, since } from "../../api";
 import type { Notification, OrderStatus, OrderSummary, Product } from "../../api";
 import { useAuth } from "../../auth";
-import { Skeleton, StatusPill } from "../../components/ui";
+import { Skeleton } from "../../components/ui";
 
-/* What the clinic actually has to do, in the words they would use. A status
-   name tells them where the case is; this tells them what is being asked. */
-const ASK: Partial<Record<OrderStatus, string>> = {
-  DRAFT: "Finish and submit this case",
-  RECORDS_REQUESTED: "3D Align need better records",
-  QUOTED: "Review the quote",
-  AWAITING_SCAN: "Send the intraoral scan",
-  PLAN_SHARED: "Review the treatment plan",
-  FIT_REVIEW: "Tell us how the training aligner fits",
+/* What the clinic has to do, in the words they would use, singular and plural.
+   A status name says where a case is; this says what is being asked of them. */
+const ASK: Partial<Record<OrderStatus, [string, string]>> = {
+  DRAFT: ["Finish and send 1 draft case", "Finish and send {n} draft cases"],
+  RECORDS_REQUESTED: ["Add better records to 1 case", "Add better records to {n} cases"],
+  QUOTED: ["Review 1 quote", "Review {n} quotes"],
+  AWAITING_SCAN: ["Send 1 intraoral scan", "Send {n} intraoral scans"],
+  PLAN_SHARED: ["Review 1 treatment plan", "Review {n} treatment plans"],
+  FIT_REVIEW: ["Confirm 1 training aligner fit", "Confirm {n} training aligner fits"],
 };
 
-/** A headline figure, not a line item — paise on a balance this size only make
-    the number harder to read. The exact amount is on the payments page. */
+/** The order they should be worked in — a draft the clinic has not sent is not
+    as pressing as a lab waiting on a fit report. */
+const URGENCY: OrderStatus[] = [
+  "RECORDS_REQUESTED",
+  "FIT_REVIEW",
+  "PLAN_SHARED",
+  "QUOTED",
+  "AWAITING_SCAN",
+  "DRAFT",
+];
+
 function rupees(value: number | string): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
@@ -60,15 +68,13 @@ function cheapest(product: Product): number {
  *
  *  Drawn rather than dropped in: a honeycomb of fine gold hexagons, which is the
  *  texture 3D Align prints on its own catalogue cards, a soft light off the top
- *  left, and — set large and faint across the lower half — the curve of a dental
- *  arch with its teeth marked. The motif belongs to this trade and to no other,
- *  which is the point of drawing it instead of reaching for a gradient.
- *
- *  Entirely presentational: aria-hidden, and it never takes a pointer event.
+ *  left, and the curve of an upper arch with its contact points set large and
+ *  faint beneath. The motif belongs to this trade and to no other, which is the
+ *  point of drawing it instead of reaching for a gradient.
  */
 function HeroArt() {
   return (
-    <svg className="hero-art" viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <svg className="hero-art" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
       <defs>
         <pattern id="comb" width="28" height="48" patternUnits="userSpaceOnUse">
           {/* Three hexagons per tile — one whole, two half-dropped — which is
@@ -80,8 +86,8 @@ function HeroArt() {
           </g>
         </pattern>
 
-        <radialGradient id="lamp" cx="12%" cy="0%" r="62%">
-          <stop offset="0%" stopColor="#d4af37" stopOpacity="0.30" />
+        <radialGradient id="lamp" cx="10%" cy="0%" r="62%">
+          <stop offset="0%" stopColor="#d4af37" stopOpacity="0.28" />
           <stop offset="55%" stopColor="#d4af37" stopOpacity="0.06" />
           <stop offset="100%" stopColor="#d4af37" stopOpacity="0" />
         </radialGradient>
@@ -89,29 +95,29 @@ function HeroArt() {
         {/* The comb is strongest where the light falls and gone by the right
             edge, so the texture reads as lit rather than as wallpaper. */}
         <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0.6">
-          <stop offset="0%" stopColor="#fff" stopOpacity="0.30" />
-          <stop offset="45%" stopColor="#fff" stopOpacity="0.10" />
+          <stop offset="0%" stopColor="#fff" stopOpacity="0.28" />
+          <stop offset="45%" stopColor="#fff" stopOpacity="0.09" />
           <stop offset="100%" stopColor="#fff" stopOpacity="0" />
         </linearGradient>
         <mask id="combMask">
-          <rect width="1200" height="420" fill="url(#fade)" />
+          <rect width="1200" height="300" fill="url(#fade)" />
         </mask>
 
         <linearGradient id="archInk" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#d4af37" stopOpacity="0" />
-          <stop offset="35%" stopColor="#d4af37" stopOpacity="0.5" />
-          <stop offset="70%" stopColor="#d4af37" stopOpacity="0.22" />
+          <stop offset="40%" stopColor="#d4af37" stopOpacity="0.42" />
+          <stop offset="75%" stopColor="#d4af37" stopOpacity="0.18" />
           <stop offset="100%" stopColor="#d4af37" stopOpacity="0" />
         </linearGradient>
       </defs>
 
-      <rect width="1200" height="420" fill="url(#comb)" mask="url(#combMask)" />
-      <rect width="1200" height="420" fill="url(#lamp)" />
+      <rect width="1200" height="300" fill="url(#comb)" mask="url(#combMask)" />
+      <rect width="1200" height="300" fill="url(#lamp)" />
 
-      {/* An upper arch, seen from below: the outline, then the contact points
+      {/* An upper arch seen from below: the outline, then the contact points
           between the teeth stepping round it. */}
-      <g className="hero-arch" fill="none" stroke="url(#archInk)">
-        <path d="M120 392 C 150 250, 250 168, 420 168 C 590 168, 690 250, 720 392" strokeWidth="1.6" />
+      <g fill="none" stroke="url(#archInk)" transform="translate(430 -30)">
+        <path d="M120 392 C 150 250, 250 168, 420 168 C 590 168, 690 250, 720 392" strokeWidth="1.5" />
         <path d="M168 396 C 194 282, 282 212, 420 212 C 558 212, 646 282, 672 396" strokeWidth="1" />
         <g strokeWidth="1" opacity="0.7">
           <path d="M133 330 L181 342" /><path d="M152 282 L197 300" />
@@ -127,160 +133,90 @@ function HeroArt() {
   );
 }
 
-/** 3D Align's own catalogue cards, turning over.
+/** What the clinic owes the lab, counted by the thing being asked.
  *
- *  Only products that actually have a card: the lettered placeholder is the
- *  right answer on a shelf and the wrong one in a shop window. It stops on
- *  hover and on focus, and never starts at all for a reader who has asked the
- *  system for less motion.
+ *  This was six case rows — the Cases page, printed a second time. A doctor
+ *  reads "send three intraoral scans" and knows their afternoon; they do not
+ *  read six reference numbers and add them up.
  */
-function Showcase({ products }: { products: Product[] }) {
+function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
   const navigate = useNavigate();
-  const shown = useMemo(() => products.filter((p) => p.image_url), [products]);
-  const [at, setAt] = useState(0);
-  const [held, setHeld] = useState(false);
-  const stilled = useRef(false);
 
-  useEffect(() => {
-    stilled.current =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  }, []);
+  const groups = useMemo(() => {
+    const by = new Map<OrderStatus, OrderSummary[]>();
+    for (const o of orders) {
+      if (!ASK[o.status]) continue;
+      by.set(o.status, [...(by.get(o.status) ?? []), o]);
+    }
+    return URGENCY.filter((s) => by.has(s)).map((s) => ({ status: s, cases: by.get(s)! }));
+  }, [orders]);
 
-  useEffect(() => {
-    if (held || stilled.current || shown.length < 2) return;
-    const t = window.setInterval(() => setAt((i) => (i + 1) % shown.length), 5200);
-    return () => window.clearInterval(t);
-  }, [held, shown.length]);
-
-  if (shown.length === 0) return null;
-  const product = shown[Math.min(at, shown.length - 1)];
+  if (loading) {
+    return (
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Needs you</h2>
+        </div>
+        <Skeleton rows={3} />
+      </section>
+    );
+  }
 
   return (
-    <div
-      className="showcase"
-      onMouseEnter={() => setHeld(true)}
-      onMouseLeave={() => setHeld(false)}
-      onFocusCapture={() => setHeld(true)}
-      onBlurCapture={() => setHeld(false)}
-    >
-      <button
-        type="button"
-        className="showcase-card"
-        onClick={() => navigate(`/catalogue?order=${product.id}`)}
-        aria-label={`Order the ${product.name}`}
-      >
-        {shown.map((p, i) => (
-          <img
-            key={p.id}
-            src={p.image_url}
-            alt=""
-            aria-hidden={i !== at}
-            className={i === at ? "on" : ""}
-            loading={i === 0 ? "eager" : "lazy"}
-          />
-        ))}
-      </button>
-
-      <div className="showcase-foot">
-        <div className="showcase-name">
-          <b>{product.name}</b>
-          <span>from {rupees(cheapest(product))}</span>
-        </div>
-        <div className="showcase-dots" role="tablist" aria-label="Products">
-          {shown.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              role="tab"
-              aria-selected={i === at}
-              aria-label={p.name}
-              className={i === at ? "on" : ""}
-              onClick={() => setAt(i)}
-            />
-          ))}
-        </div>
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Needs you</h2>
+        {orders.length > 0 && (
+          <Link to="/orders" className="btn-link">
+            All cases
+          </Link>
+        )}
       </div>
-    </div>
-  );
-}
 
-/** One figure in the ribbon. Every one leads to what it counts: a number a
-    clinic cannot act on is a number this page does not need. */
-function Figure({
-  label,
-  value,
-  to,
-  hint,
-  lit,
-}: {
-  label: string;
-  value: string;
-  to: string;
-  hint: string;
-  lit?: boolean;
-}) {
-  return (
-    <Link to={to} className={`figure${lit ? " lit" : ""}`}>
-      <span className="figure-n">{value}</span>
-      <span className="figure-l">{label}</span>
-      <span className="figure-h">{hint}</span>
-    </Link>
-  );
-}
-
-/** The line under a patient's name: what it is, how long it has sat, and — for
-    a case delivered in batches — which batch it has reached. */
-function CaseMeta({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
-  const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
-  return (
-    <div className="case-meta">
-      <span className="mono">{order.order_number}</span>
-      {order.product_label && <span>{order.product_label}</span>}
-      {order.category_label && !order.product_label && <span>{order.category_label}</span>}
-      {phased && (
-        <span className="case-phase">
-          Phase {order.phases_done + 1} of {order.phases_total}
-        </span>
+      {groups.length === 0 ? (
+        <div className="clear">
+          <span className="clear-tick" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+              <path d="M5 13l4.5 4.5L19 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <div>
+            <strong>Nothing needs you.</strong>
+            <p>Everything you have sent is with 3D Align. We will tell you when something moves.</p>
+          </div>
+        </div>
+      ) : (
+        <ul className="asks">
+          {groups.map(({ status, cases }) => {
+            const [one, many] = ASK[status]!;
+            const label = cases.length === 1 ? one : many.replace("{n}", String(cases.length));
+            // One case goes straight there; several go to the list.
+            const to = cases.length === 1 ? `/orders/${cases[0].id}` : "/orders";
+            // The longest a case in this group has been sitting, which is the
+            // reason to do this one before that one.
+            const oldest = cases.reduce((a, b) => (a.updated_at < b.updated_at ? a : b));
+            return (
+              <li key={status}>
+                <button type="button" onClick={() => navigate(to)}>
+                  <span className="ask-n">{cases.length}</span>
+                  <span className="ask-say">
+                    <b>{label}</b>
+                    <span>
+                      {cases.length === 1
+                        ? `${cases[0].patient_name} · ${since(oldest.updated_at)}`
+                        : `Oldest ${since(oldest.updated_at)}`}
+                    </span>
+                  </span>
+                  <span className="ask-go" aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
-      {showBranch && order.branch_label && <span>{order.branch_label}</span>}
-      <span className="case-age" title="Since this case last moved">
-        {since(order.updated_at)}
-      </span>
-    </div>
-  );
-}
-
-function CaseRow({
-  order,
-  ask,
-  showBranch,
-  onOpen,
-}: {
-  order: OrderSummary;
-  /** Only the cases waiting on the clinic spell out what is being asked. */
-  ask?: boolean;
-  /** A practice with one clinic does not need it named under every case. */
-  showBranch: boolean;
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <button type="button" className="case-row" onClick={() => onOpen(order.id)}>
-      <span className="case-name">
-        {order.patient_name}
-        {order.priority === "EXPRESS" && <span className="pill pill-gold case-express">Express</span>}
-      </span>
-      <CaseMeta order={order} showBranch={showBranch} />
-      <span className="case-state">
-        <StatusPill status={order.status} label={order.status_label} />
-      </span>
-      {ask && (
-        <span className="case-ask">
-          {ASK[order.status] ?? order.status_label}
-          <span className="go"> →</span>
-        </span>
-      )}
-    </button>
+    </section>
   );
 }
 
@@ -306,9 +242,9 @@ function Activity() {
   const items = (notes.data ?? []).slice(0, 6);
 
   return (
-    <section className="rail-block">
-      <div className="rail-head">
-        <h3>Activity</h3>
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Recent activity</h2>
         {count > 0 ? (
           <button
             type="button"
@@ -324,7 +260,7 @@ function Activity() {
       </div>
 
       {notes.isLoading ? (
-        <Skeleton rows={3} />
+        <Skeleton rows={4} />
       ) : items.length === 0 ? (
         <p className="dim">Nothing has happened yet.</p>
       ) : (
@@ -352,48 +288,166 @@ function Activity() {
   );
 }
 
-/** The month so far, and what it costs this clinic to have something sent.
- *  The delivery rate is worth saying out loud: it is charged on every appliance
- *  and the clinic could only find it by starting an order. */
-function Practice() {
-  const now = new Date();
-  const stats = useQuery({
-    queryKey: ["stats", "home", now.getFullYear(), now.getMonth()],
-    queryFn: () =>
-      api.practiceStats({ view: "month", year: now.getFullYear(), month: now.getMonth() + 1 }),
-  });
-  const delivery = useQuery({ queryKey: ["delivery-charge"], queryFn: api.deliveryCharge });
-  const t = stats.data?.totals;
-  const d = delivery.data;
+/** Where to go, and the one number that says whether to go there.
+ *
+ *  A tile that only navigates makes the reader open it to find out whether it
+ *  was worth opening. These carry their own headline, so the row is both the
+ *  way through the portal and the state of the practice.
+ */
+function Jump({
+  to,
+  label,
+  value,
+  note,
+  lit,
+  icon,
+}: {
+  to: string;
+  label: string;
+  value: string;
+  note: string;
+  lit?: boolean;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link to={to} className={`jump${lit ? " lit" : ""}`}>
+      <span className="jump-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="jump-value">{value}</span>
+      <span className="jump-label">{label}</span>
+      <span className="jump-note">{note}</span>
+    </Link>
+  );
+}
+
+const ICON = {
+  cases: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <path d="M8 3v4M16 3v4M3.5 10h17" strokeLinecap="round" />
+    </svg>
+  ),
+  money: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M6 5h12M6 9.5h12M9.5 5v3a4 4 0 0 1-4 4h-.5l7 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  patients: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <circle cx="12" cy="8.5" r="3.6" />
+      <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" strokeLinecap="round" />
+    </svg>
+  ),
+  chart: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M4 20V10M10 20V5M16 20v-7M22 20H2" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
+/** The range, as a shelf you can push along.
+ *
+ *  Native scroll with snap points, so a phone flicks through it the way a phone
+ *  expects to and the arrows are an addition rather than the only way through.
+ */
+function Range({ products }: { products: Product[] }) {
+  const navigate = useNavigate();
+  const track = useRef<HTMLDivElement | null>(null);
+  const [held, setHeld] = useState(false);
+  const [at, setAt] = useState(0);
+  const stilled = useRef(false);
+
+  // Only what has a card. The lettered placeholder is the right answer on a
+  // shelf and the wrong one in a shop window.
+  const shown = useMemo(() => products.filter((p) => p.image_url), [products]);
+
+  useEffect(() => {
+    stilled.current =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  const step = (dir: number) => {
+    const el = track.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(".range-card");
+    const by = card ? card.offsetWidth + 14 : el.clientWidth;
+    // Wrap rather than stop dead at either end — a shelf that will not come
+    // back round reads as broken.
+    const max = el.scrollWidth - el.clientWidth;
+    let to = el.scrollLeft + by * dir;
+    if (to > max + 4) to = 0;
+    if (to < -4) to = max;
+    el.scrollTo({ left: to, behavior: stilled.current ? "auto" : "smooth" });
+  };
+
+  useEffect(() => {
+    if (held || stilled.current || shown.length < 2) return;
+    const t = window.setInterval(() => step(1), 5000);
+    return () => window.clearInterval(t);
+  }, [held, shown.length]);
+
+  const onScroll = () => {
+    const el = track.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(".range-card");
+    const by = card ? card.offsetWidth + 14 : 1;
+    setAt(Math.round(el.scrollLeft / by));
+  };
+
+  if (shown.length === 0) return null;
 
   return (
-    <section className="rail-block">
-      <div className="rail-head">
-        <h3>This month</h3>
-        <Link to="/stats" className="btn-link">
-          Insights
-        </Link>
+    <section
+      className="range"
+      onMouseEnter={() => setHeld(true)}
+      onMouseLeave={() => setHeld(false)}
+      onFocusCapture={() => setHeld(true)}
+      onBlurCapture={() => setHeld(false)}
+    >
+      <div className="range-head">
+        <div>
+          <h2>The range</h2>
+          <p>Everything 3D Align makes, built from a scan and priced before you order.</p>
+        </div>
+        <div className="range-nav">
+          <button type="button" onClick={() => step(-1)} aria-label="Previous products">
+            ‹
+          </button>
+          <button type="button" onClick={() => step(1)} aria-label="Next products">
+            ›
+          </button>
+          <Link to="/catalogue" className="btn-link">
+            All products
+          </Link>
+        </div>
       </div>
-      <dl className="tally">
-        <div>
-          <dt>Cases started</dt>
-          <dd>{t ? t.aligners : "—"}</dd>
+
+      <div className="range-wrap">
+        <div className="range-track" ref={track} onScroll={onScroll}>
+          {shown.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="range-card"
+              onClick={() => navigate(`/catalogue?order=${p.id}`)}
+            >
+              <span className="range-shot">
+                <img src={p.image_url} alt="" loading="lazy" />
+              </span>
+              <span className="range-name">{p.name}</span>
+              <span className="range-price">from {rupees(cheapest(p))}</span>
+            </button>
+          ))}
         </div>
-        <div>
-          <dt>Appliances</dt>
-          <dd>{t ? t.products + t.accessories : "—"}</dd>
-        </div>
-        <div>
-          <dt>Paid</dt>
-          <dd>{t ? rupees(t.paid) : "—"}</dd>
-        </div>
-        {d?.has_address && (
-          <div>
-            <dt>Delivery to {d.city}</dt>
-            <dd>{rupees(d.amount)}</dd>
-          </div>
-        )}
-      </dl>
+      </div>
+
+      <div className="range-dots" aria-hidden="true">
+        {shown.map((p, i) => (
+          <span key={p.id} className={i === at ? "on" : ""} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -401,28 +455,26 @@ function Practice() {
 export default function DoctorHome() {
   const { me } = useAuth();
   const navigate = useNavigate();
-  const open = (id: string) => navigate(`/orders/${id}`);
+  const now = new Date();
 
   const waiting = useQuery({
     queryKey: ["orders", "needs-action"],
-    queryFn: () => api.orders(true, { limit: 6 }),
-  });
-  const recent = useQuery({
-    queryKey: ["orders", "recent"],
-    queryFn: () => api.orders(false, { limit: 10 }),
+    queryFn: () => api.orders(true, { limit: 60 }),
   });
   const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger });
   const openCases = useQuery({
     queryKey: ["orders", "open-count"],
     queryFn: () => api.orders(false, { limit: 200 }),
   });
-  const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
   const products = useQuery({ queryKey: ["products"], queryFn: api.products });
+  const stats = useQuery({
+    queryKey: ["stats", "home", now.getFullYear(), now.getMonth()],
+    queryFn: () =>
+      api.practiceStats({ view: "month", year: now.getFullYear(), month: now.getMonth() + 1 }),
+  });
   // Whether an unsettled appliance is holding the next one. Said here rather
-  // than discovered at the end of an order form the clinic has already filled.
+  // than discovered at the end of an order form already filled in.
   const hold = useQuery({ queryKey: ["ordering-hold"], queryFn: api.orderingHold });
-
-  const multiBranch = (addresses.data?.length ?? 0) > 1;
 
   const withLab =
     openCases.data === undefined
@@ -434,32 +486,22 @@ export default function DoctorHome() {
             o.status !== "CANCELLED",
         ).length;
 
-  // A case waiting on the clinic is already the first thing on the page;
-  // listing it again below reads as two different cases with one number.
-  const waitingIds = new Set((waiting.data ?? []).map((o) => o.id));
-  const inFlight = (recent.data ?? []).filter(
-    (o) => o.status !== "COMPLETED" && o.status !== "CANCELLED" && !waitingIds.has(o.id),
-  );
-
   const due = ledger.data ? Number(ledger.data.outstanding) : null;
-  const inReview = ledger.data ? Number(ledger.data.in_review) : 0;
   const needing = waiting.data?.length ?? 0;
   const blocked = hold.data && !hold.data.can_order_products;
+  const t = stats.data?.totals;
 
   return (
     <main className="page home">
       <section className="hero">
         <HeroArt />
-
         <div className="hero-say">
-          <div className="hero-top">
-            <span className="hero-greet">{greeting()}</span>
-            <h1>{firstName(me?.doctor?.full_name ?? "Doctor")}</h1>
-            <p className="hero-clinic">{me?.doctor?.clinic_name}</p>
-          </div>
+          <span className="hero-greet">{greeting()}</span>
+          <h1>{firstName(me?.doctor?.full_name ?? "Doctor")}</h1>
+          <p className="hero-clinic">{me?.doctor?.clinic_name}</p>
 
           {/* The one action a clinic takes more than any other, at the size
-              that says so. It used to be a link inside a card among three. */}
+              that says so. */}
           <div className="hero-do">
             <button type="button" className="btn-hero" onClick={() => navigate("/orders/new")}>
               Start a new aligner case
@@ -469,52 +511,7 @@ export default function DoctorHome() {
               Order an appliance
             </button>
           </div>
-
-          {/* The three figures that describe the practice, in the band rather
-              than in a strip of their own beneath it. */}
-          <div className="hero-figures">
-            <Figure
-              label="Waiting on you"
-              value={waiting.isLoading ? "—" : String(needing)}
-              to="/orders"
-              hint={
-                needing === 0
-                  ? "All clear"
-                  : needing === 1
-                    ? "1 case to act on"
-                    : `${needing} cases to act on`
-              }
-              lit={needing > 0}
-            />
-            <Figure
-              label="With 3D Align"
-              value={withLab === null ? "—" : String(withLab)}
-              to="/orders"
-              hint="In planning or production"
-            />
-            <Figure
-              label="Due to pay"
-              value={due === null ? "—" : rupees(due)}
-              to="/payments"
-              hint={
-                due === null
-                  ? "Loading"
-                  : due === 0
-                    ? inReview > 0
-                      ? "Receipts being checked"
-                      : "Nothing outstanding"
-                    : "Pay by UPI"
-              }
-              lit={(due ?? 0) > 0}
-            />
-          </div>
         </div>
-
-        {products.isLoading ? (
-          <div className="showcase showcase-wait" aria-hidden="true" />
-        ) : (
-          <Showcase products={products.data ?? []} />
-        )}
       </section>
 
       {blocked && (
@@ -524,98 +521,45 @@ export default function DoctorHome() {
         </p>
       )}
 
-      <div className="desk">
-        <div className="desk-main">
-          <section className="board">
-            <div className="board-head">
-              <h2>
-                Waiting on you
-                {needing > 0 && <span className="count">{needing}</span>}
-              </h2>
-              <Link to="/orders" className="btn-link">
-                All cases
-              </Link>
-            </div>
-
-            {waiting.isLoading ? (
-              <Skeleton rows={3} />
-            ) : needing === 0 ? (
-              <p className="board-clear">
-                <strong>Nothing needs you.</strong>{" "}
-                <span className="muted">
-                  {(withLab ?? 0) > 0
-                    ? `${withLab} case${withLab === 1 ? "" : "s"} are with 3D Align.`
-                    : "Start a case whenever you are ready."}
-                </span>
-              </p>
-            ) : (
-              <div className="case-list">
-                {waiting.data?.map((order) => (
-                  <CaseRow
-                    key={order.id}
-                    order={order}
-                    ask
-                    showBranch={multiBranch}
-                    onOpen={open}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {inFlight.length > 0 && (
-            <section className="board">
-              <div className="board-head">
-                <h2>
-                  With 3D Align
-                  {withLab ? <span className="count quiet">{withLab}</span> : null}
-                </h2>
-                <Link to="/orders" className="btn-link">
-                  All cases
-                </Link>
-              </div>
-              <div className="case-list">
-                {inFlight.slice(0, 6).map((order) => (
-                  <CaseRow
-                    key={order.id}
-                    order={order}
-                    showBranch={multiBranch}
-                    onOpen={open}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
-
-        <aside className="desk-rail">
-          <Activity />
-          <Practice />
-
-          <section className="rail-block">
-            <div className="rail-head">
-              <h3>Place an order</h3>
-              <Link to="/catalogue" className="btn-link">
-                Range
-              </Link>
-            </div>
-            <div className="rail-actions">
-              <button type="button" onClick={() => navigate("/orders/new")}>
-                <b>New aligner case</b>
-                <span>Records and a scan</span>
-              </button>
-              <button type="button" onClick={() => navigate("/catalogue")}>
-                <b>An appliance</b>
-                <span>Retainers, splints, trays, guards</span>
-              </button>
-              <button type="button" onClick={() => navigate("/catalogue?tab=accessories")}>
-                <b>Accessories</b>
-                <span>Straight off the shelf</span>
-              </button>
-            </div>
-          </section>
-        </aside>
+      <div className="split">
+        <Attention orders={waiting.data ?? []} loading={waiting.isLoading} />
+        <Activity />
       </div>
+
+      <nav className="jumps" aria-label="Your practice">
+        <Jump
+          to="/orders"
+          label="Cases"
+          value={withLab === null ? "—" : String(withLab)}
+          note={needing > 0 ? `${needing} waiting on you` : "All with 3D Align"}
+          lit={needing > 0}
+          icon={ICON.cases}
+        />
+        <Jump
+          to="/payments"
+          label="Payments"
+          value={due === null ? "—" : rupees(due)}
+          note={due === 0 ? "Nothing outstanding" : "Due to pay"}
+          lit={(due ?? 0) > 0}
+          icon={ICON.money}
+        />
+        <Jump
+          to="/patients"
+          label="Patients"
+          value={t ? String(t.patients) : "—"}
+          note="Seen this month"
+          icon={ICON.patients}
+        />
+        <Jump
+          to="/stats"
+          label="Insights"
+          value={t ? rupees(t.paid) : "—"}
+          note="Paid this month"
+          icon={ICON.chart}
+        />
+      </nav>
+
+      {!products.isLoading && <Range products={products.data ?? []} />}
     </main>
   );
 }

@@ -170,7 +170,7 @@ p { margin: 0; }
 td,
 th,
 .tile .n,
-.figure-n,
+.jump-value,
 .product-sizes b,
 .product-from,
 input[type="number"] {
@@ -2458,11 +2458,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .hero {
   position: relative;
   overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--s-5) var(--s-7);
-  padding: var(--s-5) var(--s-6);
+  padding: var(--s-6);
   border-radius: var(--r-lg);
   color: var(--white);
   background: linear-gradient(126deg, #08080a 0%, #16161b 52%, #1e1e25 100%);
@@ -2547,384 +2543,166 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   box-shadow: none;
 }
 
-/* --- the figures, inside the band --- */
+/* ---------------- the page's own rhythm ----------------
+   Sections are held apart by space and a heading, not by a border each. A
+   border, a fill, a radius and a shadow all say "separate object"; stamped on
+   every block they say it so often that nothing stands out, which is the whole
+   look of an admin panel. They are spent here on the two surfaces that carry
+   work, and withheld everywhere else. */
 
-.hero-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  padding-top: var(--s-4);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-}
+.home { display: flex; flex-direction: column; gap: var(--s-7); }
 
-.figure {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 2px 20px;
-  min-width: 0;
-  text-decoration: none;
-  color: inherit;
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--r-sm);
-  transition: background var(--fast) var(--ease);
-}
-.figure:first-child { border-left: 0; padding-left: 0; }
-.figure:hover { background: rgba(255, 255, 255, 0.06); }
-
-.figure-n {
-  font-size: 1.42rem;
-  font-weight: 650;
-  line-height: 1.15;
-  letter-spacing: var(--track-h1);
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.94);
-}
-/* Gold marks the figure that is asking for something — a count of nought and a
-   balance of nothing are good news and stay quiet. */
-.figure.lit .figure-n { color: var(--gold-lift); }
-
-.figure-l {
-  font-size: var(--t-micro);
-  font-weight: 600;
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.5);
-}
-.figure-h { font-size: var(--t-xs); color: rgba(255, 255, 255, 0.38); }
-
-/* ---------------- the showcase ----------------
-   3D Align's own catalogue cards, turning over, fanned so the stack says there
-   is a range without needing to say it. */
-
-.showcase { position: relative; width: 196px; flex: none; }
-
-.showcase-card {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1.414;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r);
-  overflow: hidden;
-  cursor: pointer;
-  background: #0b0b0c;
-  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 18px 44px rgba(0, 0, 0, 0.5);
-  transition: transform var(--mid) var(--ease-out), box-shadow var(--mid) var(--ease);
-}
-.showcase-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.6), 0 24px 56px rgba(0, 0, 0, 0.58);
-}
-
-.showcase-card img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  opacity: 0;
-  transition: opacity 620ms var(--ease);
-}
-.showcase-card img.on { opacity: 1; }
-
-/* Fanned a couple of degrees each way: a deck of cards at a glance, where a
-   straight offset only looked like a misaligned border. */
-.showcase::before,
-.showcase::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 100%;
-  aspect-ratio: 1 / 1.414;
-  border-radius: var(--r);
-  border: 1px solid rgba(212, 175, 55, 0.18);
-  background: rgba(255, 255, 255, 0.02);
-  pointer-events: none;
-}
-.showcase::before { transform: translate(-50%, 0) rotate(-3.5deg) scale(0.97); }
-.showcase::after { transform: translate(-50%, 0) rotate(3.5deg) scale(0.97); }
-
-.showcase-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-3);
-  margin-top: var(--s-2);
-}
-
-.showcase-name { display: flex; flex-direction: column; min-width: 0; }
-.showcase-name b {
-  font-size: var(--t-xs);
-  font-weight: 620;
-  line-height: 1.3;
-  color: var(--white);
-  /* Two lines, and the room for both held open whether or not this name needs
-     it — "Mandibular Jaw Correction" does not fit on one at any width the card
-     is worth drawing, and a foot that resized would jog the band on every
-     turn. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 2.6em;
-}
-.showcase-name span {
-  font-size: var(--t-micro);
-  color: var(--gold-lift);
-  font-variant-numeric: tabular-nums;
-}
-
-.showcase-dots { display: flex; gap: 4px; flex: none; }
-.showcase-dots button {
-  width: 5px;
-  height: 5px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.26);
-  cursor: pointer;
-  transition: background var(--fast) var(--ease), width var(--fast) var(--ease);
-}
-.showcase-dots button:hover { background: rgba(255, 255, 255, 0.5); }
-.showcase-dots button.on { width: 15px; background: var(--gold-lift); }
-
-.showcase-wait {
-  aspect-ratio: 1 / 1.414;
-  border-radius: var(--r);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-/* An appliance already delivered and unpaid holds the next one. Said before the
-   clinic fills in an order form, not after. */
-.hold-note {
-  margin: 0;
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--gold-line);
-  border-left: 3px solid var(--gold);
-  border-radius: var(--r-sm);
-  background: var(--gold-wash);
-  font-size: var(--t-sm);
-}
-
-@media (max-width: 900px) {
-  .hero { grid-template-columns: minmax(0, 1fr) auto; padding: var(--s-5); gap: var(--s-4); }
-  .showcase { width: 150px; }
-  /* The fan is a flourish for a wide screen; narrow, it only steals room from
-     the thing it decorates. */
-  .showcase::before, .showcase::after { display: none; }
-}
-
-@media (max-width: 620px) {
-  /* A column each leaves neither enough to be worth having, and a poster shrunk
-     to fit one is a gold rectangle with unreadable print on it. So on a phone
-     the card turns on its side: a thumbnail to recognise it by, with the name
-     and the price set beside it at a size worth reading. */
-  .hero { grid-template-columns: minmax(0, 1fr); }
-  .showcase {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: var(--s-3);
-    padding-top: var(--s-4);
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
-  }
-  .showcase-card { width: 96px; flex: none; }
-  .showcase-foot {
-    flex: 1;
-    min-width: 0;
-    margin-top: 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--s-2);
-  }
-  .showcase-name b { font-size: var(--t-sm); white-space: normal; }
-  .showcase-name span { font-size: var(--t-xs); }
-  .hero-do { flex-direction: column; align-items: stretch; }
-  .btn-hero { justify-content: center; }
-  .hero-figures { gap: var(--s-2) 0; }
-  .figure { flex: 1 1 0; padding: 2px 12px; }
-  .figure-n { font-size: 1.2rem; }
-  .figure-h { display: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .showcase-card img { transition: none; }
-  .btn-hero:hover, .showcase-card:hover { transform: none; }
-}
-
-/* ---------------- the desk ----------------
-   Two columns: the work on the left, a rail beside it for what the practice
-   reads rather than acts on line by line. Full-width rows on a 1,192px page
-   left six hundred pixels of nothing between a patient's name and their
-   status — and left nowhere at all for activity, the month, or ordering. */
-
-.desk {
+/* Asymmetric on purpose. Two equal columns read as a comparison; what needs the
+   clinic and what has merely happened are not equals. */
+.split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--s-6);
+  grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+  gap: var(--s-5);
   align-items: start;
 }
 
-.desk-main,
-.desk-rail {
+.panel {
   display: flex;
   flex-direction: column;
-  gap: var(--s-6);
   min-width: 0;
+  padding: var(--s-5);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
 }
 
-/* --- a board of cases --- */
-
-.board-head {
+.panel-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-3);
-  margin-bottom: var(--s-3);
-}
-.board-head h2 {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin: 0;
-  font-size: var(--t-h2);
-  letter-spacing: var(--track-h2);
-}
-
-/* The count belongs to the heading rather than to a tile of its own. */
-.count {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--gold);
-  color: var(--white);
-  font-size: var(--t-micro);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.count.quiet { background: var(--paper-2); color: var(--ink-2); }
-
-.board-clear {
-  margin: 0;
-  padding: var(--s-4) 0;
-  border-top: 1px solid var(--rule);
+  padding-bottom: var(--s-4);
+  margin-bottom: var(--s-2);
   border-bottom: 1px solid var(--rule);
 }
-
-.case-list {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--rule);
-  border-radius: var(--r);
-  background: var(--white);
-  overflow: hidden;
+.panel-head h2 {
+  margin: 0;
+  font-size: var(--t-h2);
+  font-weight: 640;
+  letter-spacing: var(--track-h2);
 }
+.panel-head .btn-link,
+.panel-head .dim { font-size: var(--t-xs); }
 
-/* A grid, so the name, the detail, the stage and the ask hold their own tracks
-   down the list instead of every row arranging itself. */
-.case-row {
+/* ---------------- what needs them ----------------
+   Counted by the thing being asked rather than by the case asking. A clinic
+   reads "send three intraoral scans" and knows their afternoon; six reference
+   numbers make them do the addition themselves. */
+
+.asks { list-style: none; margin: 0; padding: 0; }
+
+.asks li + li { border-top: 1px solid var(--rule); }
+
+.asks button {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-areas:
-    "name state ask"
-    "meta state ask";
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 2px var(--s-3);
-  padding: var(--s-3) var(--s-4);
+  gap: var(--s-4);
+  width: 100%;
+  padding: var(--s-4) var(--s-2);
   text-align: left;
   font: inherit;
   white-space: normal;
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--rule);
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: background var(--fast) var(--ease);
 }
-.case-row:last-child { border-bottom: 0; }
-.case-row:hover { background: var(--gold-wash); }
+.asks button:hover { background: var(--gold-wash); }
 
-.case-name {
-  grid-area: name;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  font-weight: 620;
-  min-width: 0;
+/* The count set large in the brand's own gold: the one number on the row that
+   decides whether it is a minute's work or an afternoon's. */
+.ask-n {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r);
+  background: linear-gradient(160deg, var(--gold-soft), var(--gold-wash));
+  border: 1px solid var(--gold-line);
+  color: var(--gold-deep);
+  font-size: 1.22rem;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
-.case-express { flex: none; font-size: var(--t-micro); }
 
-/* One line of detail, parts separated by a hairline dot rather than each
-   taking a column — these are facts about the case, not fields to compare. */
-.case-meta {
-  grid-area: meta;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--s-2);
-  font-size: var(--t-xs);
-  color: var(--ink-3);
-  min-width: 0;
-}
-.case-meta > * + *::before {
-  content: "\00b7";
-  margin-right: var(--s-2);
-  color: var(--rule-strong);
-}
-.case-phase { color: var(--ink-2); font-weight: 560; }
-.case-age { font-variant-numeric: tabular-nums; }
-
-.case-state { grid-area: state; }
-
-.case-ask {
-  grid-area: ask;
-  font-size: var(--t-sm);
+.ask-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-say b {
+  font-size: var(--t-body);
   font-weight: 600;
-  color: var(--ink);
-  text-align: right;
+  line-height: 1.35;
+  letter-spacing: -0.006em;
 }
-.go { color: var(--gold-deep); }
+.ask-say span { font-size: var(--t-xs); color: var(--ink-3); }
 
-/* --- the rail --- */
+/* The arrow steps forward under the cursor — the only motion on the row, so it
+   reads as an invitation rather than as decoration. */
+.ask-go {
+  color: var(--gold-deep);
+  font-size: 1.05rem;
+  opacity: 0.45;
+  transition: transform var(--mid) var(--ease-out), opacity var(--fast) var(--ease);
+}
+.asks button:hover .ask-go { opacity: 1; transform: translateX(3px); }
 
-/* Not cards. Each block is held apart by the space around it and its own small
-   heading; boxing all three would make the rail read as three more things to
-   deal with rather than one quiet column. */
-.rail-block { min-width: 0; }
-
-.rail-head {
+/* Nothing waiting is good news and should look like it, not like an error
+   state apologising for having nothing to show. */
+.clear {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-2);
-  padding-bottom: var(--s-2);
-  margin-bottom: var(--s-3);
-  border-bottom: 1px solid var(--rule);
+  align-items: flex-start;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-2) var(--s-4);
 }
-.rail-head h3 {
-  margin: 0;
-  font-size: var(--t-micro);
-  font-weight: 700;
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink-2);
+.clear-tick {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
+  color: var(--ok);
 }
-.rail-head .dim,
-.rail-head .btn-link { font-size: var(--t-xs); }
+.clear-tick svg { width: 20px; height: 20px; }
+.clear strong { font-size: var(--t-h3); }
+.clear p { margin: 3px 0 0; font-size: var(--t-sm); color: var(--ink-2); max-width: 42ch; }
 
-/* --- activity --- */
+/* ---------------- what has happened ----------------
+   Drawn as a timeline rather than as a list: a hairline rail with a node per
+   entry says these things happened in an order, which a stack of rows does not. */
 
-.feed { list-style: none; margin: 0; padding: 0; }
+.feed { list-style: none; margin: 0; padding: 0; position: relative; }
+
+/* The rail, stopping at the first and last node rather than running past them
+   into nothing. */
+.feed::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 22px;
+  bottom: 22px;
+  width: 1px;
+  background: var(--rule);
+}
 
 .feed-item > button,
 .feed-item > div {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 var(--s-2);
   width: 100%;
-  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-2) var(--s-3) var(--s-5);
   text-align: left;
   font: inherit;
   background: none;
@@ -2932,6 +2710,27 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   border-radius: var(--r-sm);
   white-space: normal;
 }
+
+/* The node. Hollow for what has been read, filled gold for what has not. */
+.feed-item > button::before,
+.feed-item > div::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 19px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--white);
+  border: 1.5px solid var(--rule-strong);
+}
+.feed-item.new > button::before,
+.feed-item.new > div::before {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-wash);
+}
+
 .feed-item > button { cursor: pointer; transition: background var(--fast) var(--ease); }
 .feed-item > button:hover { background: var(--paper-2); }
 
@@ -2940,9 +2739,13 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: var(--t-sm);
   font-weight: 600;
   line-height: 1.35;
+  color: var(--ink);
 }
+.feed-item:not(.new) b { color: var(--ink-2); font-weight: 560; }
+
 .feed-body {
   grid-column: 1 / -1;
+  margin-top: 1px;
   font-size: var(--t-xs);
   color: var(--ink-3);
   line-height: 1.45;
@@ -2960,77 +2763,283 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-variant-numeric: tabular-nums;
 }
 
-/* A gold edge against the ones that arrived since they last looked — an edge
-   and not a fill, because a clinic that has not looked in a week has every item
-   unread, and a wash on all of them reads as one solid block rather than as a
-   list with new things in it. */
-.feed-item.new > button,
-.feed-item.new > div {
-  box-shadow: inset 2px 0 0 var(--gold);
-}
-.feed-item.new b { color: var(--ink); }
-.feed-item:not(.new) b { color: var(--ink-2); font-weight: 560; }
+/* ---------------- where to go ----------------
+   A tile that only navigates makes the reader open it to find out whether it
+   was worth opening. Each carries the one number that answers that, so the row
+   is both the way through the portal and the state of the practice. */
 
-/* --- the month --- */
-
-.tally { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; }
-.tally > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-3);
-}
-.tally dt { font-size: var(--t-sm); color: var(--ink-2); }
-.tally dd {
-  margin: 0;
-  font-size: var(--t-h3);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
+.jumps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--s-4);
 }
 
-/* --- ordering --- */
-
-.rail-actions { display: flex; flex-direction: column; gap: 2px; }
-.rail-actions button {
+.jump {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: var(--s-2) var(--s-3);
+  gap: 2px;
+  padding: var(--s-5) var(--s-5) var(--s-4);
+  text-decoration: none;
+  color: inherit;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+  transition:
+    transform var(--mid) var(--ease-out),
+    box-shadow var(--mid) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+.jump:hover {
+  transform: translateY(-2px);
+  border-color: var(--gold-line);
+  box-shadow: var(--shadow);
+}
+
+/* A gold wash that rises from the foot on hover — the tile lights up rather
+   than merely moving. */
+.jump::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 100%;
+  background: linear-gradient(0deg, var(--gold-wash), transparent 62%);
+  opacity: 0;
+  transition: opacity var(--mid) var(--ease);
+  pointer-events: none;
+}
+.jump:hover::after { opacity: 1; }
+
+.jump > * { position: relative; }
+
+.jump-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  color: var(--ink-2);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.jump-icon svg { width: 18px; height: 18px; }
+.jump:hover .jump-icon { background: var(--gold-soft); color: var(--gold-deep); }
+
+.jump-value {
+  font-size: 1.62rem;
+  font-weight: 660;
+  line-height: 1.05;
+  letter-spacing: -0.024em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+/* Gold on the tile that is asking for something. A count of nought and a
+   balance of nothing are good news and stay in ink. */
+.jump.lit .jump-value { color: var(--gold-deep); }
+.jump.lit .jump-icon { background: var(--gold-soft); color: var(--gold-deep); }
+
+.jump-label {
+  margin-top: 3px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.jump-note { font-size: var(--t-xs); color: var(--ink-3); }
+
+@media (max-width: 940px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .panel { padding: var(--s-4); }
+  .asks button { gap: var(--s-3); padding: var(--s-3) 0; }
+  .ask-n { min-width: 38px; height: 38px; font-size: 1.05rem; }
+  .jumps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+  .jump { padding: var(--s-4); }
+  .jump-value { font-size: 1.35rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump:hover { transform: none; }
+  .asks button:hover .ask-go { transform: none; }
+}
+
+/* ---------------- the range ----------------
+   A shelf of 3D Align's own catalogue cards, pushed along. It sat inside the
+   hero one card at a time, which cramped both — the practice's numbers sharing
+   a band with a shop window, and a range of eight standing on one poster. It
+   comes after the work: a clinic that arrived to act sees what needs them
+   first, and one that arrived to browse scrolls. */
+
+.range { display: flex; flex-direction: column; gap: var(--s-4); }
+
+.range-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--rule);
+}
+.range-head h2 {
+  margin: 0;
+  font-size: var(--t-h2);
+  letter-spacing: var(--track-h2);
+}
+.range-head p {
+  margin: 4px 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+
+.range-nav { display: flex; align-items: center; gap: var(--s-2); flex: none; }
+.range-nav button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--ink-2);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.range-nav button:hover {
+  color: var(--ink);
+  border-color: var(--gold);
+  background: var(--gold-wash);
+}
+.range-nav .btn-link { margin-left: var(--s-2); }
+
+/* Native scroll with snap points: a phone flicks through it the way a phone
+   expects to, and the arrows are an addition rather than the only way. */
+.range-track {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+  /* The last card can reach the left edge, so the track ends on a card rather
+     than on a gap. */
+  scroll-padding-left: 0;
+}
+.range-track::-webkit-scrollbar { display: none; }
+
+/* The shelf runs past the page edge, which is how it says there is more. A
+   hard cut through a card reads as a clipping fault; a fade reads as depth. */
+.range-wrap {
+  position: relative;
+  /* The mask is on a wrapper, not the scroller: masking the scroller itself
+     makes it a containing block and the snap points drift. */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
+}
+
+.range-card {
+  flex: 0 0 auto;
+  width: 176px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: 0;
   text-align: left;
   font: inherit;
   white-space: normal;
   background: none;
   border: 0;
-  border-radius: var(--r-sm);
   cursor: pointer;
-  transition: background var(--fast) var(--ease);
 }
-.rail-actions button:hover { background: var(--gold-wash); }
-.rail-actions b { font-size: var(--t-sm); font-weight: 600; }
-.rail-actions span { font-size: var(--t-xs); color: var(--ink-3); }
 
-/* The rail drops under the work once there is no room for both, and the boards
-   keep the width they had. */
-@media (max-width: 1040px) {
-  .desk { grid-template-columns: minmax(0, 1fr); }
+/* The card's own black is the frame — a border around it would be a second
+   edge drawn on top of one the artwork already has. */
+.range-shot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1.414;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: #0b0b0c;
+  box-shadow: 0 1px 2px rgba(11, 11, 12, 0.16), 0 10px 26px rgba(11, 11, 12, 0.14);
+  transition: transform var(--mid) var(--ease-out), box-shadow var(--mid) var(--ease);
 }
+.range-card:hover .range-shot {
+  transform: translateY(-4px);
+  box-shadow: 0 2px 4px rgba(11, 11, 12, 0.2), 0 18px 40px rgba(11, 11, 12, 0.22);
+}
+.range-shot img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.range-name {
+  font-size: var(--t-sm);
+  font-weight: 620;
+  line-height: 1.3;
+}
+.range-price {
+  margin-top: -4px;
+  font-size: var(--t-xs);
+  color: var(--gold-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.range-dots {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+.range-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--rule-strong);
+  transition: width var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.range-dots span.on { width: 16px; background: var(--gold); }
 
 @media (max-width: 620px) {
-  /* Stacked, the ask leaves its column and sits under the case beside the
-     stage — the only arrangement that squeezes neither. */
-  .case-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "name state"
-      "meta state"
-      "ask  ask";
-    gap: var(--s-1) var(--s-2);
-  }
-  .case-ask { text-align: left; padding-top: var(--s-1); }
+  .range-card { width: 142px; }
+  .range-head { align-items: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .product-card:hover { transform: none; }
+  .range-card:hover .range-shot { transform: none; }
+}
+
+/* An appliance already delivered and unpaid holds the next one. Said before the
+   clinic fills in an order form, not after. */
+.hold-note {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--gold-line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r-sm);
+  background: var(--gold-wash);
+  font-size: var(--t-sm);
+}
+
+@media (max-width: 900px) {
+  .hero { padding: var(--s-5); }
+}
+
+@media (max-width: 620px) {
+  .hero-do { flex-direction: column; align-items: stretch; }
+  .btn-hero { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-hero:hover { transform: none; }
 }
 
 /* --- Loading placeholders -------------------------------------------------
