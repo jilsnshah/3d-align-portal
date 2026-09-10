@@ -2448,81 +2448,138 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: 1.12rem;
 }
 
-/* The band at the top. It was a dark rectangle carrying a greeting and two
-   numbers; the greeting is now the smallest thing in it and every figure is a
-   way through to what it counts. The texture is a very faint gold wash off the
-   top-left corner — enough to keep a large dark area from reading as flat. */
-.standing {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 26px 40px;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 26px 30px;
+/* ---------------- the hero ----------------
+   One band doing three jobs: whose practice this is, the action they take most,
+   and the three figures that describe the book of work. It was two bands and a
+   line of marketing copy, which cost 466px before a single case appeared.
+   Sized to what it holds — a hero that fills the viewport pushes the page out
+   of its own first frame. */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-5) var(--s-7);
+  padding: var(--s-5) var(--s-6);
   border-radius: var(--r-lg);
   color: var(--white);
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(212, 175, 55, 0.16) 0%, transparent 58%),
-    linear-gradient(135deg, var(--black) 0%, var(--black-3) 100%);
+  background: linear-gradient(126deg, #08080a 0%, #16161b 52%, #1e1e25 100%);
+  box-shadow: var(--shadow-md);
 }
 
-.standing-who { min-width: 0; }
+/* The drawn layer sits under everything and catches nothing. */
+.hero-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
 
-.standing-greet {
+.hero-say {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.hero-greet {
   display: block;
   font-size: var(--t-micro);
   font-weight: 600;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.standing h1 {
-  margin: 5px 0 0;
-  font-size: 1.55rem;
-  line-height: 1.15;
-  letter-spacing: var(--track-h1);
-  color: var(--white);
-}
-
-.standing-clinic {
-  margin: 4px 0 0;
-  font-size: var(--t-sm);
   color: var(--gold-lift);
 }
 
-.standing-figures {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 0;
+.hero h1 {
+  margin: 6px 0 0;
+  font-size: clamp(1.7rem, 2.6vw, 2.15rem);
+  line-height: 1.05;
+  letter-spacing: -0.026em;
+  color: var(--white);
 }
 
-/* Hairlines between the figures rather than a border around each: they are one
-   reading, not three separate objects. */
+.hero-clinic {
+  margin: 4px 0 0;
+  font-size: var(--t-sm);
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.hero-do { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+
+/* The one action a clinic takes more than any other, at the size that says so. */
+.btn-hero {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 21px;
+  font: inherit;
+  font-size: var(--t-body);
+  font-weight: 650;
+  letter-spacing: -0.006em;
+  color: var(--black);
+  background: linear-gradient(160deg, var(--gold-lift) 0%, var(--gold) 62%, var(--gold-deep) 100%);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 8px 22px rgba(184, 145, 47, 0.28);
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.btn-hero:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 12px 30px rgba(184, 145, 47, 0.38);
+}
+.btn-hero .go { color: var(--black); }
+
+.btn-hero.ghost {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+.btn-hero.ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--gold);
+  box-shadow: none;
+}
+
+/* --- the figures, inside the band --- */
+
+.hero-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding-top: var(--s-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .figure {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 2px 22px;
-  min-width: 118px;
+  gap: 1px;
+  padding: 2px 20px;
+  min-width: 0;
   text-decoration: none;
   color: inherit;
   border-left: 1px solid rgba(255, 255, 255, 0.12);
-  transition: background var(--fast) var(--ease);
   border-radius: var(--r-sm);
+  transition: background var(--fast) var(--ease);
 }
 .figure:first-child { border-left: 0; padding-left: 0; }
 .figure:hover { background: rgba(255, 255, 255, 0.06); }
-.figure:hover .figure-l { color: rgba(255, 255, 255, 0.9); }
 
 .figure-n {
-  font-size: 1.65rem;
+  font-size: 1.42rem;
   font-weight: 650;
-  line-height: 1.1;
+  line-height: 1.15;
   letter-spacing: var(--track-h1);
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255, 255, 255, 0.94);
 }
 /* Gold marks the figure that is asking for something — a count of nought and a
    balance of nothing are good news and stay quiet. */
@@ -2533,21 +2590,170 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-weight: 600;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-  transition: color var(--fast) var(--ease);
+  color: rgba(255, 255, 255, 0.5);
+}
+.figure-h { font-size: var(--t-xs); color: rgba(255, 255, 255, 0.38); }
+
+/* ---------------- the showcase ----------------
+   3D Align's own catalogue cards, turning over, fanned so the stack says there
+   is a range without needing to say it. */
+
+.showcase { position: relative; width: 196px; flex: none; }
+
+.showcase-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1.414;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r);
+  overflow: hidden;
+  cursor: pointer;
+  background: #0b0b0c;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 18px 44px rgba(0, 0, 0, 0.5);
+  transition: transform var(--mid) var(--ease-out), box-shadow var(--mid) var(--ease);
+}
+.showcase-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.6), 0 24px 56px rgba(0, 0, 0, 0.58);
 }
 
-.figure-h {
+.showcase-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 620ms var(--ease);
+}
+.showcase-card img.on { opacity: 1; }
+
+/* Fanned a couple of degrees each way: a deck of cards at a glance, where a
+   straight offset only looked like a misaligned border. */
+.showcase::before,
+.showcase::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 1 / 1.414;
+  border-radius: var(--r);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+  pointer-events: none;
+}
+.showcase::before { transform: translate(-50%, 0) rotate(-3.5deg) scale(0.97); }
+.showcase::after { transform: translate(-50%, 0) rotate(3.5deg) scale(0.97); }
+
+.showcase-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+
+.showcase-name { display: flex; flex-direction: column; min-width: 0; }
+.showcase-name b {
   font-size: var(--t-xs);
-  color: rgba(255, 255, 255, 0.42);
+  font-weight: 620;
+  line-height: 1.3;
+  color: var(--white);
+  /* Two lines, and the room for both held open whether or not this name needs
+     it — "Mandibular Jaw Correction" does not fit on one at any width the card
+     is worth drawing, and a foot that resized would jog the band on every
+     turn. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+.showcase-name span {
+  font-size: var(--t-micro);
+  color: var(--gold-lift);
+  font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 720px) {
-  .standing { padding: 22px; gap: 20px; }
-  .standing-figures { width: 100%; }
-  .figure { flex: 1 1 0; min-width: 0; padding: 2px 14px; }
-  .figure-n { font-size: 1.35rem; }
+.showcase-dots { display: flex; gap: 4px; flex: none; }
+.showcase-dots button {
+  width: 5px;
+  height: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), width var(--fast) var(--ease);
+}
+.showcase-dots button:hover { background: rgba(255, 255, 255, 0.5); }
+.showcase-dots button.on { width: 15px; background: var(--gold-lift); }
+
+.showcase-wait {
+  aspect-ratio: 1 / 1.414;
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* An appliance already delivered and unpaid holds the next one. Said before the
+   clinic fills in an order form, not after. */
+.hold-note {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--gold-line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r-sm);
+  background: var(--gold-wash);
+  font-size: var(--t-sm);
+}
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 1fr) auto; padding: var(--s-5); gap: var(--s-4); }
+  .showcase { width: 150px; }
+  /* The fan is a flourish for a wide screen; narrow, it only steals room from
+     the thing it decorates. */
+  .showcase::before, .showcase::after { display: none; }
+}
+
+@media (max-width: 620px) {
+  /* A column each leaves neither enough to be worth having, and a poster shrunk
+     to fit one is a gold rectangle with unreadable print on it. So on a phone
+     the card turns on its side: a thumbnail to recognise it by, with the name
+     and the price set beside it at a size worth reading. */
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .showcase {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding-top: var(--s-4);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .showcase-card { width: 96px; flex: none; }
+  .showcase-foot {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-2);
+  }
+  .showcase-name b { font-size: var(--t-sm); white-space: normal; }
+  .showcase-name span { font-size: var(--t-xs); }
+  .hero-do { flex-direction: column; align-items: stretch; }
+  .btn-hero { justify-content: center; }
+  .hero-figures { gap: var(--s-2) 0; }
+  .figure { flex: 1 1 0; padding: 2px 12px; }
+  .figure-n { font-size: 1.2rem; }
   .figure-h { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-card img { transition: none; }
+  .btn-hero:hover, .showcase-card:hover { transform: none; }
 }
 
 /* ---------------- the desk ----------------
