@@ -6,7 +6,7 @@ import { CaseSeries, PAGE_SIZE, api, formatDate, since } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
-import { ASK_ONE, URGENCY } from "../../workflow";
+import { ASK_ONE, URGENCY, stageIndex, stagesFor } from "../../workflow";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -257,25 +257,77 @@ export default function DoctorOrders() {
   );
 }
 
+function archLabel(arch: OrderSummary["arch"]): string {
+  if (arch === "UPPER") return "Upper arch";
+  if (arch === "LOWER") return "Lower arch";
+  return "Both arches";
+}
+
+/** What is being made, and how big it is.
+ *
+ *  This was cut on the evidence that it read "Not sized yet" twenty-four times
+ *  in twenty-five rows — which was the demo data talking, not the design: those
+ *  cases were written straight into the database with no plan against them. A
+ *  real book of work carries a band on everything past planning, and the size
+ *  of the treatment is the first thing a doctor wants beside a name.
+ */
+function TreatmentCell({ order }: { order: OrderSummary }) {
+  if (order.kind !== "ALIGNER") {
+    return <span className="cell-treat">{order.product_label || "—"}</span>;
+  }
+  return (
+    <span className="cell-treat">
+      {order.category_label ? (
+        <CategoryPill label={order.category_label} confirmed={order.category_confirmed} />
+      ) : (
+        <span className="dim">Sizing with the plan</span>
+      )}
+      <span className="cell-arch">{archLabel(order.arch)}</span>
+    </span>
+  );
+}
+
+/** Where the case has got to, drawn as the journey rather than named.
+ *
+ *  The pill and this are not the same fact: the pill says "In planning", this
+ *  says planning is the fourth of six stages and two are still to come. Removing
+ *  it as a duplicate lost the only thing on the row that showed distance
+ *  travelled. Segments rather than a bar, because the stages are counted.
+ */
+function StageTrack({ order }: { order: OrderSummary }) {
+  const stages = stagesFor(order.kind, order.intake);
+  const at = stageIndex(order.kind, order.status, order.intake);
+  const done = order.status === "COMPLETED";
+  const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
+
+  return (
+    <span className="track" title={`${stages[at]?.label ?? order.status_label} — stage ${at + 1} of ${stages.length}`}>
+      <span className="track-bars" aria-hidden="true">
+        {stages.map((stage, i) => (
+          <span
+            key={stage.key}
+            className={done || i < at ? "seg done" : i === at ? "seg on" : "seg"}
+          />
+        ))}
+      </span>
+      <span className="track-say">
+        {phased
+          ? `Phase ${order.phases_done + 1} of ${order.phases_total}`
+          : done
+            ? "Complete"
+            : `Stage ${at + 1} of ${stages.length}`}
+      </span>
+    </span>
+  );
+}
+
 /** The reference line under a patient's name — what the case is, where it is
     going, and nothing the clinic cannot act on. The planner's name was here and
     is not: which of 3D Align's people holds the file is the lab's business. */
 function CaseRef({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
-  const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
   return (
     <span className="cell-sub">
       <span className="mono">{order.order_number}</span>
-      {order.kind === "PRODUCT" && order.product_label && <span>{order.product_label}</span>}
-      {order.category_label && (
-        <span>
-          <CategoryPill label={order.category_label} confirmed={order.category_confirmed} />
-        </span>
-      )}
-      {phased && (
-        <span className="cell-phase">
-          Phase {order.phases_done + 1} of {order.phases_total}
-        </span>
-      )}
       {showBranch && order.branch_label && <span>{order.branch_label}</span>}
     </span>
   );
@@ -318,9 +370,17 @@ function ActionGroup({
         <span className="group-note">Longest waiting first</span>
       </div>
       <div className="rows">
+        <div className="row act head" aria-hidden="true">
+          <span>Patient</span>
+          <span>Treatment</span>
+          <span className="row-ask">What to do</span>
+          <span className="row-age">Waiting</span>
+          <span />
+        </div>
         {orders.map((order) => (
           <button key={order.id} type="button" className="row act" onClick={() => onOpen(order.id)}>
             <PatientCell order={order} showBranch={showBranch} />
+            <TreatmentCell order={order} />
             <span className="row-ask">{ASK_ONE[order.status] ?? order.status_label}</span>
             <span className="row-age" title="Since this case last moved">
               {since(order.updated_at)}
@@ -375,12 +435,21 @@ function LabGroup({
         <p className="dim">No cases in progress.</p>
       ) : (
         <div className="rows">
+          <div className="row lab head" aria-hidden="true">
+            <span>Patient</span>
+            <span>Treatment</span>
+            <span>Stage</span>
+            <span>Progress</span>
+            <span className="row-age">Waiting</span>
+          </div>
           {orders.map((order) => (
-            <button key={order.id} type="button" className="row" onClick={() => onOpen(order.id)}>
+            <button key={order.id} type="button" className="row lab" onClick={() => onOpen(order.id)}>
               <PatientCell order={order} showBranch={showBranch} />
+              <TreatmentCell order={order} />
               <span className="row-stage">
                 <StatusPill status={order.status} label={order.status_label} />
               </span>
+              <StageTrack order={order} />
               <span className="row-age" title="Since this case last moved">
                 {since(order.updated_at)}
               </span>

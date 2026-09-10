@@ -3473,7 +3473,56 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 /* The rows that want something have a fourth track for the arrow, and a gold
    edge down the left so the group reads as urgent at a glance rather than
    only where the eye lands. */
-.row.act { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+/* Each group's own set of tracks. What the clinic owes wants the ask; what the
+   lab has wants the stage and the distance travelled. */
+.row.act { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) auto auto auto; }
+.row.lab { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) auto minmax(96px, 0.6fr) auto; }
+
+/* Printed once at the top of a group, not down every row. */
+.row.head {
+  padding-top: var(--s-2);
+  padding-bottom: var(--s-2);
+  background: var(--paper-2);
+  cursor: default;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.row.head:hover { background: var(--paper-2); }
+
+/* What is being made, and how big. */
+.cell-treat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  font-size: var(--t-sm);
+}
+.cell-arch { font-size: var(--t-xs); color: var(--ink-3); }
+
+/* The journey, counted. Segments rather than a bar because the stages are
+   discrete and a doctor is reading "four of six", not a percentage. */
+.track { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.track-bars { display: flex; gap: 3px; }
+.track .seg {
+  flex: 1 1 0;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rule);
+}
+.track .seg.done { background: var(--gold-line); }
+.track .seg.on {
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 0 0 2px var(--gold-wash);
+}
+.track-say {
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
 .needs .rows { box-shadow: inset 3px 0 0 var(--gold), inset 0 1px 0 rgba(255,255,255,.9), 0 12px 32px rgba(11,11,12,.05); }
 
 .row-ask {
@@ -3558,11 +3607,24 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 @media (max-width: 720px) {
   /* Stacked, the ask drops under the case and the arrow goes: the whole row is
      the target on a touch screen, so an affordance pointing at it is noise. */
+  /* Stacked, the row keeps everything and gives each part its own line rather
+     than squeezing five tracks into a phone. The headings go: a column name
+     above a stack of one is not a heading. */
   .row,
-  .row.act {
+  .row.act,
+  .row.lab {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--s-1) var(--s-3);
   }
+  .row.head { display: none; }
+  /* The segmented track is a desktop affordance: on a phone the pill already
+     names the stage, and drawing the journey under every row cost more height
+     than the whole list had to spare. */
+  .track-bars { display: none; }
+  .cell-treat,
+  .track { grid-column: 1 / -1; }
+  .track { flex-direction: row; }
+  .cell-treat { flex-direction: row; align-items: baseline; gap: var(--s-2); }
   .row-ask {
     grid-column: 1 / -1;
     text-align: left;
