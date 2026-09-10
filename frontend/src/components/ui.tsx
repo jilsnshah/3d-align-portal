@@ -3,6 +3,10 @@ import type { ReactNode } from "react";
 
 import type { OrderStatus } from "../api";
 
+/* Tone by who the stage is waiting on, not by where it sits in the pipeline.
+   Gold means the clinic has something to do; everything the lab is holding is
+   neutral. Every pill used to carry a gold dot, which spent the accent on all
+   twenty stages and left it meaning nothing on any of them. */
 const PILL_TONE: Record<OrderStatus, string> = {
   DRAFT: "pill",
   SUBMITTED: "pill pill-dark",

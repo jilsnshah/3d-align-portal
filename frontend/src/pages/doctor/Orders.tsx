@@ -188,6 +188,13 @@ export default function DoctorOrders() {
     });
   }, [all, attention, stage, express, oldestFirst]);
 
+  /* What the practice owes across the cases on this page, for the line under
+     the masthead. */
+  const dueTotal = useMemo(
+    () => all.reduce((sum, o) => sum + (money.get(o.id)?.due ?? 0), 0),
+    [all, money],
+  );
+
   const filtered = attention !== "all" || Boolean(stage) || express;
   function clearFilters() {
     setAttention("all");
@@ -197,12 +204,42 @@ export default function DoctorOrders() {
 
   return (
     <main className="page page-wide">
-      <div className="page-head">
-        <div>
-          <h1>Your cases</h1>
-          <p className="sub">{active.hint}</p>
+      {/* A masthead, because the page had none: a 1.4rem heading sat directly on
+          a two-thousand-pixel table, so nothing anchored the eye and every line
+          on the screen carried the same weight. The word is set large in the
+          display face and the practice is summed up under it in a sentence. */}
+      <header className="masthead">
+        <div className="masthead-say">
+          <span className="masthead-eyebrow">Your practice</span>
+          <h1>Cases</h1>
+          <p className="masthead-sum">
+            {orders.isLoading ? (
+              "Loading…"
+            ) : (
+              <>
+                <b>{counts.all}</b> {active.label.toLowerCase()}
+                {counts.needs > 0 && (
+                  <>
+                    {" · "}
+                    <b className="lit">{counts.needs}</b> waiting on you
+                  </>
+                )}
+                {dueTotal > 0 && (
+                  <>
+                    {" · "}
+                    {/* A headline figure, not a line item — paise here only make
+                        the number harder to read. The exact amount is on the
+                        payments page and in the row's own cell. */}
+                    <b>₹{dueTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</b>{" "}
+                    outstanding
+                  </>
+                )}
+              </>
+            )}
+          </p>
         </div>
-        <div className="row">
+
+        <div className="masthead-do">
           <span className="search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <circle cx="11" cy="11" r="7" />
@@ -221,7 +258,7 @@ export default function DoctorOrders() {
             </button>
           </Link>
         </div>
-      </div>
+      </header>
 
       {/* One console rather than a stack of pill rows. The cut a clinic makes
           most often is on top and set as a segment; the rest are quiet menus

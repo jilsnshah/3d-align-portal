@@ -733,7 +733,9 @@ button:not(:disabled):active { transform: translateY(1px); }
   border-color: var(--rule-strong);
   color: var(--ink);
 }
-.pill-dark::before { background: var(--gold); opacity: 1; }
+/* Neutral, so the gold dot is left to the stages that actually want the clinic.
+   Spent on every pill it marked nothing. */
+.pill-dark::before { background: var(--ink-3); opacity: 1; }
 .pill-ok { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok); }
 .pill-warn { background: var(--warn-soft); border-color: var(--gold-line); color: var(--warn); }
 .pill-danger { background: var(--danger-soft); border-color: var(--danger-line); color: var(--danger); }
@@ -3458,6 +3460,64 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   overflow: hidden;
 }
 
+/* ---------------- the masthead ----------------
+   The page opened with a 1.4rem heading sitting directly on a two-thousand-
+   pixel table: nothing anchored the eye, and every line on the screen carried
+   the same weight. One word set large in the display face fixes the scale
+   contrast the page had none of, and the practice is summed under it in a
+   sentence rather than in another row of tiles. */
+
+.masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5) var(--s-6);
+  flex-wrap: wrap;
+  padding-bottom: var(--s-5);
+  margin-bottom: var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead-eyebrow {
+  display: block;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+
+.masthead h1 {
+  margin: 6px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2.1rem, 3.6vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: -0.014em;
+}
+/* Every h1 in the portal carries a gold hairline under it; the masthead has its
+   own eyebrow above and does not want a second mark below. */
+.masthead h1::after { display: none; }
+
+.masthead-sum {
+  margin: 10px 0 0;
+  font-size: var(--t-body);
+  color: var(--ink-3);
+}
+.masthead-sum b { color: var(--ink); font-weight: 620; font-variant-numeric: tabular-nums; }
+.masthead-sum b.lit { color: var(--gold-deep); }
+
+.masthead-do { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .masthead { align-items: stretch; padding-bottom: var(--s-4); margin-bottom: var(--s-4); }
+  .masthead-do { width: 100%; }
+  .masthead-do .search,
+  .masthead-do .search input { flex: 1; width: 100%; }
+  .masthead-do a,
+  .masthead-do button { width: 100%; }
+}
+
 /* ---------------- the filter console ----------------
    One block instead of a branch strip above a tab strip above a table. The cut
    a clinic makes most often sits on top as a segment with its counts; the rest
@@ -3652,38 +3712,58 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   border-spacing: 0;
 }
 
+/* The header sits on its own ground and stays put as the list scrolls, so a
+   column name is never more than a glance away down a long book of work. */
 .case-table th {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: var(--s-3) var(--s-3);
+  padding: var(--s-3) var(--s-4);
   text-align: left;
   white-space: nowrap;
   font-size: var(--t-micro);
   font-weight: 700;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  color: var(--ink-3);
-  background: var(--paper-2);
-  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  background: linear-gradient(180deg, #f6f3ed 0%, #f1eee7 100%);
+  border-bottom: 1px solid var(--rule-strong);
 }
+
+/* Rows have room to breathe. They were on twelve pixels of padding and read as
+   a spreadsheet; the height is what separates a record from a line of data. */
 .case-table td {
-  padding: var(--s-3);
+  padding: var(--s-4);
   vertical-align: middle;
   border-bottom: 1px solid var(--rule);
   font-size: var(--t-sm);
+  color: var(--ink-2);
+  transition: background var(--fast) var(--ease);
 }
 .case-table tbody tr:last-child td { border-bottom: 0; }
-.case-table tbody tr.clickable { cursor: pointer; transition: background var(--fast) var(--ease); }
+.case-table tbody tr.clickable { cursor: pointer; }
 .case-table tbody tr.clickable:hover td { background: var(--gold-wash); }
+
+/* One anchor per row. Everything else on it is a supporting fact and is set
+   back a tier, which is the difference between a hierarchy and a grid. */
+.case-table .cell-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-body);
+  font-weight: 620;
+  letter-spacing: -0.006em;
+  color: var(--ink);
+}
+.case-table .col-case { font-size: var(--t-xs); color: var(--ink-3); }
 
 /* The case and the patient hold their place while the rest slides under them. */
 .case-table .col-case,
 .case-table .col-patient { position: sticky; z-index: 1; background: var(--white); }
 .case-table .col-case { left: 0; min-width: 132px; }
-.case-table .col-patient { left: 132px; min-width: 168px; box-shadow: 1px 0 0 var(--rule); }
+.case-table .col-patient { left: 132px; min-width: 200px; box-shadow: 1px 0 0 var(--rule); }
 .case-table th.col-case,
-.case-table th.col-patient { z-index: 3; background: var(--paper-2); }
+.case-table th.col-patient { z-index: 3; }
 .case-table tbody tr.clickable:hover .col-case,
 .case-table tbody tr.clickable:hover .col-patient { background: var(--gold-wash); }
 
@@ -3697,12 +3777,35 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 /* With one table, the rail moves from the group to the row: a gold edge on the
    cases that want something, so they read as urgent from across the page and
-   not only where the eye happens to land. */
+   not only where the eye happens to land. The whole row is tinted with it —
+   an edge alone was too quiet to find while scanning. */
+.case-table tr.wants td { background: #fdfaf1; }
+.case-table tr.wants .col-case,
+.case-table tr.wants .col-patient { background: #fdfaf1; }
 .case-table tr.wants .col-case { box-shadow: inset 3px 0 0 var(--gold); }
-.case-table tr.wants .cell-title { font-weight: 680; }
+
 /* Finished work sits back rather than competing with what is still running. */
 .case-table tr.done td { color: var(--ink-3); }
 .case-table tr.done .cell-title { font-weight: 560; color: var(--ink-2); }
+.case-table tr.done .track .seg.done { background: var(--rule-strong); }
+
+/* An indicator that slides out from the leading edge under the cursor: the row
+   answers the pointer rather than only changing colour beneath it. */
+.case-table tbody tr.clickable .col-case::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--gold);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--mid) var(--ease-out);
+}
+.case-table tbody tr.clickable:hover .col-case::before { transform: scaleY(1); }
+.case-table .col-case { position: sticky; }
+.case-table td.col-case { position: sticky; }
 
 /* What is being asked, under the name, on the rows that are asking. */
 .cell-ask {
@@ -3761,11 +3864,21 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
    discrete and a doctor reads "four of six", not a percentage. */
 .track { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .track-bars { display: flex; gap: 3px; }
-.track .seg { flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--rule); }
+.track .seg {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--rule);
+  transition: background var(--fast) var(--ease);
+}
 .track .seg.done { background: var(--gold-line); }
+/* The stage the case is actually at, lit and given a little weight, so the eye
+   finds the position on the track rather than counting the filled ones. */
 .track .seg.on {
-  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
-  box-shadow: 0 0 0 2px var(--gold-wash);
+  height: 5px;
+  align-self: center;
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold-deep));
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
 }
 .track-say { font-size: var(--t-micro); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
