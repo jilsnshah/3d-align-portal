@@ -2482,6 +2482,51 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   gap: var(--s-4);
 }
 
+/* --- the practice, inside the band ---
+   The hero was a name and two buttons on a wide dark field. These are the
+   figures a clinic opens the portal to read, so they belong in it. */
+.hero-stats {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: var(--s-5);
+  padding-top: var(--s-5);
+  border-top: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+/* The tile turns dark in here: no card of its own, a hairline between each, and
+   the gold reserved for whichever one is asking for something. */
+.hero-stats .jump {
+  gap: 1px;
+  padding: 2px var(--s-5);
+  background: none;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 0;
+  box-shadow: none;
+}
+.hero-stats .jump:first-child { border-left: 0; padding-left: 0; }
+.hero-stats .jump:hover { transform: none; box-shadow: none; border-color: rgba(255, 255, 255, 0.11); }
+.hero-stats .jump::after { display: none; }
+
+.hero-stats .jump-icon {
+  width: 28px;
+  height: 28px;
+  margin-bottom: var(--s-3);
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: var(--r-sm);
+  color: rgba(255, 255, 255, 0.62);
+}
+.hero-stats .jump-icon svg { width: 15px; height: 15px; }
+.hero-stats .jump:hover .jump-icon { background: rgba(212, 175, 55, 0.18); color: var(--gold-lift); }
+
+.hero-stats .jump-value { font-size: 1.45rem; color: rgba(255, 255, 255, 0.95); }
+.hero-stats .jump.lit .jump-value { color: var(--gold-lift); }
+.hero-stats .jump.lit .jump-icon { background: rgba(212, 175, 55, 0.18); color: var(--gold-lift); }
+.hero-stats .jump-label { color: rgba(255, 255, 255, 0.55); }
+.hero-stats .jump-note { color: rgba(255, 255, 255, 0.38); }
+
 .hero-greet {
   display: block;
   font-size: var(--t-micro);
@@ -2855,8 +2900,19 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .split { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (max-width: 860px) {
+  /* Four across becomes two, which keeps each figure wide enough to read
+     rather than shrinking all of them to fit one line. */
+  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4) 0; }
+  .hero-stats .jump:nth-child(odd) { border-left: 0; padding-left: 0; }
+}
+
 @media (max-width: 620px) {
   .panel { padding: var(--s-4); }
+  .hero-stats { margin-top: var(--s-4); padding-top: var(--s-4); }
+  .hero-stats .jump { padding: 2px var(--s-3); }
+  .hero-stats .jump-value { font-size: 1.2rem; }
+  .hero-stats .jump-icon { margin-bottom: var(--s-2); }
   .asks button { gap: var(--s-3); padding: var(--s-3) 0; }
   .ask-n { min-width: 38px; height: 38px; font-size: 1.05rem; }
   .jumps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }

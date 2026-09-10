@@ -501,7 +501,7 @@ export default function DoctorHome() {
           <p className="hero-clinic">{me?.doctor?.clinic_name}</p>
 
           {/* The one action a clinic takes more than any other, at the size
-              that says so. */}
+              that says so — then the two next most, at the size they are. */}
           <div className="hero-do">
             <button type="button" className="btn-hero" onClick={() => navigate("/orders/new")}>
               Start a new aligner case
@@ -510,7 +510,46 @@ export default function DoctorHome() {
             <button type="button" className="btn-hero ghost" onClick={() => navigate("/catalogue")}>
               Order an appliance
             </button>
+            <button type="button" className="btn-hero ghost" onClick={() => navigate("/orders")}>
+              View cases
+            </button>
           </div>
+        </div>
+
+        {/* The state of the practice, in the band rather than in a row of tiles
+            below it — the hero was a name and two buttons on a wide dark field,
+            and these are the figures a clinic opens the portal to read. */}
+        <div className="hero-stats">
+          <Jump
+            to="/orders"
+            label="Cases"
+            value={withLab === null ? "—" : String(withLab)}
+            note={needing > 0 ? `${needing} waiting on you` : "All with 3D Align"}
+            lit={needing > 0}
+            icon={ICON.cases}
+          />
+          <Jump
+            to="/payments"
+            label="Payments"
+            value={due === null ? "—" : rupees(due)}
+            note={due === 0 ? "Nothing outstanding" : "Due to pay"}
+            lit={(due ?? 0) > 0}
+            icon={ICON.money}
+          />
+          <Jump
+            to="/patients"
+            label="Patients"
+            value={t ? String(t.patients) : "—"}
+            note="Seen this month"
+            icon={ICON.patients}
+          />
+          <Jump
+            to="/stats"
+            label="Insights"
+            value={t ? rupees(t.paid) : "—"}
+            note="Paid this month"
+            icon={ICON.chart}
+          />
         </div>
       </section>
 
@@ -521,45 +560,13 @@ export default function DoctorHome() {
         </p>
       )}
 
+      {!products.isLoading && <Range products={products.data ?? []} />}
+
       <div className="split">
         <Attention orders={waiting.data ?? []} loading={waiting.isLoading} />
         <Activity />
       </div>
 
-      <nav className="jumps" aria-label="Your practice">
-        <Jump
-          to="/orders"
-          label="Cases"
-          value={withLab === null ? "—" : String(withLab)}
-          note={needing > 0 ? `${needing} waiting on you` : "All with 3D Align"}
-          lit={needing > 0}
-          icon={ICON.cases}
-        />
-        <Jump
-          to="/payments"
-          label="Payments"
-          value={due === null ? "—" : rupees(due)}
-          note={due === 0 ? "Nothing outstanding" : "Due to pay"}
-          lit={(due ?? 0) > 0}
-          icon={ICON.money}
-        />
-        <Jump
-          to="/patients"
-          label="Patients"
-          value={t ? String(t.patients) : "—"}
-          note="Seen this month"
-          icon={ICON.patients}
-        />
-        <Jump
-          to="/stats"
-          label="Insights"
-          value={t ? rupees(t.paid) : "—"}
-          note="Paid this month"
-          icon={ICON.chart}
-        />
-      </nav>
-
-      {!products.isLoading && <Range products={products.data ?? []} />}
     </main>
   );
 }
