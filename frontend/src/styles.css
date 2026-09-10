@@ -3458,6 +3458,174 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   overflow: hidden;
 }
 
+/* ---------------- the filter console ----------------
+   One block instead of a branch strip above a tab strip above a table. The cut
+   a clinic makes most often sits on top as a segment with its counts; the rest
+   are quiet menus beneath, and whatever is on can be cleared from one place. */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--s-5);
+  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(11, 11, 12, 0.04),
+    0 10px 26px rgba(11, 11, 12, 0.04);
+  overflow: hidden;
+}
+
+.console-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.cut { display: flex; flex-wrap: wrap; gap: 2px; }
+.cut button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+.cut button:hover { background: var(--paper-2); color: var(--ink); }
+.cut button.on {
+  color: var(--white);
+  background: var(--black-2);
+  font-weight: 620;
+}
+
+/* The count travels with its own segment, so the size of each cut is known
+   before it is chosen. */
+.cut-n {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cut button.on .cut-n { background: rgba(255, 255, 255, 0.16); color: var(--white); }
+
+/* A gold pip on the one cut that means work outstanding. */
+.cut-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-wash);
+}
+.cut button.on .cut-dot { box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.22); }
+
+.console-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+}
+
+/* A native select, dressed. Nothing here needs a custom menu — a real control
+   keeps the keyboard, the phone's own picker, and every accessibility
+   behaviour that a div pretending to be a menu gives up. */
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.pick > span {
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.pick select {
+  padding: 6px 28px 6px 11px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--ink);
+  background-color: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  appearance: none;
+  /* The chevron is drawn rather than fetched: one gradient pair, no request. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: right 13px center, right 8px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.pick select:hover { border-color: var(--gold-line); }
+.pick select:focus-visible { border-color: var(--gold); box-shadow: var(--glow-gold); }
+
+/* A toggle, not a menu: it is on or it is not. */
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  color: var(--ink-2);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+.flag svg { width: 14px; height: 14px; }
+.flag:hover { border-color: var(--gold-line); color: var(--ink); }
+.flag.on {
+  color: var(--gold-deep);
+  background: var(--gold-wash);
+  border-color: var(--gold-line);
+  font-weight: 620;
+}
+
+.console .clear { font-size: var(--t-xs); }
+.tally-say {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .console-top { padding: var(--s-3); }
+  .console-row { padding: var(--s-3); gap: var(--s-2); }
+  .cut button { padding: 6px 11px; font-size: var(--t-xs); }
+  .pick > span { display: none; }
+  .tally-say { margin-left: 0; width: 100%; }
+}
+
 /* --- the case table ---
    Ten columns is wider than a screen at some sizes, so the table scrolls inside
    its own frame and the two columns that identify a case stay put while it
@@ -3527,10 +3695,43 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .case-table .col-branch { white-space: nowrap; }
 .case-table .col-plan { color: var(--ink-2); }
 
-/* A gold edge down the group that wants something, so it reads as urgent from
-   the page rather than only where the eye lands. */
-.needs .case-table { box-shadow: inset 3px 0 0 var(--gold), 0 12px 32px rgba(11, 11, 12, 0.05); }
-.closed .case-table { background: var(--paper); box-shadow: none; }
+/* With one table, the rail moves from the group to the row: a gold edge on the
+   cases that want something, so they read as urgent from across the page and
+   not only where the eye happens to land. */
+.case-table tr.wants .col-case { box-shadow: inset 3px 0 0 var(--gold); }
+.case-table tr.wants .cell-title { font-weight: 680; }
+/* Finished work sits back rather than competing with what is still running. */
+.case-table tr.done td { color: var(--ink-3); }
+.case-table tr.done .cell-title { font-weight: 560; color: var(--ink-2); }
+
+/* What is being asked, under the name, on the rows that are asking. */
+.cell-ask {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--gold-deep);
+}
+
+/* Express, as a mark rather than another pill in a row of pills. */
+.tag-express {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  color: var(--gold-deep);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.tag-express svg { width: 11px; height: 11px; }
+
+/* The case number lights as the row is pointed at — a small confirmation that
+   the whole row is the target. */
+.case-table tbody tr.clickable:hover .col-case { color: var(--gold-deep); }
 
 .cell-title {
   display: inline-flex;

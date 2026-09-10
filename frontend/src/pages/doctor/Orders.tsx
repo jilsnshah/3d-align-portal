@@ -6,7 +6,7 @@ import { CaseSeries, PAGE_SIZE, api, formatDate, formatMoney, since } from "../.
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
-import { URGENCY, stageIndex, stagesFor } from "../../workflow";
+import { ASK_ONE, URGENCY, stageIndex, stagesFor } from "../../workflow";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -44,15 +44,27 @@ function storedBranch(): string {
   }
 }
 
+type Attention = "all" | "needs" | "lab" | "closed";
+
+const ATTENTION: { key: Attention; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "needs", label: "Needs you" },
+  { key: "lab", label: "With 3D Align" },
+  { key: "closed", label: "Closed" },
+];
+
 export default function DoctorOrders() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [series, setSeries] = useState<CaseSeries>("aligner");
   const [branch, setBranch] = useState(storedBranch);
-  /* Longest-waiting first by default. A clinic works the case the lab has been
-     waiting on, not the one it happened to open most recently. */
+  /* What the clinic is looking for, rather than which of three tables it has
+     scrolled to. The page used to answer this by splitting the cases into
+     sections, which meant a doctor hunting one patient read three lists. */
+  const [attention, setAttention] = useState<Attention>("all");
+  const [stage, setStage] = useState("");
+  const [express, setExpress] = useState(false);
   const [oldestFirst, setOldestFirst] = useState(true);
-  const [showClosed, setShowClosed] = useState(false);
 
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
   /* Where each case stands on money. The list endpoint does not carry it, but
@@ -72,6 +84,7 @@ export default function DoctorOrders() {
     for (const e of ledger.data?.history ?? []) add(e.order_id, "paid", e.total);
     return by;
   }, [ledger.data]);
+
   // One clinic is not a choice worth putting on the page.
   const branches = addresses.data ?? [];
   const multiBranch = branches.length > 1;
@@ -110,27 +123,77 @@ export default function DoctorOrders() {
 
   const all = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
 
-  const byAge = (a: OrderSummary, b: OrderSummary) =>
-    oldestFirst
-      ? a.updated_at.localeCompare(b.updated_at)
-      : b.updated_at.localeCompare(a.updated_at);
+  const isClosed = (o: OrderSummary) => o.status === "COMPLETED" || o.status === "CANCELLED";
+  const isNeeds = (o: OrderSummary) => o.needs_doctor_action && o.status !== "CANCELLED";
 
-  /* Within what needs the clinic, the lab's own order of urgency wins over the
-     clock: a fit report it is waiting on outranks a draft nobody has sent. */
-  const byUrgency = (a: OrderSummary, b: OrderSummary) => {
-    const rank = URGENCY.indexOf(a.status) - URGENCY.indexOf(b.status);
-    return rank !== 0 ? rank : byAge(a, b);
-  };
+  const counts = useMemo(
+    () => ({
+      all: all.length,
+      needs: all.filter(isNeeds).length,
+      lab: all.filter((o) => !isNeeds(o) && !isClosed(o)).length,
+      closed: all.filter(isClosed).length,
+    }),
+    [all],
+  );
 
-  const actionable = all
-    .filter((o) => o.needs_doctor_action && o.status !== "CANCELLED")
-    .sort(byUrgency);
-  const inProgress = all
-    .filter((o) => !o.needs_doctor_action && o.status !== "COMPLETED" && o.status !== "CANCELLED")
-    .sort(byAge);
-  const closed = all
-    .filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED")
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  /* Only the stages present under the cut in force, so the menu never offers a
+     filter that would empty the table — picking "Needs you" and then a stage
+     that exists nowhere in it is a dead end the reader has to back out of. */
+  const stages = useMemo(() => {
+    const inCut = all.filter((o) =>
+      attention === "needs"
+        ? isNeeds(o)
+        : attention === "lab"
+          ? !isNeeds(o) && !isClosed(o)
+          : attention === "closed"
+            ? isClosed(o)
+            : true,
+    );
+    const seen = new Map<string, string>();
+    for (const o of inCut) seen.set(o.status, o.status_label);
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [all, attention]);
+
+  /* A stage chosen under one cut may not exist under the next. Dropping it
+     beats showing an empty table with a filter the menu no longer lists. */
+  useEffect(() => {
+    if (stage && !stages.some(([value]) => value === stage)) setStage("");
+  }, [stages, stage]);
+
+  const shown = useMemo(() => {
+    let rows = all;
+    if (attention === "needs") rows = rows.filter(isNeeds);
+    else if (attention === "lab") rows = rows.filter((o) => !isNeeds(o) && !isClosed(o));
+    else if (attention === "closed") rows = rows.filter(isClosed);
+    if (stage) rows = rows.filter((o) => o.status === stage);
+    if (express) rows = rows.filter((o) => o.priority === "EXPRESS");
+
+    const byAge = (a: OrderSummary, b: OrderSummary) =>
+      oldestFirst
+        ? a.updated_at.localeCompare(b.updated_at)
+        : b.updated_at.localeCompare(a.updated_at);
+
+    /* One table, so the order has to carry what the section headings used to
+       say: what wants the clinic floats up, ranked by what the lab is waiting
+       on, and everything finished sinks. */
+    return [...rows].sort((a, b) => {
+      const band = (o: OrderSummary) => (isNeeds(o) ? 0 : isClosed(o) ? 2 : 1);
+      const d = band(a) - band(b);
+      if (d !== 0) return d;
+      if (band(a) === 0) {
+        const r = URGENCY.indexOf(a.status) - URGENCY.indexOf(b.status);
+        if (r !== 0) return r;
+      }
+      return byAge(a, b);
+    });
+  }, [all, attention, stage, express, oldestFirst]);
+
+  const filtered = attention !== "all" || Boolean(stage) || express;
+  function clearFilters() {
+    setAttention("all");
+    setStage("");
+    setExpress(false);
+  }
 
   return (
     <main className="page page-wide">
@@ -160,49 +223,105 @@ export default function DoctorOrders() {
         </div>
       </div>
 
-      {multiBranch && (
-        <div className="branch-bar" role="group" aria-label="Branch">
-          <span className="branch-bar-label">Branch</span>
-          <div className="branch-pills">
-            <button
-              type="button"
-              aria-pressed={!branch}
-              className={!branch ? "active" : ""}
-              onClick={() => chooseBranch("")}
-            >
-              All branches
-            </button>
-            {branches.map((address) => (
+      {/* One console rather than a stack of pill rows. The cut a clinic makes
+          most often is on top and set as a segment; the rest are quiet menus
+          under it, and what is currently on can be cleared in one place. */}
+      <section className="console" aria-label="Filters">
+        <div className="console-top">
+          <div className="cut" role="tablist" aria-label="Show">
+            {ATTENTION.map((a) => (
               <button
-                key={address.id}
+                key={a.key}
                 type="button"
-                aria-pressed={branch === address.id}
-                className={branch === address.id ? "active" : ""}
-                onClick={() => chooseBranch(address.id)}
-                title={`${address.line1}, ${address.city}`}
+                role="tab"
+                aria-selected={attention === a.key}
+                className={attention === a.key ? "on" : ""}
+                onClick={() => setAttention(a.key)}
               >
-                {address.label || address.city}
-                {address.is_default_shipping && <span className="branch-default">Default</span>}
+                {a.key === "needs" && (
+                  <span className="cut-dot" aria-hidden="true" />
+                )}
+                {a.label}
+                <span className="cut-n">{counts[a.key]}</span>
               </button>
             ))}
           </div>
-        </div>
-      )}
 
-      <div className="series-tabs" role="tablist" aria-label="Case series">
-        {SERIES.map((s) => (
           <button
-            key={s.key}
             type="button"
-            role="tab"
-            aria-selected={series === s.key}
-            className={series === s.key ? "active" : ""}
-            onClick={() => setSeries(s.key)}
+            className="sort"
+            onClick={() => setOldestFirst((v) => !v)}
+            title="Change the order of the list"
           >
-            {s.label}
+            {oldestFirst ? "Longest waiting" : "Most recent"}
+            <span aria-hidden="true"> ⇅</span>
           </button>
-        ))}
-      </div>
+        </div>
+
+        <div className="console-row">
+          <label className="pick">
+            <span>Type</span>
+            <select value={series} onChange={(e) => setSeries(e.target.value as CaseSeries)}>
+              {SERIES.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {multiBranch && (
+            <label className="pick">
+              <span>Branch</span>
+              <select value={branch} onChange={(e) => chooseBranch(e.target.value)}>
+                <option value="">All branches</option>
+                {branches.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label || a.city}
+                    {a.is_default_shipping ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="pick">
+            <span>Stage</span>
+            <select value={stage} onChange={(e) => setStage(e.target.value)}>
+              <option value="">Any stage</option>
+              {stages.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className={express ? "flag on" : "flag"}
+            aria-pressed={express}
+            onClick={() => setExpress((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+            </svg>
+            Express only
+          </button>
+
+          {filtered && (
+            <button type="button" className="btn-link clear" onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
+
+          <span className="tally-say">
+            {shown.length === all.length
+              ? `${all.length} case${all.length === 1 ? "" : "s"}`
+              : `${shown.length} of ${all.length}`}
+          </span>
+        </div>
+      </section>
 
       {orders.isLoading ? (
         <Loading what="cases" />
@@ -233,49 +352,16 @@ export default function DoctorOrders() {
             No aligner cases yet. <Link to="/orders/new">Start your first one.</Link>
           </Empty>
         )
+      ) : shown.length === 0 ? (
+        <Empty>
+          No cases match these filters.{" "}
+          <button type="button" className="btn-link" onClick={clearFilters}>
+            Clear them
+          </button>
+        </Empty>
       ) : (
         <div className="stack">
-          {actionable.length > 0 && (
-            <Group
-              title="Needs you"
-              orders={actionable}
-              money={money}
-              tone="needs"
-              onOpen={(id) => navigate(`/orders/${id}`)}
-              tools={<span className="group-note">Longest waiting first</span>}
-            />
-          )}
-
-          <Group
-            title="With 3D Align"
-            orders={inProgress}
-            money={money}
-            onOpen={(id) => navigate(`/orders/${id}`)}
-            tools={
-              <div className="group-tools">
-                {actionable.length === 0 && <span className="all-clear">Nothing needs you</span>}
-                {inProgress.length > 1 && (
-                  <button type="button" className="sort" onClick={() => setOldestFirst((v) => !v)}>
-                    {oldestFirst ? "Longest waiting" : "Most recent"}
-                    <span aria-hidden="true"> ⇅</span>
-                  </button>
-                )}
-              </div>
-            }
-          />
-
-          {closed.length > 0 && (
-            <Group
-              title="Closed"
-              orders={closed}
-              money={money}
-              tone="closed"
-              collapsed={!showClosed}
-              onToggle={() => setShowClosed((v) => !v)}
-              onOpen={(id) => navigate(`/orders/${id}`)}
-            />
-          )}
-
+          <CaseTable orders={shown} money={money} onOpen={(id: string) => navigate(`/orders/${id}`)} />
           <LoadMore query={orders} noun="cases" shown={all.length} />
         </div>
       )}
@@ -345,118 +431,100 @@ function StageTrack({ order }: { order: OrderSummary }) {
   );
 }
 
-/** One group of cases. The three groups are how the page is read — what needs
-    the clinic, what the lab has, what is finished — and they share one set of
-    columns so the eye keeps its place moving between them. */
-function Group({
-  title,
+/** Every case in one table.
+ *
+ *  It used to be three — what needs the clinic, what the lab has, what is
+ *  finished — which meant a doctor looking for one patient read three lists and
+ *  a filter could only ever narrow one of them. The split is a filter now, and
+ *  what the headings used to say is carried by the row itself: the ones wanting
+ *  something float to the top and wear a gold rail.
+ */
+function CaseTable({
   orders,
   money,
   onOpen,
-  tone,
-  tools,
-  collapsed,
-  onToggle,
 }: {
-  title: string;
   orders: OrderSummary[];
   money: Map<string, Money>;
   onOpen: (id: string) => void;
-  tone?: "needs" | "closed";
-  tools?: React.ReactNode;
-  collapsed?: boolean;
-  onToggle?: () => void;
 }) {
-  const Head = onToggle ? "button" : "div";
   return (
-    <section className={`case-group${tone ? ` ${tone}` : ""}`}>
-      <Head
-        className={`group-head${onToggle ? " as-toggle" : ""}`}
-        {...(onToggle ? { type: "button" as const, onClick: onToggle, "aria-expanded": !collapsed } : {})}
-      >
-        <h2>
-          {title}
-          {orders.length > 0 && (
-            <span className={tone === "needs" ? "count" : "count quiet"}>{orders.length}</span>
-          )}
-        </h2>
-        {onToggle ? (
-          <span className="disclose">
-            {collapsed ? "Show" : "Hide"}
-            <span aria-hidden="true" className={collapsed ? "chev" : "chev up"}>
-              ⌄
-            </span>
-          </span>
-        ) : (
-          tools
-        )}
-      </Head>
-
-      {collapsed ? null : orders.length === 0 ? (
-        <p className="dim">No cases here.</p>
-      ) : (
-        <div className="case-table">
-          <table>
-            <thead>
-              <tr>
-                <th className="col-case">Case</th>
-                <th className="col-patient">Patient</th>
-                <th className="col-plan">Planned by</th>
-                <th>Treatment</th>
-                <th>Payment</th>
-                <th>Stage</th>
-                <th className="col-progress">Progress</th>
-                <th>Last updated</th>
-                <th className="col-branch">Branch</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id} className="clickable" onClick={() => onOpen(order.id)}>
-                  <td className="col-case mono">{order.order_number}</td>
-                  <td className="col-patient">
-                    <span className="cell-title">
-                      {order.patient_name}
-                      {order.priority === "EXPRESS" && <span className="pill pill-gold">Express</span>}
-                    </span>
-                  </td>
-                  <td className="col-plan">
-                    {order.assigned_to_name ? (
-                      order.assigned_to_name
-                    ) : (
-                      <span className="dim">Unassigned</span>
+    <div className="case-table">
+      <table>
+        <thead>
+          <tr>
+            <th className="col-case">Case</th>
+            <th className="col-patient">Patient</th>
+            <th className="col-plan">Planned by</th>
+            <th>Treatment</th>
+            <th>Payment</th>
+            <th>Stage</th>
+            <th className="col-progress">Progress</th>
+            <th>Last updated</th>
+            <th className="col-branch">Branch</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((order) => {
+            const needs = order.needs_doctor_action && order.status !== "CANCELLED";
+            const closed = order.status === "COMPLETED" || order.status === "CANCELLED";
+            return (
+              <tr
+                key={order.id}
+                className={`clickable${needs ? " wants" : ""}${closed ? " done" : ""}`}
+                onClick={() => onOpen(order.id)}
+                title={needs ? ASK_ONE[order.status] ?? order.status_label : undefined}
+              >
+                <td className="col-case mono">{order.order_number}</td>
+                <td className="col-patient">
+                  <span className="cell-title">
+                    {order.patient_name}
+                    {order.priority === "EXPRESS" && (
+                      <span className="tag-express" title="Express">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                          <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+                        </svg>
+                        Express
+                      </span>
                     )}
-                  </td>
-                  <td>
-                    <TreatmentCell order={order} />
-                  </td>
-                  <td>
-                    <PaymentCell m={money.get(order.id)} />
-                  </td>
-                  <td>
-                    <StatusPill status={order.status} label={order.status_label} />
-                  </td>
-                  <td className="col-progress">
-                    <StageTrack order={order} />
-                  </td>
-                  {/* The date and time as asked for, with how long ago it was
-                      on the hover — the figure that decides which case to open
-                      first, kept without spending a column on it. */}
-                  <td className="col-when" title={`${since(order.updated_at)} ago`}>
-                    {formatDate(order.updated_at)}
-                  </td>
-                  {/* The label already carries the city, which is the same for
-                      every branch of one practice; the name is what tells them
-                      apart. The whole of it stays on the hover. */}
-                  <td className="col-branch dim" title={order.branch_label}>
-                    {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+                  </span>
+                  {/* With the sections gone, the row has to say for itself that
+                      it is waiting on the clinic — and what for. */}
+                  {needs && <span className="cell-ask">{ASK_ONE[order.status] ?? order.status_label}</span>}
+                </td>
+                <td className="col-plan">
+                  {order.assigned_to_name ? (
+                    order.assigned_to_name
+                  ) : (
+                    <span className="dim">Unassigned</span>
+                  )}
+                </td>
+                <td>
+                  <TreatmentCell order={order} />
+                </td>
+                <td>
+                  <PaymentCell m={money.get(order.id)} />
+                </td>
+                <td>
+                  <StatusPill status={order.status} label={order.status_label} />
+                </td>
+                <td className="col-progress">
+                  <StageTrack order={order} />
+                </td>
+                {/* The date and time as asked for, with how long ago on the
+                    hover — the figure that decides what to open first, kept
+                    without spending a column on it. */}
+                <td className="col-when" title={`${since(order.updated_at)} ago`}>
+                  {formatDate(order.updated_at)}
+                </td>
+                <td className="col-branch dim" title={order.branch_label}>
+                  {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
