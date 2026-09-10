@@ -36,8 +36,12 @@
   --danger-line: #edc5be;
 
   --font:
-    "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Inter", "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", sans-serif;
+  /* Used sparingly and deliberately: the clinic's own name and the headings
+     that divide the page. Everything a person operates stays in Inter, which is
+     drawn for exactly that. */
+  --display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
 
   /* Type scale. A fourth-ish ratio, rounded to whole pixels so nothing lands on
      a half-pixel and blurs. Display sizes carry negative tracking because Inter
@@ -427,9 +431,26 @@ a:hover { text-decoration-color: var(--gold); }
   animation: pulse-gold 2.4s var(--ease) infinite;
 }
 
+/* The page had one flat paper colour from edge to edge, which is what makes a
+   screen read as a document rather than as a surface. This is barely a colour —
+   a warm light behind the top of the page, gone by the fold — but the hero now
+   sits on something. */
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 620px;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(80% 100% at 12% 0%, rgba(212, 175, 55, 0.07) 0%, transparent 62%),
+    linear-gradient(180deg, #f7f4ee 0%, var(--paper) 100%);
+}
+
 .page {
   flex: 1;
   position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 1240px;
   margin: 0 auto;
@@ -2468,8 +2489,13 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: var(--s-6);
   border-radius: var(--r-lg);
   color: var(--white);
-  background: linear-gradient(126deg, #08080a 0%, #16161b 52%, #1e1e25 100%);
-  box-shadow: var(--shadow-md);
+  background:
+    radial-gradient(120% 90% at 82% 8%, rgba(212, 175, 55, 0.10) 0%, transparent 55%),
+    linear-gradient(126deg, #050506 0%, #131318 48%, #1f1f27 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 2px 6px rgba(11, 11, 12, 0.14),
+    0 24px 60px rgba(11, 11, 12, 0.22);
 }
 
 /* The drawn layer sits under everything and catches nothing. */
@@ -2520,8 +2546,12 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .nextup.clearish .nextup-eyebrow { color: #7fbf9b; }
 
+/* Inter, not the display face, and deliberately: this sentence carries a count,
+   and Instrument Serif draws a 1 close enough to a lowercase l that "Confirm 1
+   training aligner fit" could be read as "Confirm l". The serif is for names
+   and headings, which have no digits in them. */
 .nextup-say {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   font-size: var(--t-h3);
   font-weight: 620;
   line-height: 1.35;
@@ -2613,11 +2643,16 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   color: var(--gold-lift);
 }
 
+/* The one place the display face is set large. A clinic's own name is the
+   signature on the page and the only thing on it that should read as set
+   rather than as rendered. */
 .hero h1 {
-  margin: 6px 0 0;
-  font-size: clamp(1.7rem, 2.6vw, 2.15rem);
-  line-height: 1.05;
-  letter-spacing: -0.026em;
+  margin: 8px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2.3rem, 4vw, 3.15rem);
+  line-height: 1;
+  letter-spacing: -0.012em;
   color: var(--white);
 }
 
@@ -2674,6 +2709,22 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 .home { display: flex; flex-direction: column; gap: var(--s-7); }
 
+/* Each band settles a beat after the one above it. Six frames of movement, no
+   more: the page should look composed on arrival, not performed. */
+.home > * {
+  animation: settle 520ms var(--ease-out) both;
+}
+.home > *:nth-child(1) { animation-delay: 0ms; }
+.home > *:nth-child(2) { animation-delay: 60ms; }
+.home > *:nth-child(3) { animation-delay: 120ms; }
+.home > *:nth-child(4) { animation-delay: 180ms; }
+.home > *:nth-child(5) { animation-delay: 240ms; }
+
+@keyframes settle {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Asymmetric on purpose. Two equal columns read as a comparison; what needs the
    clinic and what has merely happened are not equals. */
 .split {
@@ -2683,18 +2734,26 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   align-items: start;
 }
 
+/* Lit from above rather than filled flat: a hairline of white along the top
+   edge and the faintest warm fall to the foot. It is the difference between a
+   surface and a rectangle, and it costs nothing to read. */
 .panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   padding: var(--s-5);
-  background: var(--white);
+  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
   border: 1px solid var(--rule);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-xs);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(11, 11, 12, 0.04),
+    0 12px 32px rgba(11, 11, 12, 0.05);
 }
 
 .panel-head {
+  position: relative;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -2703,11 +2762,25 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   margin-bottom: var(--s-2);
   border-bottom: 1px solid var(--rule);
 }
+/* A short gold length riding on the rule under the heading — the same accent
+   the rest of the portal uses to mark a title, at panel scale. */
+.panel-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 46px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold-bright), transparent);
+}
 .panel-head h2 {
   margin: 0;
-  font-size: var(--t-h2);
-  font-weight: 640;
-  letter-spacing: var(--track-h2);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.42rem;
+  line-height: 1.15;
+  letter-spacing: -0.008em;
 }
 .panel-head .btn-link,
 .panel-head .dim { font-size: var(--t-xs); }
@@ -2905,10 +2978,10 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: var(--s-5) var(--s-5) var(--s-4);
   text-decoration: none;
   color: inherit;
-  background: var(--white);
+  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
   border: 1px solid var(--rule);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-xs);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--shadow-xs);
   transition:
     transform var(--mid) var(--ease-out),
     box-shadow var(--mid) var(--ease),
@@ -3028,8 +3101,11 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .range-head h2 {
   margin: 0;
-  font-size: var(--t-h2);
-  letter-spacing: var(--track-h2);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  letter-spacing: -0.008em;
 }
 .range-head p {
   margin: 4px 0 0;
@@ -3187,6 +3263,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 @media (prefers-reduced-motion: reduce) {
   .btn-hero:hover, .nextup-go:hover { transform: none; }
+  .home > * { animation: none; }
 }
 
 /* --- Loading placeholders -------------------------------------------------
