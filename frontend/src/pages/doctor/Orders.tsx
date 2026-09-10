@@ -2,11 +2,11 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
+import { CaseSeries, PAGE_SIZE, api, formatDate, since } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
-import { CategoryPill, Empty, Loading } from "../../components/ui";
-import CaseProgress from "../../components/CaseProgress";
+import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
+import { ASK_ONE, URGENCY } from "../../workflow";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -49,6 +49,10 @@ export default function DoctorOrders() {
   const [search, setSearch] = useState("");
   const [series, setSeries] = useState<CaseSeries>("aligner");
   const [branch, setBranch] = useState(storedBranch);
+  /* Longest-waiting first by default. A clinic works the case the lab has been
+     waiting on, not the one it happened to open most recently. */
+  const [oldestFirst, setOldestFirst] = useState(true);
+  const [showClosed, setShowClosed] = useState(false);
 
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
   // One clinic is not a choice worth putting on the page.
@@ -88,14 +92,34 @@ export default function DoctorOrders() {
   const active = SERIES.find((s) => s.key === series)!;
 
   const all = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
-  const actionable = all.filter((o) => o.needs_doctor_action && o.status !== "CANCELLED");
-  const inProgress = all.filter(
-    (o) => !o.needs_doctor_action && o.status !== "COMPLETED" && o.status !== "CANCELLED",
-  );
-  const closed = all.filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED");
-  // Naming the branch on every row is only worth the space while the list
-  // actually holds more than one.
-  const mixed = multiBranch && !branch;
+
+  const byAge = (a: OrderSummary, b: OrderSummary) =>
+    oldestFirst
+      ? a.updated_at.localeCompare(b.updated_at)
+      : b.updated_at.localeCompare(a.updated_at);
+
+  /* Within what needs the clinic, the lab's own order of urgency wins over the
+     clock: a fit report it is waiting on outranks a draft nobody has sent. */
+  const byUrgency = (a: OrderSummary, b: OrderSummary) => {
+    const rank = URGENCY.indexOf(a.status) - URGENCY.indexOf(b.status);
+    return rank !== 0 ? rank : byAge(a, b);
+  };
+
+  const actionable = all
+    .filter((o) => o.needs_doctor_action && o.status !== "CANCELLED")
+    .sort(byUrgency);
+  const inProgress = all
+    .filter((o) => !o.needs_doctor_action && o.status !== "COMPLETED" && o.status !== "CANCELLED")
+    .sort(byAge);
+  const closed = all
+    .filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED")
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  /* Naming the branch under every case is only worth the space when the rows on
+     screen actually come from more than one. A practice can have three clinics
+     and still be looking at a list where every case belongs to the same one —
+     stamping it on all of them then is a column that never varies, which is the
+     fault this page was full of. */
+  const mixed = new Set(all.map((o) => o.branch_label).filter(Boolean)).size > 1;
 
   return (
     <main className="page">
@@ -111,7 +135,7 @@ export default function DoctorOrders() {
               <path d="m20 20-3.5-3.5" strokeLinecap="round" />
             </svg>
             <input
-              placeholder="Case number, patient, chart no."
+              placeholder="Patient or case number"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               aria-label="Search cases"
@@ -200,29 +224,32 @@ export default function DoctorOrders() {
         )
       ) : (
         <div className="stack">
-          <Section
-            title="Needs your action"
-            orders={actionable}
-            onOpen={(id) => navigate(`/orders/${id}`)}
-            emptyText="Nothing waiting on you."
-            showHeader
-            showBranch={mixed}
-          />
-          <Section
-            title="With the lab"
-            orders={inProgress}
-            onOpen={(id) => navigate(`/orders/${id}`)}
-            emptyText="No cases in progress."
-            showBranch={mixed}
-          />
-          {closed.length > 0 && (
-            <Section
-              title="Closed"
-              orders={closed}
+          {actionable.length > 0 && (
+            <ActionGroup
+              orders={actionable}
               onOpen={(id) => navigate(`/orders/${id}`)}
               showBranch={mixed}
             />
           )}
+
+          <LabGroup
+            orders={inProgress}
+            onOpen={(id) => navigate(`/orders/${id}`)}
+            showBranch={mixed}
+            oldestFirst={oldestFirst}
+            onSort={() => setOldestFirst((v) => !v)}
+            allClear={actionable.length === 0}
+          />
+
+          {closed.length > 0 && (
+            <ClosedGroup
+              orders={closed}
+              open={showClosed}
+              onToggle={() => setShowClosed((v) => !v)}
+              onOpen={(id) => navigate(`/orders/${id}`)}
+            />
+          )}
+
           <LoadMore query={orders} noun="cases" shown={all.length} />
         </div>
       )}
@@ -230,100 +257,179 @@ export default function DoctorOrders() {
   );
 }
 
-function Section({
-  title,
+/** The reference line under a patient's name — what the case is, where it is
+    going, and nothing the clinic cannot act on. The planner's name was here and
+    is not: which of 3D Align's people holds the file is the lab's business. */
+function CaseRef({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
+  const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
+  return (
+    <span className="cell-sub">
+      <span className="mono">{order.order_number}</span>
+      {order.kind === "PRODUCT" && order.product_label && <span>{order.product_label}</span>}
+      {order.category_label && (
+        <span>
+          <CategoryPill label={order.category_label} confirmed={order.category_confirmed} />
+        </span>
+      )}
+      {phased && (
+        <span className="cell-phase">
+          Phase {order.phases_done + 1} of {order.phases_total}
+        </span>
+      )}
+      {showBranch && order.branch_label && <span>{order.branch_label}</span>}
+    </span>
+  );
+}
+
+function PatientCell({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
+  return (
+    <div className="cell-stack">
+      <span className="cell-title">
+        {order.patient_name}
+        {order.priority === "EXPRESS" && <span className="pill pill-gold">Express</span>}
+      </span>
+      <CaseRef order={order} showBranch={showBranch} />
+    </div>
+  );
+}
+
+/** What the clinic owes the lab.
+ *
+ *  Led by the action rather than by the stage: "Send the intraoral scan" is
+ *  what a doctor can act on, where "Awaiting scan" is a state they have to
+ *  translate first. Ordered by what the lab is waiting on, not by the clock.
+ */
+function ActionGroup({
   orders,
   onOpen,
-  emptyText,
-  showHeader = false,
-  showBranch = false,
+  showBranch,
 }: {
-  title: string;
   orders: OrderSummary[];
   onOpen: (id: string) => void;
-  emptyText?: string;
-  /* Printed once, above the first section. Repeating the same six column names
-     down the page is noise: the reader learned them at the top. */
-  showHeader?: boolean;
-  /* Only while the list mixes branches. Stamping every row with the branch the
-     reader just filtered to says nothing. */
-  showBranch?: boolean;
+  showBranch: boolean;
 }) {
   return (
-    <section className="case-section">
-      <h4 className="case-section-head">
-        {title}
-        {orders.length > 0 && <span className="count">{orders.length}</span>}
-      </h4>
+    <section className="case-group needs">
+      <div className="group-head">
+        <h2>
+          Needs you
+          <span className="count">{orders.length}</span>
+        </h2>
+        <span className="group-note">Longest waiting first</span>
+      </div>
+      <div className="rows">
+        {orders.map((order) => (
+          <button key={order.id} type="button" className="row act" onClick={() => onOpen(order.id)}>
+            <PatientCell order={order} showBranch={showBranch} />
+            <span className="row-ask">{ASK_ONE[order.status] ?? order.status_label}</span>
+            <span className="row-age" title="Since this case last moved">
+              {since(order.updated_at)}
+            </span>
+            <span className="row-go" aria-hidden="true">
+              →
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Everything the lab has. Nothing here is asked of the clinic, so the row is
+    led by the stage and carries no call to action — only where it has got to
+    and how long it has been there. */
+function LabGroup({
+  orders,
+  onOpen,
+  showBranch,
+  oldestFirst,
+  onSort,
+  allClear,
+}: {
+  orders: OrderSummary[];
+  onOpen: (id: string) => void;
+  showBranch: boolean;
+  oldestFirst: boolean;
+  onSort: () => void;
+  /** Said here only when there is no group above saying otherwise. */
+  allClear: boolean;
+}) {
+  return (
+    <section className="case-group">
+      <div className="group-head">
+        <h2>
+          With 3D Align
+          {orders.length > 0 && <span className="count quiet">{orders.length}</span>}
+        </h2>
+        <div className="group-tools">
+          {allClear && <span className="all-clear">Nothing needs you</span>}
+          {orders.length > 1 && (
+            <button type="button" className="sort" onClick={onSort}>
+              {oldestFirst ? "Longest waiting" : "Most recent"}
+              <span aria-hidden="true"> ⇅</span>
+            </button>
+          )}
+        </div>
+      </div>
       {orders.length === 0 ? (
-        emptyText && <p className="dim">{emptyText}</p>
+        <p className="dim">No cases in progress.</p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            {showHeader && (
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Treatment</th>
-                  <th>Status</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-            )}
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id} className="clickable" onClick={() => onOpen(order.id)}>
-                  <td>
-                    <div className="cell-stack">
-                      <span className="cell-title">
-                        {order.patient_name}
-                        {order.priority === "EXPRESS" && (
-                          <span className="pill pill-gold">Express</span>
-                        )}
-                      </span>
-                      <span className="cell-sub">
-                        <span className="mono">{order.order_number}</span>
-                        {showBranch && order.branch_label && (
-                          <>
-                            {" · "}
-                            {order.branch_label}
-                          </>
-                        )}
-                        {order.assigned_to_name && (
-                          <>
-                            {" · "}
-                            {order.assigned_to_name}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    {order.kind === "PRODUCT" ? (
-                      <span>{order.product_label}</span>
-                    ) : order.category_label ? (
-                      <CategoryPill
-                        label={order.category_label}
-                        confirmed={order.category_confirmed}
-                      />
-                    ) : (
-                      <span className="dim">Not sized yet</span>
-                    )}
-                  </td>
-                  <td>
-                    <CaseProgress
-                      status={order.status}
-                      label={order.status_label}
-                      kind={order.kind}
-                      phaseDone={order.phases_done}
-                      phaseTotal={order.phases_total}
-                    />
-                  </td>
-                  <td className="dim">{formatDate(order.updated_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="rows">
+          {orders.map((order) => (
+            <button key={order.id} type="button" className="row" onClick={() => onOpen(order.id)}>
+              <PatientCell order={order} showBranch={showBranch} />
+              <span className="row-stage">
+                <StatusPill status={order.status} label={order.status_label} />
+              </span>
+              <span className="row-age" title="Since this case last moved">
+                {since(order.updated_at)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Finished work, folded away. Seven completed cases took a full screen above
+    the cases that were still running. */
+function ClosedGroup({
+  orders,
+  open,
+  onToggle,
+  onOpen,
+}: {
+  orders: OrderSummary[];
+  open: boolean;
+  onToggle: () => void;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <section className="case-group closed">
+      <button type="button" className="group-head as-toggle" onClick={onToggle} aria-expanded={open}>
+        <h2>
+          Closed
+          <span className="count quiet">{orders.length}</span>
+        </h2>
+        <span className="disclose">
+          {open ? "Hide" : "Show"}
+          <span aria-hidden="true" className={open ? "chev up" : "chev"}>
+            ⌄
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="rows">
+          {orders.map((order) => (
+            <button key={order.id} type="button" className="row" onClick={() => onOpen(order.id)}>
+              <span className="cell-title">{order.patient_name}</span>
+              <span className="row-stage">
+                <StatusPill status={order.status} label={order.status_label} />
+              </span>
+              <span className="row-age">{formatDate(order.updated_at)}</span>
+            </button>
+          ))}
         </div>
       )}
     </section>

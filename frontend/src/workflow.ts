@@ -94,6 +94,40 @@ export function stageIndex(
   return stagesFor(kind, intake).findIndex((stage) => stage.statuses.includes(status));
 }
 
+/** What the clinic is being asked for, in the words they would use — singular
+    and plural. A status name says where a case is; this says what it wants.
+    Shared, so the home page and the case list can never phrase the same case
+    two different ways. */
+export const ASK: Partial<Record<OrderStatus, [string, string]>> = {
+  DRAFT: ["Finish and send 1 draft case", "Finish and send {n} draft cases"],
+  RECORDS_REQUESTED: ["Add better records to 1 case", "Add better records to {n} cases"],
+  QUOTED: ["Review 1 quote", "Review {n} quotes"],
+  AWAITING_SCAN: ["Send 1 intraoral scan", "Send {n} intraoral scans"],
+  PLAN_SHARED: ["Review 1 treatment plan", "Review {n} treatment plans"],
+  FIT_REVIEW: ["Confirm 1 training aligner fit", "Confirm {n} training aligner fits"],
+};
+
+/** The same ask against a single case, where a count would be noise. */
+export const ASK_ONE: Partial<Record<OrderStatus, string>> = {
+  DRAFT: "Finish and send it",
+  RECORDS_REQUESTED: "Add better records",
+  QUOTED: "Review the quote",
+  AWAITING_SCAN: "Send the intraoral scan",
+  PLAN_SHARED: "Review the treatment plan",
+  FIT_REVIEW: "Confirm the fit",
+};
+
+/** The order they should be worked in — a draft the clinic has not sent is not
+    as pressing as a lab waiting on a fit report. */
+export const URGENCY: OrderStatus[] = [
+  "RECORDS_REQUESTED",
+  "FIT_REVIEW",
+  "PLAN_SHARED",
+  "QUOTED",
+  "AWAITING_SCAN",
+  "DRAFT",
+];
+
 /** Stages that mean the case has stalled rather than progressed. */
 export const STUCK: Partial<Record<OrderStatus, true>> = {
   RECORDS_REQUESTED: true,

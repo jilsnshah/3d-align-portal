@@ -16,31 +16,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api, since } from "../../api";
+import { ASK, URGENCY } from "../../workflow";
 import type { Notification, OrderStatus, OrderSummary, Product } from "../../api";
 import { useAuth } from "../../auth";
 import { Skeleton } from "../../components/ui";
 
-/* What the clinic has to do, in the words they would use, singular and plural.
-   A status name says where a case is; this says what is being asked of them. */
-const ASK: Partial<Record<OrderStatus, [string, string]>> = {
-  DRAFT: ["Finish and send 1 draft case", "Finish and send {n} draft cases"],
-  RECORDS_REQUESTED: ["Add better records to 1 case", "Add better records to {n} cases"],
-  QUOTED: ["Review 1 quote", "Review {n} quotes"],
-  AWAITING_SCAN: ["Send 1 intraoral scan", "Send {n} intraoral scans"],
-  PLAN_SHARED: ["Review 1 treatment plan", "Review {n} treatment plans"],
-  FIT_REVIEW: ["Confirm 1 training aligner fit", "Confirm {n} training aligner fits"],
-};
-
-/** The order they should be worked in — a draft the clinic has not sent is not
-    as pressing as a lab waiting on a fit report. */
-const URGENCY: OrderStatus[] = [
-  "RECORDS_REQUESTED",
-  "FIT_REVIEW",
-  "PLAN_SHARED",
-  "QUOTED",
-  "AWAITING_SCAN",
-  "DRAFT",
-];
 
 function rupees(value: number | string): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
