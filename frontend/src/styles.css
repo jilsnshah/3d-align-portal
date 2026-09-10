@@ -2458,6 +2458,13 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .hero {
   position: relative;
   overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 316px;
+  grid-template-areas:
+    "say   next"
+    "stats stats";
+  align-items: start;
+  gap: var(--s-6) var(--s-7);
   padding: var(--s-6);
   border-radius: var(--r-lg);
   color: var(--white);
@@ -2475,6 +2482,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 .hero-say {
+  grid-area: say;
   position: relative;
   min-width: 0;
   display: flex;
@@ -2482,10 +2490,79 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   gap: var(--s-4);
 }
 
+/* --- the one thing to do next ---
+   A pane of the band's own dark, lifted a little and edged in gold. The whole
+   upper right of the hero was honeycomb and nothing, while the single most
+   pressing thing a clinic had to do sat below the fold. */
+.nextup {
+  grid-area: next;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* A hairline of gold along the top edge, so it reads as lit from the same
+     direction as the rest of the band. */
+  box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.nextup-eyebrow {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold-lift);
+}
+.nextup.clearish .nextup-eyebrow { color: #7fbf9b; }
+
+.nextup-say {
+  margin: 6px 0 0;
+  font-size: var(--t-h3);
+  font-weight: 620;
+  line-height: 1.35;
+  letter-spacing: -0.008em;
+  color: var(--white);
+}
+.nextup-note {
+  margin: 2px 0 0;
+  font-size: var(--t-xs);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.nextup-go {
+  margin-top: var(--s-4);
+  padding: 8px 15px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--black);
+  background: var(--gold-lift);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.nextup-go:hover { background: var(--gold-bright); transform: translateY(-1px); }
+.nextup-go .go { color: var(--black); }
+
+.nextup-wait {
+  min-height: 148px;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+}
+
 /* --- the practice, inside the band ---
    The hero was a name and two buttons on a wide dark field. These are the
    figures a clinic opens the portal to read, so they belong in it. */
 .hero-stats {
+  grid-area: stats;
   position: relative;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2908,6 +2985,12 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 @media (max-width: 620px) {
+  /* Stacked on a phone, the pane is a second copy of the first row of the
+     panel further down, costing a screen of height to say it twice. The wide
+     layout is the only one where it earns its place — filling a column that
+     would otherwise be empty. */
+  .nextup { display: none; }
+
   .panel { padding: var(--s-4); }
   .hero-stats { margin-top: var(--s-4); padding-top: var(--s-4); }
   .hero-stats .jump { padding: 2px var(--s-3); }
@@ -3086,7 +3169,15 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 @media (max-width: 900px) {
-  .hero { padding: var(--s-5); }
+  /* Below this the pane would be narrower than its own sentence, so it drops
+     under the buttons and runs the width instead. */
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "say" "next" "stats";
+    gap: var(--s-5);
+    padding: var(--s-5);
+  }
+  .nextup { align-items: flex-start; }
 }
 
 @media (max-width: 620px) {
@@ -3095,7 +3186,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn-hero:hover { transform: none; }
+  .btn-hero:hover, .nextup-go:hover { transform: none; }
 }
 
 /* --- Loading placeholders -------------------------------------------------

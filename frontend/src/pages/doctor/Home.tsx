@@ -139,17 +139,77 @@ function HeroArt() {
  *  reads "send three intraoral scans" and knows their afternoon; they do not
  *  read six reference numbers and add them up.
  */
+type Group = { status: OrderStatus; cases: OrderSummary[] };
+
+/** What the clinic owes, gathered by the thing being asked and ordered by what
+    the lab is actually waiting on. */
+function group(orders: OrderSummary[]): Group[] {
+  const by = new Map<OrderStatus, OrderSummary[]>();
+  for (const o of orders) {
+    if (!ASK[o.status]) continue;
+    by.set(o.status, [...(by.get(o.status) ?? []), o]);
+  }
+  return URGENCY.filter((s) => by.has(s)).map((s) => ({ status: s, cases: by.get(s)! }));
+}
+
+/** How a group reads, and where it leads. One case opens that case; several
+    open the list. */
+function say(g: Group): { label: string; to: string; oldest: OrderSummary } {
+  const [one, many] = ASK[g.status]!;
+  const oldest = g.cases.reduce((a, b) => (a.updated_at < b.updated_at ? a : b));
+  return {
+    label: g.cases.length === 1 ? one : many.replace("{n}", String(g.cases.length)),
+    to: g.cases.length === 1 ? `/orders/${g.cases[0].id}` : "/orders",
+    oldest,
+  };
+}
+
+/** The single most pressing thing, in the band itself.
+ *
+ *  The hero was a name and some buttons with a wide dark field beside them, and
+ *  the one thing a clinic most needs to do sat below the fold. This is that one
+ *  thing — not a second copy of the list underneath, which stays grouped and
+ *  complete; just the top of it, where it can be acted on without scrolling. */
+function NextUp({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
+  const navigate = useNavigate();
+  const top = group(orders)[0];
+
+  if (loading) return <div className="nextup nextup-wait" aria-hidden="true" />;
+
+  if (!top) {
+    return (
+      <div className="nextup clearish">
+        <span className="nextup-eyebrow">All clear</span>
+        <p className="nextup-say">Nothing is waiting on you.</p>
+        <p className="nextup-note">
+          Everything you have sent is with 3D Align. We will tell you the moment
+          something moves.
+        </p>
+      </div>
+    );
+  }
+
+  const { label, to, oldest } = say(top);
+  return (
+    <div className="nextup">
+      <span className="nextup-eyebrow">Next up</span>
+      <p className="nextup-say">{label}</p>
+      <p className="nextup-note">
+        {top.cases.length === 1 ? oldest.patient_name : `${top.cases.length} cases`} · waiting{" "}
+        {since(oldest.updated_at)}
+      </p>
+      <button type="button" className="nextup-go" onClick={() => navigate(to)}>
+        {top.cases.length === 1 ? "Open this case" : "Work through them"}
+        <span className="go"> →</span>
+      </button>
+    </div>
+  );
+}
+
 function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
   const navigate = useNavigate();
 
-  const groups = useMemo(() => {
-    const by = new Map<OrderStatus, OrderSummary[]>();
-    for (const o of orders) {
-      if (!ASK[o.status]) continue;
-      by.set(o.status, [...(by.get(o.status) ?? []), o]);
-    }
-    return URGENCY.filter((s) => by.has(s)).map((s) => ({ status: s, cases: by.get(s)! }));
-  }, [orders]);
+  const groups = useMemo(() => group(orders), [orders]);
 
   if (loading) {
     return (
@@ -187,14 +247,9 @@ function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boole
         </div>
       ) : (
         <ul className="asks">
-          {groups.map(({ status, cases }) => {
-            const [one, many] = ASK[status]!;
-            const label = cases.length === 1 ? one : many.replace("{n}", String(cases.length));
-            // One case goes straight there; several go to the list.
-            const to = cases.length === 1 ? `/orders/${cases[0].id}` : "/orders";
-            // The longest a case in this group has been sitting, which is the
-            // reason to do this one before that one.
-            const oldest = cases.reduce((a, b) => (a.updated_at < b.updated_at ? a : b));
+          {groups.map((g) => {
+            const { status, cases } = g;
+            const { label, to, oldest } = say(g);
             return (
               <li key={status}>
                 <button type="button" onClick={() => navigate(to)}>
@@ -515,6 +570,8 @@ export default function DoctorHome() {
             </button>
           </div>
         </div>
+
+        <NextUp orders={waiting.data ?? []} loading={waiting.isLoading} />
 
         {/* The state of the practice, in the band rather than in a row of tiles
             below it — the hero was a name and two buttons on a wide dark field,
