@@ -1,12 +1,12 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { CaseSeries, PAGE_SIZE, api, formatDate, since } from "../../api";
+import { CaseSeries, PAGE_SIZE, api, formatDate, formatMoney, since } from "../../api";
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
-import { ASK_ONE, URGENCY, stageIndex, stagesFor } from "../../workflow";
+import { URGENCY, stageIndex, stagesFor } from "../../workflow";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -55,6 +55,23 @@ export default function DoctorOrders() {
   const [showClosed, setShowClosed] = useState(false);
 
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
+  /* Where each case stands on money. The list endpoint does not carry it, but
+     the practice's own ledger names the case every charge belongs to, so the
+     two are joined here rather than asking the server for something new. */
+  const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger });
+  const money = useMemo(() => {
+    const by = new Map<string, { due: number; review: number; paid: number }>();
+    const add = (id: string, key: "due" | "review" | "paid", amount: string) => {
+      const row = by.get(id) ?? { due: 0, review: 0, paid: 0 };
+      row[key] += Number(amount);
+      by.set(id, row);
+    };
+    for (const e of ledger.data?.pending ?? []) {
+      add(e.order_id, e.status === "SUBMITTED" ? "review" : "due", e.total);
+    }
+    for (const e of ledger.data?.history ?? []) add(e.order_id, "paid", e.total);
+    return by;
+  }, [ledger.data]);
   // One clinic is not a choice worth putting on the page.
   const branches = addresses.data ?? [];
   const multiBranch = branches.length > 1;
@@ -114,15 +131,9 @@ export default function DoctorOrders() {
   const closed = all
     .filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED")
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  /* Naming the branch under every case is only worth the space when the rows on
-     screen actually come from more than one. A practice can have three clinics
-     and still be looking at a list where every case belongs to the same one —
-     stamping it on all of them then is a column that never varies, which is the
-     fault this page was full of. */
-  const mixed = new Set(all.map((o) => o.branch_label).filter(Boolean)).size > 1;
 
   return (
-    <main className="page">
+    <main className="page page-wide">
       <div className="page-head">
         <div>
           <h1>Your cases</h1>
@@ -225,26 +236,41 @@ export default function DoctorOrders() {
       ) : (
         <div className="stack">
           {actionable.length > 0 && (
-            <ActionGroup
+            <Group
+              title="Needs you"
               orders={actionable}
+              money={money}
+              tone="needs"
               onOpen={(id) => navigate(`/orders/${id}`)}
-              showBranch={mixed}
+              tools={<span className="group-note">Longest waiting first</span>}
             />
           )}
 
-          <LabGroup
+          <Group
+            title="With 3D Align"
             orders={inProgress}
+            money={money}
             onOpen={(id) => navigate(`/orders/${id}`)}
-            showBranch={mixed}
-            oldestFirst={oldestFirst}
-            onSort={() => setOldestFirst((v) => !v)}
-            allClear={actionable.length === 0}
+            tools={
+              <div className="group-tools">
+                {actionable.length === 0 && <span className="all-clear">Nothing needs you</span>}
+                {inProgress.length > 1 && (
+                  <button type="button" className="sort" onClick={() => setOldestFirst((v) => !v)}>
+                    {oldestFirst ? "Longest waiting" : "Most recent"}
+                    <span aria-hidden="true"> ⇅</span>
+                  </button>
+                )}
+              </div>
+            }
           />
 
           {closed.length > 0 && (
-            <ClosedGroup
+            <Group
+              title="Closed"
               orders={closed}
-              open={showClosed}
+              money={money}
+              tone="closed"
+              collapsed={!showClosed}
               onToggle={() => setShowClosed((v) => !v)}
               onOpen={(id) => navigate(`/orders/${id}`)}
             />
@@ -263,14 +289,20 @@ function archLabel(arch: OrderSummary["arch"]): string {
   return "Both arches";
 }
 
-/** What is being made, and how big it is.
- *
- *  This was cut on the evidence that it read "Not sized yet" twenty-four times
- *  in twenty-five rows — which was the demo data talking, not the design: those
- *  cases were written straight into the database with no plan against them. A
- *  real book of work carries a band on everything past planning, and the size
- *  of the treatment is the first thing a doctor wants beside a name.
- */
+type Money = { due: number; review: number; paid: number };
+
+/** Where a case stands on money, in four words or fewer. Joined from the
+    practice's own ledger, which names the case each charge belongs to. */
+function PaymentCell({ m }: { m?: Money }) {
+  if (!m) return <span className="dim">—</span>;
+  if (m.due > 0) return <span className="pay due">{formatMoney(m.due)} due</span>;
+  if (m.review > 0) return <span className="pay check">Receipt with 3D Align</span>;
+  if (m.paid > 0) return <span className="pay ok">Paid {formatMoney(m.paid)}</span>;
+  return <span className="dim">—</span>;
+}
+
+/** What is being made, and how big. Degrades to a quiet line rather than to
+    nothing while the plan is still deciding the size. */
 function TreatmentCell({ order }: { order: OrderSummary }) {
   if (order.kind !== "ALIGNER") {
     return <span className="cell-treat">{order.product_label || "—"}</span>;
@@ -287,27 +319,19 @@ function TreatmentCell({ order }: { order: OrderSummary }) {
   );
 }
 
-/** Where the case has got to, drawn as the journey rather than named.
- *
- *  The pill and this are not the same fact: the pill says "In planning", this
- *  says planning is the fourth of six stages and two are still to come. Removing
- *  it as a duplicate lost the only thing on the row that showed distance
- *  travelled. Segments rather than a bar, because the stages are counted.
- */
+/** Where the case has got to, drawn as the journey rather than named. The pill
+    beside it says "In planning"; this says planning is the fourth of six with
+    two still to come — the distance travelled, which no other column shows. */
 function StageTrack({ order }: { order: OrderSummary }) {
   const stages = stagesFor(order.kind, order.intake);
   const at = stageIndex(order.kind, order.status, order.intake);
   const done = order.status === "COMPLETED";
   const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
-
   return (
-    <span className="track" title={`${stages[at]?.label ?? order.status_label} — stage ${at + 1} of ${stages.length}`}>
+    <span className="track">
       <span className="track-bars" aria-hidden="true">
         {stages.map((stage, i) => (
-          <span
-            key={stage.key}
-            className={done || i < at ? "seg done" : i === at ? "seg on" : "seg"}
-          />
+          <span key={stage.key} className={done || i < at ? "seg done" : i === at ? "seg on" : "seg"} />
         ))}
       </span>
       <span className="track-say">
@@ -315,190 +339,122 @@ function StageTrack({ order }: { order: OrderSummary }) {
           ? `Phase ${order.phases_done + 1} of ${order.phases_total}`
           : done
             ? "Complete"
-            : `Stage ${at + 1} of ${stages.length}`}
+            : `Stage ${Math.max(at + 1, 1)} of ${stages.length}`}
       </span>
     </span>
   );
 }
 
-/** The reference line under a patient's name — what the case is, where it is
-    going, and nothing the clinic cannot act on. The planner's name was here and
-    is not: which of 3D Align's people holds the file is the lab's business. */
-function CaseRef({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
-  return (
-    <span className="cell-sub">
-      <span className="mono">{order.order_number}</span>
-      {showBranch && order.branch_label && <span>{order.branch_label}</span>}
-    </span>
-  );
-}
-
-function PatientCell({ order, showBranch }: { order: OrderSummary; showBranch: boolean }) {
-  return (
-    <div className="cell-stack">
-      <span className="cell-title">
-        {order.patient_name}
-        {order.priority === "EXPRESS" && <span className="pill pill-gold">Express</span>}
-      </span>
-      <CaseRef order={order} showBranch={showBranch} />
-    </div>
-  );
-}
-
-/** What the clinic owes the lab.
- *
- *  Led by the action rather than by the stage: "Send the intraoral scan" is
- *  what a doctor can act on, where "Awaiting scan" is a state they have to
- *  translate first. Ordered by what the lab is waiting on, not by the clock.
- */
-function ActionGroup({
+/** One group of cases. The three groups are how the page is read — what needs
+    the clinic, what the lab has, what is finished — and they share one set of
+    columns so the eye keeps its place moving between them. */
+function Group({
+  title,
   orders,
+  money,
   onOpen,
-  showBranch,
-}: {
-  orders: OrderSummary[];
-  onOpen: (id: string) => void;
-  showBranch: boolean;
-}) {
-  return (
-    <section className="case-group needs">
-      <div className="group-head">
-        <h2>
-          Needs you
-          <span className="count">{orders.length}</span>
-        </h2>
-        <span className="group-note">Longest waiting first</span>
-      </div>
-      <div className="rows">
-        <div className="row act head" aria-hidden="true">
-          <span>Patient</span>
-          <span>Treatment</span>
-          <span className="row-ask">What to do</span>
-          <span className="row-age">Waiting</span>
-          <span />
-        </div>
-        {orders.map((order) => (
-          <button key={order.id} type="button" className="row act" onClick={() => onOpen(order.id)}>
-            <PatientCell order={order} showBranch={showBranch} />
-            <TreatmentCell order={order} />
-            <span className="row-ask">{ASK_ONE[order.status] ?? order.status_label}</span>
-            <span className="row-age" title="Since this case last moved">
-              {since(order.updated_at)}
-            </span>
-            <span className="row-go" aria-hidden="true">
-              →
-            </span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/** Everything the lab has. Nothing here is asked of the clinic, so the row is
-    led by the stage and carries no call to action — only where it has got to
-    and how long it has been there. */
-function LabGroup({
-  orders,
-  onOpen,
-  showBranch,
-  oldestFirst,
-  onSort,
-  allClear,
-}: {
-  orders: OrderSummary[];
-  onOpen: (id: string) => void;
-  showBranch: boolean;
-  oldestFirst: boolean;
-  onSort: () => void;
-  /** Said here only when there is no group above saying otherwise. */
-  allClear: boolean;
-}) {
-  return (
-    <section className="case-group">
-      <div className="group-head">
-        <h2>
-          With 3D Align
-          {orders.length > 0 && <span className="count quiet">{orders.length}</span>}
-        </h2>
-        <div className="group-tools">
-          {allClear && <span className="all-clear">Nothing needs you</span>}
-          {orders.length > 1 && (
-            <button type="button" className="sort" onClick={onSort}>
-              {oldestFirst ? "Longest waiting" : "Most recent"}
-              <span aria-hidden="true"> ⇅</span>
-            </button>
-          )}
-        </div>
-      </div>
-      {orders.length === 0 ? (
-        <p className="dim">No cases in progress.</p>
-      ) : (
-        <div className="rows">
-          <div className="row lab head" aria-hidden="true">
-            <span>Patient</span>
-            <span>Treatment</span>
-            <span>Stage</span>
-            <span>Progress</span>
-            <span className="row-age">Waiting</span>
-          </div>
-          {orders.map((order) => (
-            <button key={order.id} type="button" className="row lab" onClick={() => onOpen(order.id)}>
-              <PatientCell order={order} showBranch={showBranch} />
-              <TreatmentCell order={order} />
-              <span className="row-stage">
-                <StatusPill status={order.status} label={order.status_label} />
-              </span>
-              <StageTrack order={order} />
-              <span className="row-age" title="Since this case last moved">
-                {since(order.updated_at)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Finished work, folded away. Seven completed cases took a full screen above
-    the cases that were still running. */
-function ClosedGroup({
-  orders,
-  open,
+  tone,
+  tools,
+  collapsed,
   onToggle,
-  onOpen,
 }: {
+  title: string;
   orders: OrderSummary[];
-  open: boolean;
-  onToggle: () => void;
+  money: Map<string, Money>;
   onOpen: (id: string) => void;
+  tone?: "needs" | "closed";
+  tools?: React.ReactNode;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
+  const Head = onToggle ? "button" : "div";
   return (
-    <section className="case-group closed">
-      <button type="button" className="group-head as-toggle" onClick={onToggle} aria-expanded={open}>
+    <section className={`case-group${tone ? ` ${tone}` : ""}`}>
+      <Head
+        className={`group-head${onToggle ? " as-toggle" : ""}`}
+        {...(onToggle ? { type: "button" as const, onClick: onToggle, "aria-expanded": !collapsed } : {})}
+      >
         <h2>
-          Closed
-          <span className="count quiet">{orders.length}</span>
+          {title}
+          {orders.length > 0 && (
+            <span className={tone === "needs" ? "count" : "count quiet"}>{orders.length}</span>
+          )}
         </h2>
-        <span className="disclose">
-          {open ? "Hide" : "Show"}
-          <span aria-hidden="true" className={open ? "chev up" : "chev"}>
-            ⌄
+        {onToggle ? (
+          <span className="disclose">
+            {collapsed ? "Show" : "Hide"}
+            <span aria-hidden="true" className={collapsed ? "chev" : "chev up"}>
+              ⌄
+            </span>
           </span>
-        </span>
-      </button>
-      {open && (
-        <div className="rows">
-          {orders.map((order) => (
-            <button key={order.id} type="button" className="row" onClick={() => onOpen(order.id)}>
-              <span className="cell-title">{order.patient_name}</span>
-              <span className="row-stage">
-                <StatusPill status={order.status} label={order.status_label} />
-              </span>
-              <span className="row-age">{formatDate(order.updated_at)}</span>
-            </button>
-          ))}
+        ) : (
+          tools
+        )}
+      </Head>
+
+      {collapsed ? null : orders.length === 0 ? (
+        <p className="dim">No cases here.</p>
+      ) : (
+        <div className="case-table">
+          <table>
+            <thead>
+              <tr>
+                <th className="col-case">Case</th>
+                <th className="col-patient">Patient</th>
+                <th className="col-plan">Planned by</th>
+                <th>Treatment</th>
+                <th>Payment</th>
+                <th>Stage</th>
+                <th className="col-progress">Progress</th>
+                <th>Last updated</th>
+                <th className="col-branch">Branch</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id} className="clickable" onClick={() => onOpen(order.id)}>
+                  <td className="col-case mono">{order.order_number}</td>
+                  <td className="col-patient">
+                    <span className="cell-title">
+                      {order.patient_name}
+                      {order.priority === "EXPRESS" && <span className="pill pill-gold">Express</span>}
+                    </span>
+                  </td>
+                  <td className="col-plan">
+                    {order.assigned_to_name ? (
+                      order.assigned_to_name
+                    ) : (
+                      <span className="dim">Unassigned</span>
+                    )}
+                  </td>
+                  <td>
+                    <TreatmentCell order={order} />
+                  </td>
+                  <td>
+                    <PaymentCell m={money.get(order.id)} />
+                  </td>
+                  <td>
+                    <StatusPill status={order.status} label={order.status_label} />
+                  </td>
+                  <td className="col-progress">
+                    <StageTrack order={order} />
+                  </td>
+                  {/* The date and time as asked for, with how long ago it was
+                      on the hover — the figure that decides which case to open
+                      first, kept without spending a column on it. */}
+                  <td className="col-when" title={`${since(order.updated_at)} ago`}>
+                    {formatDate(order.updated_at)}
+                  </td>
+                  {/* The label already carries the city, which is the same for
+                      every branch of one practice; the name is what tells them
+                      apart. The whole of it stays on the hover. */}
+                  <td className="col-branch dim" title={order.branch_label}>
+                    {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

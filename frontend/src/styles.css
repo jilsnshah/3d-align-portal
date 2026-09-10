@@ -447,6 +447,12 @@ a:hover { text-decoration-color: var(--gold); }
     linear-gradient(180deg, #f7f4ee 0%, var(--paper) 100%);
 }
 
+/* A table this wide is not prose and should not be held to a reading measure.
+   Written as `.page.page-wide` rather than `.page-wide`: both are one class, so
+   on equal specificity the rule declared later wins — and `.page` is declared
+   after this, which is why the wide page was still 1240px. */
+.page.page-wide { max-width: 1560px; }
+
 .page {
   flex: 1;
   position: relative;
@@ -3452,132 +3458,79 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   overflow: hidden;
 }
 
-.row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--s-4);
-  padding: var(--s-3) var(--s-4);
-  text-align: left;
-  font: inherit;
-  white-space: normal;
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--rule);
-  cursor: pointer;
-  transition: background var(--fast) var(--ease);
+/* --- the case table ---
+   Ten columns is wider than a screen at some sizes, so the table scrolls inside
+   its own frame and the two columns that identify a case stay put while it
+   does. Losing sight of whose case a row belongs to is what makes a wide table
+   unreadable. */
+.case-table {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(11, 11, 12, 0.04),
+    0 12px 32px rgba(11, 11, 12, 0.04);
 }
-.row:last-child { border-bottom: 0; }
-.row:hover { background: var(--gold-wash); }
+/* A floor rather than a percentage: at 100% the table squeezed itself to fit
+   and clipped the last column instead of letting the frame scroll. Below this
+   width it overflows and the frame takes over, which is what the sticky case
+   and patient columns are there for. */
+.case-table table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
 
-/* The rows that want something have a fourth track for the arrow, and a gold
-   edge down the left so the group reads as urgent at a glance rather than
-   only where the eye lands. */
-/* Each group's own set of tracks. What the clinic owes wants the ask; what the
-   lab has wants the stage and the distance travelled. */
-.row.act { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) auto auto auto; }
-.row.lab { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) auto minmax(96px, 0.6fr) auto; }
-
-/* Printed once at the top of a group, not down every row. */
-.row.head {
-  padding-top: var(--s-2);
-  padding-bottom: var(--s-2);
-  background: var(--paper-2);
-  cursor: default;
+.case-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: var(--s-3) var(--s-3);
+  text-align: left;
+  white-space: nowrap;
   font-size: var(--t-micro);
   font-weight: 700;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--ink-3);
-}
-.row.head:hover { background: var(--paper-2); }
-
-/* What is being made, and how big. */
-.cell-treat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  min-width: 0;
-  font-size: var(--t-sm);
-}
-.cell-arch { font-size: var(--t-xs); color: var(--ink-3); }
-
-/* The journey, counted. Segments rather than a bar because the stages are
-   discrete and a doctor is reading "four of six", not a percentage. */
-.track { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.track-bars { display: flex; gap: 3px; }
-.track .seg {
-  flex: 1 1 0;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--rule);
-}
-.track .seg.done { background: var(--gold-line); }
-.track .seg.on {
-  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
-  box-shadow: 0 0 0 2px var(--gold-wash);
-}
-.track-say {
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-.needs .rows { box-shadow: inset 3px 0 0 var(--gold), inset 0 1px 0 rgba(255,255,255,.9), 0 12px 32px rgba(11,11,12,.05); }
-
-.row-ask {
-  font-size: var(--t-sm);
-  font-weight: 600;
-  color: var(--ink);
-  text-align: right;
-}
-.row-stage { display: flex; }
-.row-age {
-  min-width: 44px;
-  font-size: var(--t-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-  text-align: right;
-}
-.row-go {
-  color: var(--gold-deep);
-  font-size: 1.05rem;
-  opacity: 0.4;
-  transition: transform var(--mid) var(--ease-out), opacity var(--fast) var(--ease);
-}
-.row.act:hover .row-go { opacity: 1; transform: translateX(3px); }
-
-.closed .rows { background: var(--paper); box-shadow: none; }
-.closed .row:hover { background: var(--paper-2); }
-
-.count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 19px;
-  padding: 0 7px;
-  font-size: var(--t-micro);
-  font-weight: 700;
-  color: var(--white);
-  background: var(--gold);
-  border-radius: 999px;
-  font-variant-numeric: tabular-nums;
-}
-.count.quiet {
-  color: var(--ink-2);
   background: var(--paper-2);
-  border: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
+.case-table td {
+  padding: var(--s-3);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--t-sm);
+}
+.case-table tbody tr:last-child td { border-bottom: 0; }
+.case-table tbody tr.clickable { cursor: pointer; transition: background var(--fast) var(--ease); }
+.case-table tbody tr.clickable:hover td { background: var(--gold-wash); }
 
-/* Two facts in one cell: the one being looked for, and the one that identifies
-   it. Stacking them buys back a column without losing anything. */
-.cell-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
+/* The case and the patient hold their place while the rest slides under them. */
+.case-table .col-case,
+.case-table .col-patient { position: sticky; z-index: 1; background: var(--white); }
+.case-table .col-case { left: 0; min-width: 132px; }
+.case-table .col-patient { left: 132px; min-width: 168px; box-shadow: 1px 0 0 var(--rule); }
+.case-table th.col-case,
+.case-table th.col-patient { z-index: 3; background: var(--paper-2); }
+.case-table tbody tr.clickable:hover .col-case,
+.case-table tbody tr.clickable:hover .col-patient { background: var(--gold-wash); }
+
+.case-table .col-progress { min-width: 128px; }
+.case-table .col-when { white-space: nowrap; color: var(--ink-2); }
+/* Cells that only ever hold a short phrase should not wrap it into two lines
+   and take width from the columns that carry real text. */
+.case-table .col-plan,
+.case-table .col-branch { white-space: nowrap; }
+.case-table .col-plan { color: var(--ink-2); }
+
+/* A gold edge down the group that wants something, so it reads as urgent from
+   the page rather than only where the eye lands. */
+.needs .case-table { box-shadow: inset 3px 0 0 var(--gold), 0 12px 32px rgba(11, 11, 12, 0.05); }
+.closed .case-table { background: var(--paper); box-shadow: none; }
 
 .cell-title {
   display: inline-flex;
@@ -3587,51 +3540,34 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   color: var(--ink);
 }
 
-/* The parts of the reference line are separated by a hairline dot rather than
-   each taking a column — facts about the case, not fields to compare. */
-.cell-sub {
+/* What is being made, and how big. */
+.cell-treat {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--s-2);
-  font-size: var(--t-xs);
-  color: var(--ink-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
 }
-.cell-sub > * + *::before {
-  content: "\00b7";
-  margin-right: var(--s-2);
-  color: var(--rule-strong);
-}
-.cell-phase { color: var(--ink-2); font-weight: 560; }
+.cell-arch { font-size: var(--t-xs); color: var(--ink-3); }
 
-@media (max-width: 720px) {
-  /* Stacked, the ask drops under the case and the arrow goes: the whole row is
-     the target on a touch screen, so an affordance pointing at it is noise. */
-  /* Stacked, the row keeps everything and gives each part its own line rather
-     than squeezing five tracks into a phone. The headings go: a column name
-     above a stack of one is not a heading. */
-  .row,
-  .row.act,
-  .row.lab {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--s-1) var(--s-3);
-  }
-  .row.head { display: none; }
-  /* The segmented track is a desktop affordance: on a phone the pill already
-     names the stage, and drawing the journey under every row cost more height
-     than the whole list had to spare. */
-  .track-bars { display: none; }
-  .cell-treat,
-  .track { grid-column: 1 / -1; }
-  .track { flex-direction: row; }
-  .cell-treat { flex-direction: row; align-items: baseline; gap: var(--s-2); }
-  .row-ask {
-    grid-column: 1 / -1;
-    text-align: left;
-    padding-top: 2px;
-    color: var(--gold-deep);
-  }
-  .row-go { display: none; }
+/* Where a case stands on money — the state, not the ledger. */
+.pay { font-size: var(--t-sm); font-weight: 560; white-space: nowrap; }
+.pay.due { color: var(--gold-deep); font-weight: 620; }
+.pay.check { color: var(--ink-2); }
+.pay.ok { color: var(--ok); }
+
+/* The journey, counted. Segments rather than a bar because the stages are
+   discrete and a doctor reads "four of six", not a percentage. */
+.track { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.track-bars { display: flex; gap: 3px; }
+.track .seg { flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--rule); }
+.track .seg.done { background: var(--gold-line); }
+.track .seg.on {
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 0 0 2px var(--gold-wash);
+}
+.track-say { font-size: var(--t-micro); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
