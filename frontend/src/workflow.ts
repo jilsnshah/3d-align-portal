@@ -16,7 +16,7 @@
  * its own stages so there is one source of truth rather than two that agree.
  */
 
-import type { AlignerIntake, OrderKind, OrderStatus } from "./api";
+import type { AlignerIntake, OrderKind, OrderStatus, OrderSummary } from "./api";
 
 export type Stage = { key: string; label: string; statuses: OrderStatus[] };
 
@@ -133,6 +133,58 @@ export const STUCK: Partial<Record<OrderStatus, true>> = {
   RECORDS_REQUESTED: true,
   FIT_ISSUE: true,
 };
+
+/** The lab's side of the same journey: what 3D Align has to do next, singular
+    and plural. The clinic's asks say what the lab is waiting for; these say
+    what the lab is holding up. */
+export const LAB_ASK: Partial<Record<OrderStatus, [string, string]>> = {
+  FIT_ISSUE: ["Resolve 1 fit issue", "Resolve {n} fit issues"],
+  SCAN_SUBMITTED: ["Check 1 scan", "Check {n} scans"],
+  SUBMITTED: ["Review 1 new submission", "Review {n} new submissions"],
+  UNDER_REVIEW: ["Quote 1 case", "Quote {n} cases"],
+  PHASE_REVIEW: ["Read 1 set of progress photos", "Read {n} sets of progress photos"],
+  IN_PLANNING: ["Plan 1 case", "Plan {n} cases"],
+  DISPATCHING: ["Dispatch 1 parcel", "Dispatch {n} parcels"],
+  TRAINING_ALIGNER_PRODUCTION: ["Make 1 training aligner", "Make {n} training aligners"],
+  ALIGNER_PRODUCTION: ["Produce 1 aligner phase", "Produce {n} aligner phases"],
+  PRODUCT_FABRICATION: ["Make or pack 1 order", "Make or pack {n} orders"],
+};
+
+/** The same, against a single case. */
+export const LAB_ASK_ONE: Partial<Record<OrderStatus, string>> = {
+  FIT_ISSUE: "Resolve the fit issue",
+  SCAN_SUBMITTED: "Check the scan",
+  SUBMITTED: "Review the submission",
+  UNDER_REVIEW: "Send the quote",
+  PHASE_REVIEW: "Read the progress photos",
+  IN_PLANNING: "Plan the case",
+  DISPATCHING: "Dispatch it",
+  TRAINING_ALIGNER_PRODUCTION: "Make the training aligner",
+  ALIGNER_PRODUCTION: "Produce the phase",
+  PRODUCT_FABRICATION: "Make or pack it",
+};
+
+/** The order the lab should work them in: a fitting that failed and a scan
+    that may need retaking hold a patient up more than a parcel does. */
+export const LAB_URGENCY: OrderStatus[] = [
+  "FIT_ISSUE",
+  "SCAN_SUBMITTED",
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "PHASE_REVIEW",
+  "IN_PLANNING",
+  "DISPATCHING",
+  "TRAINING_ALIGNER_PRODUCTION",
+  "ALIGNER_PRODUCTION",
+  "PRODUCT_FABRICATION",
+];
+
+/** Whether a case is on the lab's desk: open, not waiting on the clinic, and
+    at a stage where 3D Align is the one who acts. */
+export function onLabDesk(order: OrderSummary): boolean {
+  if (order.status === "COMPLETED" || order.status === "CANCELLED") return false;
+  return !order.needs_doctor_action && Boolean(LAB_ASK[order.status]);
+}
 
 /** What "finished" reads as. An accessory order is not a case, and a box of
     retainer cases has no aligners in it. */

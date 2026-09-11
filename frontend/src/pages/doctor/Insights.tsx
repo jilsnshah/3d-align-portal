@@ -1,18 +1,21 @@
-/* Insights — the practice, analysed.
+/* Insights — the practice, or the lab, analysed.
  *
  * The stats endpoint answers one question: how many cases were opened each
- * month. A doctor has more than one. Is the practice growing? Where are my
- * cases stuck, and how many of those are stuck on me? What am I treating —
- * which bands, which arches, how many come in already scanned? Where is the
- * money going, and how quickly does the lab confirm it? Are patients coming
- * back?
+ * month. A reader has more than one. Is the work growing? Where are cases
+ * stuck, and how many of those are stuck on me? What is being treated — which
+ * bands, which arches, how many come in already scanned? Where is the money
+ * going, and how quickly are receipts confirmed? Who keeps coming back?
  *
- * So this reads the practice itself — every case, every patient, every
- * payment — and works the answers out here, over a window the doctor chooses
- * and against the window before it. Snapshot figures (where cases are now,
- * what is waiting, how old the open ones are) describe today whatever the
- * window; flow figures (cases opened, patients added, money paid) describe the
- * window.
+ * So this reads the cases, the people and the payments themselves and works
+ * the answers out here, over a window the reader chooses and against the
+ * window before it. Snapshot figures (where cases are now, what is waiting,
+ * how old the open ones are) describe today whatever the window; flow figures
+ * (cases opened, people added, money paid) describe the window.
+ *
+ * One page for both sides of the counter. A clinic reads its own practice and
+ * is asked what it owes the lab; the lab reads every practice, is asked what
+ * is on its own desk, and gets the cuts only it needs — which practices send
+ * the work, and how the planning is spread across the orthodontists.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -21,12 +24,12 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../../api";
-import type { LedgerEntry, OrderSummary, Patient } from "../../api";
+import type { LedgerEntry, OrderSummary, PendingDoctor } from "../../api";
 import { useAuth } from "../../auth";
 import { ColumnChart, SERIES_A, SERIES_B, formatCount, formatMoney, useWidth } from "../../components/charts";
 import { Loading } from "../../components/ui";
-import { everyCase, everyPatient } from "../../fetchAll";
-import { ASK, URGENCY, stageIndex, stagesFor } from "../../workflow";
+import { everyCase, everyDoctor, everyPatient, everyStaffCase } from "../../fetchAll";
+import { ASK, LAB_ASK, LAB_URGENCY, URGENCY, onLabDesk, stageIndex, stagesFor } from "../../workflow";
 
 /** Accessories: a warm neutral, set apart from the gold and violet by lightness
     rather than by a third hue, and always labelled. */
@@ -180,7 +183,17 @@ type Series = { key: string; label: string; color: string; values: number[] };
 
 /** Cases opened over the window, stacked by kind: the area is the total, the
     bands are what it was made of. A crosshair reads any bucket exactly. */
-function AreaChart({ buckets, series, height = 250, dark = false }: { buckets: Bucket[]; series: Series[]; height?: number; dark?: boolean }) {
+function AreaChart({
+  buckets,
+  series,
+  height = 250,
+  dark = false,
+}: {
+  buckets: Bucket[];
+  series: Series[];
+  height?: number;
+  dark?: boolean;
+}) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [at, setAt] = useState<number | null>(null);
   const padL = 36;
@@ -205,7 +218,7 @@ function AreaChart({ buckets, series, height = 250, dark = false }: { buckets: B
     base = upper;
     return { s, lower, upper };
   });
-  const labelEvery = Math.max(1, Math.ceil(n / 7));
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(plotW / 64))));
 
   return (
     <div className={`ia-area${dark ? " dark" : ""}`} ref={ref}>
@@ -214,7 +227,7 @@ function AreaChart({ buckets, series, height = 250, dark = false }: { buckets: B
           width={width}
           height={height}
           role="img"
-          aria-label={`Cases opened per ${n > 20 ? "day" : "period"}: ${totals.join(", ")}`}
+          aria-label={`Cases opened per period: ${totals.join(", ")}`}
           onPointerMove={(e) => {
             const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
             const px = e.clientX - r.left;
@@ -225,7 +238,7 @@ function AreaChart({ buckets, series, height = 250, dark = false }: { buckets: B
         >
           <defs>
             {series.map((s) => (
-              <linearGradient key={s.key} id={`ia-fill-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient key={s.key} id={`ia-fill-${s.key}${dark ? "-d" : ""}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={s.color} stopOpacity="0.55" />
                 <stop offset="100%" stopColor={s.color} stopOpacity="0.12" />
               </linearGradient>
@@ -248,7 +261,7 @@ function AreaChart({ buckets, series, height = 250, dark = false }: { buckets: B
               .join("");
             return (
               <g key={s.key}>
-                <path d={`${up}${down}Z`} fill={`url(#ia-fill-${s.key})`} />
+                <path d={`${up}${down}Z`} fill={`url(#ia-fill-${s.key}${dark ? "-d" : ""})`} />
                 <path d={up} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" />
               </g>
             );
@@ -298,7 +311,17 @@ type Part = { key: string; label: string; value: number; color: string; note?: s
 
 /** Part of a whole, for a handful of parts. The legend carries every value, so
     nothing here is read from colour or angle alone. */
-function Donut({ parts, center, sub, format = formatCount }: { parts: Part[]; center: string; sub: string; format?: (v: number) => string }) {
+function Donut({
+  parts,
+  center,
+  sub,
+  format = formatCount,
+}: {
+  parts: Part[];
+  center: string;
+  sub: string;
+  format?: (v: number) => string;
+}) {
   const [active, setActive] = useState<string | null>(null);
   const total = parts.reduce((s, p) => s + p.value, 0);
   const r = 40;
@@ -420,19 +443,17 @@ function Card({
   title,
   hint,
   span,
-  tone,
   aside,
   children,
 }: {
   title: string;
   hint?: string;
   span: string;
-  tone?: "dark";
   aside?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className={`ia-card ${span}${tone ? ` ${tone}` : ""}`}>
+    <section className={`ia-card ${span}`}>
       <header className="ia-card-head">
         <div>
           <h2>{title}</h2>
@@ -445,26 +466,76 @@ function Card({
   );
 }
 
+/** A ranked list with its bars, for practices, planners and appliances. */
+function Ranked({ rows, tone = "" }: { rows: { label: string; value: number; say: string }[]; tone?: string }) {
+  const top = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <ul className={`ia-rank${tone ? ` ${tone}` : ""}`}>
+      {rows.map((r) => (
+        <li key={r.label}>
+          <span className="ia-rank-head">
+            <b>{r.label}</b>
+            <span>{r.say}</span>
+          </span>
+          <span className="ia-rank-track">
+            <i style={{ width: `${(r.value / top) * 100}%` }} />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ------------------------------------------------------------------ page */
 
-export default function Insights() {
+type Person = { id: string; created_at: string };
+
+/** The lab has no patient list of its own; every patient is on a case, so the
+    first case each one appears on is when they arrived. */
+function patientsFromCases(all: OrderSummary[]): Person[] {
+  const first = new Map<string, string>();
+  for (const o of all) {
+    if (!o.patient_id) continue;
+    const seen = first.get(o.patient_id);
+    if (!seen || o.created_at < seen) first.set(o.patient_id, o.created_at);
+  }
+  return [...first.entries()].map(([id, created_at]) => ({ id, created_at }));
+}
+
+export default function Insights({ lab = false }: { lab?: boolean }) {
   const { me } = useAuth();
   const [range, setRange] = useState<Range>("90d");
-  const cases = useQuery({ queryKey: ["orders", "every-case"], queryFn: everyCase });
-  const patients = useQuery({ queryKey: ["patients", "all"], queryFn: everyPatient });
-  const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger });
-  const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
+  const cases = useQuery({
+    queryKey: lab ? ["staff-orders", "every-case"] : ["orders", "every-case"],
+    queryFn: lab ? everyStaffCase : everyCase,
+  });
+  const patients = useQuery({ queryKey: ["patients", "all"], queryFn: everyPatient, enabled: !lab });
+  const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger, enabled: !lab });
+  const labLedger = useQuery({ queryKey: ["staff-payments", ""], queryFn: () => api.labPayments(), enabled: lab });
+  const doctors = useQuery({ queryKey: ["staff-doctors", "every"], queryFn: everyDoctor, enabled: lab });
+  const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses, enabled: !lab });
 
-  const all = cases.data ?? [];
-  const people = patients.data ?? [];
-  const history: LedgerEntry[] = ledger.data?.history ?? [];
+  const all = useMemo(() => cases.data ?? [], [cases.data]);
+  const people = useMemo<Person[]>(() => (lab ? patientsFromCases(all) : patients.data ?? []), [lab, all, patients.data]);
+  const book = lab ? labLedger.data : ledger.data;
+  const history: LedgerEntry[] = useMemo(() => book?.history ?? [], [book]);
+  const practices = useMemo(() => doctors.data ?? [], [doctors.data]);
 
-  const a = useMemo(() => analyse(all, people, history, range), [all, people, history, range]);
+  const a = useMemo(
+    () => analyse(all, people, history, range, lab, practices),
+    [all, people, history, range, lab, practices],
+  );
 
-  if (cases.isLoading || patients.isLoading || ledger.isLoading) return <Loading what="your practice" />;
+  if (cases.isLoading || (lab ? labLedger.isLoading : patients.isLoading || ledger.isLoading)) {
+    return <Loading what={lab ? "the lab's figures" : "your practice"} />;
+  }
 
   const rangeInfo = RANGES.find((r) => r.key === range)!;
-  const multiBranch = (addresses.data?.length ?? 0) > 1;
+  const multiBranch = !lab && (addresses.data?.length ?? 0) > 1;
+  const outstanding = Number(book?.outstanding ?? 0);
+  const inReview = Number(book?.in_review ?? 0);
+  const casesLink = lab ? "/staff/orders" : "/orders";
+  const payLink = lab ? "/staff/payments" : "/payments";
   const sinceFirst = Number.isFinite(a.first)
     ? new Date(a.first).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
     : "";
@@ -476,25 +547,99 @@ export default function Insights() {
     a.now.products ? plural(a.now.products, "appliance order") : "",
     a.now.accessories ? plural(a.now.accessories, "accessory order") : "",
   ].filter(Boolean);
+  const verb = a.waiting === 1 ? "is" : "are";
   const story = [
     made.length > 1 ? `${made.slice(0, -1).join(", ")} and ${made[made.length - 1]}.` : made.length ? `All ${made[0]}.` : "",
-    a.waiting ? `${plural(a.waiting, "case")} ${a.waiting === 1 ? "is" : "are"} waiting on you today.` : "Nothing is waiting on you today.",
+    lab
+      ? a.waiting
+        ? `${plural(a.waiting, "case")} ${verb} on the lab's desk today.`
+        : "Nothing is on the lab's desk today."
+      : a.waiting
+        ? `${plural(a.waiting, "case")} ${verb} waiting on you today.`
+        : "Nothing is waiting on you today.",
+    lab && a.clinics[0] && a.clinics.length > 1 ? `Most came from ${a.clinics[0].label}.` : "",
     a.busiest ? `Busiest ${a.unit}: ${a.busiest}.` : "",
   ]
     .filter(Boolean)
     .join(" ");
-  const kpis = [
-    { label: "New patients", value: formatCount(a.now.patients), cur: a.now.patients, prev: a.prev?.patients ?? null, spark: a.series.patients, note: `${formatCount(people.length)} on file` },
-    { label: "Paid to 3D Align", value: money(a.now.spend), cur: a.now.spend, prev: a.prev?.spend ?? null, spark: a.series.spend, note: `${money(Number(ledger.data?.outstanding ?? 0))} due now` },
-    { label: "Cases finished", value: formatCount(a.now.completed), cur: a.now.completed, prev: a.prev?.completed ?? null, spark: a.series.completed, note: `${plural(a.open.length, "case")} open` },
-    { label: "Waiting on you", value: formatCount(a.waiting), cur: 0, prev: null, spark: [], note: a.asks[0] ? a.asks[0].label : "All with 3D Align" },
-  ];
+
+  const kpis = lab
+    ? [
+        {
+          label: "New practices",
+          value: formatCount(a.now.practices),
+          cur: a.now.practices,
+          prev: a.prev?.practices ?? null,
+          spark: a.series.practices,
+          note: `${formatCount(practices.length)} signed up in all`,
+        },
+        {
+          label: "Collected",
+          value: money(a.now.spend),
+          cur: a.now.spend,
+          prev: a.prev?.spend ?? null,
+          spark: a.series.spend,
+          note: `${money(outstanding)} owed now`,
+        },
+        {
+          label: "Cases finished",
+          value: formatCount(a.now.completed),
+          cur: a.now.completed,
+          prev: a.prev?.completed ?? null,
+          spark: a.series.completed,
+          note: `${plural(a.open.length, "case")} open`,
+        },
+        {
+          label: "On our desk",
+          value: formatCount(a.waiting),
+          cur: 0,
+          prev: null,
+          spark: [],
+          note: a.asks[0] ? a.asks[0].label : "Nothing to do",
+        },
+      ]
+    : [
+        {
+          label: "New patients",
+          value: formatCount(a.now.patients),
+          cur: a.now.patients,
+          prev: a.prev?.patients ?? null,
+          spark: a.series.patients,
+          note: `${formatCount(people.length)} on file`,
+        },
+        {
+          label: "Paid to 3D Align",
+          value: money(a.now.spend),
+          cur: a.now.spend,
+          prev: a.prev?.spend ?? null,
+          spark: a.series.spend,
+          note: `${money(outstanding)} due now`,
+        },
+        {
+          label: "Cases finished",
+          value: formatCount(a.now.completed),
+          cur: a.now.completed,
+          prev: a.prev?.completed ?? null,
+          spark: a.series.completed,
+          note: `${plural(a.open.length, "case")} open`,
+        },
+        {
+          label: "Waiting on you",
+          value: formatCount(a.waiting),
+          cur: 0,
+          prev: null,
+          spark: [],
+          note: a.asks[0] ? a.asks[0].label : "All with 3D Align",
+        },
+      ];
 
   return (
     <main className="page page-wide ia">
       <section className="ia-hero">
         <div className="ia-hero-top">
-          <span className="ia-kicker">Insights · {me?.doctor?.clinic_name || "Your practice"}</span>
+          <span className="ia-kicker">
+            Insights · {lab ? "Every practice" : me?.doctor?.clinic_name || "Your practice"}
+          </span>
           <div className="ia-range" role="tablist" aria-label="Window">
             {RANGES.map((r) => (
               <button
@@ -530,9 +675,18 @@ export default function Insights() {
             </h1>
             <p>{story}</p>
             <div className="ia-key dark">
-              <span><i style={{ background: HERO_A }} />Aligners</span>
-              <span><i style={{ background: HERO_B }} />Appliances</span>
-              <span><i style={{ background: HERO_C }} />Accessories</span>
+              <span>
+                <i style={{ background: HERO_A }} />
+                Aligners
+              </span>
+              <span>
+                <i style={{ background: HERO_B }} />
+                Appliances
+              </span>
+              <span>
+                <i style={{ background: HERO_C }} />
+                Accessories
+              </span>
             </div>
           </div>
           <div className="ia-hero-chart">
@@ -586,37 +740,57 @@ export default function Insights() {
       <div className="ia-grid">
         <Card
           span="s8"
-          title="Where your cases are"
-          hint="Every open aligner case, by stage — gold is waiting on you, dark is with 3D Align."
-          aside={<Link className="ia-link" to="/orders">Open Cases →</Link>}
+          title="Where the cases are"
+          hint={
+            lab
+              ? "Every open aligner case, by stage — gold is on the lab's desk, dark is with the clinic."
+              : "Every open aligner case, by stage — gold is waiting on you, dark is with 3D Align."
+          }
+          aside={
+            <Link className="ia-link" to={casesLink}>
+              Open Cases →
+            </Link>
+          }
         >
           <div className="ia-pipe">
             {a.pipeline.map((s) => (
               <div key={s.key} className="ia-pipe-row">
                 <span className="ia-pipe-label">{s.label}</span>
                 <span className="ia-pipe-bar">
-                  {s.you > 0 && <i className="you" style={{ width: `${(s.you / a.pipeMax) * 100}%` }} title={`${s.you} waiting on you`} />}
+                  {s.you > 0 && (
+                    <i
+                      className="you"
+                      style={{ width: `${(s.you / a.pipeMax) * 100}%` }}
+                      title={`${s.you} ${lab ? "on the lab's desk" : "waiting on you"}`}
+                    />
+                  )}
                   {s.total - s.you > 0 && (
-                    <i className="lab" style={{ width: `${((s.total - s.you) / a.pipeMax) * 100}%` }} title={`${s.total - s.you} with 3D Align`} />
+                    <i
+                      className="lab"
+                      style={{ width: `${((s.total - s.you) / a.pipeMax) * 100}%` }}
+                      title={`${s.total - s.you} ${lab ? "with the clinic" : "with 3D Align"}`}
+                    />
                   )}
                 </span>
                 <b className="ia-pipe-n">{s.total}</b>
-                <small className="ia-pipe-you">{s.you > 0 ? `${s.you} on you` : ""}</small>
+                <small className="ia-pipe-you">{s.you > 0 ? `${s.you} on ${lab ? "us" : "you"}` : ""}</small>
               </div>
             ))}
           </div>
           {a.otherOpen > 0 && (
-            <p className="ia-foot-note">
-              Plus {plural(a.otherOpen, "appliance or accessory order")} in progress.
-            </p>
+            <p className="ia-foot-note">Plus {plural(a.otherOpen, "appliance or accessory order")} in progress.</p>
           )}
         </Card>
 
-        <Card span="s4" title="Waiting on you" hint="What the lab needs from the clinic, today.">
+        <Card
+          span="s4"
+          title={lab ? "On the lab's desk" : "Waiting on you"}
+          hint={lab ? "What the lab has to do, today." : "What the lab needs from the clinic, today."}
+        >
           {a.asks.length === 0 ? (
             <div className="ia-clear">
-              <b>Nothing is waiting on you.</b>
-              <span>Every open case is with 3D Align.</span>
+              <b>{lab ? "Nothing is on the lab's desk." : "Nothing is waiting on you."}</b>
+              <span>{lab ? "Every open case is with a clinic." : "Every open case is with 3D Align."}</span>
             </div>
           ) : (
             <ul className="ia-asks">
@@ -676,22 +850,26 @@ export default function Insights() {
 
         <Card
           span="s8"
-          title="Money paid"
+          title={lab ? "Money collected" : "Money paid"}
           hint={`Confirmed each ${a.unit} — by the day the lab confirmed it.`}
-          aside={<Link className="ia-link" to="/payments">Payments →</Link>}
+          aside={
+            <Link className="ia-link" to={payLink}>
+              Payments →
+            </Link>
+          }
         >
           <div className="ia-money-sum">
             <div>
-              <span>Paid in the window</span>
+              <span>{lab ? "Collected in the window" : "Paid in the window"}</span>
               <b>{money(a.now.spend)}</b>
             </div>
             <div>
-              <span>Due now</span>
-              <b className="due">{money(Number(ledger.data?.outstanding ?? 0))}</b>
+              <span>{lab ? "Owed now" : "Due now"}</span>
+              <b className="due">{money(outstanding)}</b>
             </div>
             <div>
               <span>Being checked</span>
-              <b>{money(Number(ledger.data?.in_review ?? 0))}</b>
+              <b>{money(inReview)}</b>
             </div>
             <div>
               <span>Receipts confirmed in</span>
@@ -700,94 +878,163 @@ export default function Insights() {
           </div>
           <ColumnChart
             data={a.buckets.map((b, i) => ({ key: b.key, label: b.label, full: b.full, a: a.series.spend[i] }))}
-            labelA="Paid"
+            labelA={lab ? "Collected" : "Paid"}
             money
             height={190}
           />
         </Card>
 
-        <Card span="s4" title="Where the money went" hint={`What was paid for in ${rangeInfo.long}.`}>
+        <Card span="s4" title="Where the money went" hint={`What was ${lab ? "collected" : "paid"} for in ${rangeInfo.long}.`}>
           {a.kinds.length === 0 ? (
             <p className="ia-none">Nothing confirmed in this window.</p>
           ) : (
-            <Donut parts={a.kinds} center={formatMoney(a.now.spend, true)} sub="paid" format={money} />
+            <Donut parts={a.kinds} center={formatMoney(a.now.spend, true)} sub={lab ? "collected" : "paid"} format={money} />
           )}
         </Card>
 
-        <Card span="s6" title="Patients" hint="New patients in the window, and who comes back.">
-          <div className="ia-patients">
-            <div className="ia-bars-wrap">
-              <span className="ia-bars-peak">{a.patientMax ? `Most in one ${a.unit}: ${a.patientMax}` : `No new patients in ${RANGES.find((r) => r.key === range)!.long}`}</span>
-              <div className="ia-bars">
-                {a.buckets.map((b, i) => (
-                  <span key={b.key} className="ia-bar" title={`${b.full}: ${a.series.patients[i]} new`}>
-                    <i style={{ height: `${a.patientMax ? (a.series.patients[i] / a.patientMax) * 100 : 0}%` }} />
-                  </span>
-                ))}
+        {lab ? (
+          <>
+            <Card
+              span="s6"
+              title="Practices"
+              hint={`Who sent the work in ${rangeInfo.long}.`}
+              aside={
+                <Link className="ia-link" to="/staff/doctors">
+                  Doctors →
+                </Link>
+              }
+            >
+              <div className="ia-patients">
+                {a.clinics.length === 0 ? (
+                  <p className="ia-none">No cases opened in this window.</p>
+                ) : (
+                  <Ranked
+                    tone="gold"
+                    rows={a.clinics.slice(0, 6).map((c) => ({ label: c.label, value: c.count, say: plural(c.count, "case") }))}
+                  />
+                )}
+                <div className="ia-patient-facts">
+                  <Ring value={a.practiceShare} label="of verified practices sent work" />
+                  <dl>
+                    <div>
+                      <dt>Signed up</dt>
+                      <dd>{formatCount(practices.length)}</dd>
+                    </div>
+                    <div>
+                      <dt>Verified</dt>
+                      <dd>{formatCount(a.verified)}</dd>
+                    </div>
+                    <div>
+                      <dt>Sent work</dt>
+                      <dd>{formatCount(a.sending)}</dd>
+                    </div>
+                  </dl>
+                </div>
               </div>
-              <div className="ia-bars-axis">
-                <span>{a.buckets[0]?.label}</span>
-                <span>{a.buckets[a.buckets.length - 1]?.label}</span>
+            </Card>
+
+            <Card span="s6" title="Planning load" hint="Open aligner cases, by who is planning them — gold is on the desk.">
+              {a.planners.length === 0 ? (
+                <p className="ia-none">No open aligner cases.</p>
+              ) : (
+                <ul className="ia-rank">
+                  {a.planners.map((p) => (
+                    <li key={p.label}>
+                      <span className="ia-rank-head">
+                        <b>{p.label}</b>
+                        <span>
+                          {plural(p.open, "open case")}
+                          {p.desk ? ` · ${p.desk} on the desk` : ""}
+                        </span>
+                      </span>
+                      <span className="ia-rank-track split">
+                        {p.desk > 0 && <i className="desk" style={{ width: `${(p.desk / a.plannerMax) * 100}%` }} />}
+                        {p.open - p.desk > 0 && <i style={{ width: `${((p.open - p.desk) / a.plannerMax) * 100}%` }} />}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card span="s12" title="Appliances ordered" hint={`Retainers, guards and splints in ${rangeInfo.long}.`}>
+              {a.appliances.length === 0 ? (
+                <p className="ia-none">No appliance orders in this window.</p>
+              ) : (
+                <Ranked
+                  tone="cols"
+                  rows={a.appliances.map((p) => ({
+                    label: p.label,
+                    value: p.orders,
+                    say: `${plural(p.orders, "order")} · ${formatCount(p.units)} made`,
+                  }))}
+                />
+              )}
+            </Card>
+          </>
+        ) : (
+          <>
+            <Card span="s6" title="Patients" hint="New patients in the window, and who comes back.">
+              <div className="ia-patients">
+                <div className="ia-bars-wrap">
+                  <span className="ia-bars-peak">
+                    {a.patientMax ? `Most in one ${a.unit}: ${a.patientMax}` : `No new patients in ${rangeInfo.long}`}
+                  </span>
+                  <div className="ia-bars">
+                    {a.buckets.map((b, i) => (
+                      <span key={b.key} className="ia-bar" title={`${b.full}: ${a.series.patients[i]} new`}>
+                        <i style={{ height: `${a.patientMax ? (a.series.patients[i] / a.patientMax) * 100 : 0}%` }} />
+                      </span>
+                    ))}
+                  </div>
+                  <div className="ia-bars-axis">
+                    <span>{a.buckets[0]?.label}</span>
+                    <span>{a.buckets[a.buckets.length - 1]?.label}</span>
+                  </div>
+                </div>
+                <div className="ia-patient-facts">
+                  <Ring value={a.repeatShare} label="have had more than one case" />
+                  <dl>
+                    <div>
+                      <dt>On file</dt>
+                      <dd>{formatCount(people.length)}</dd>
+                    </div>
+                    <div>
+                      <dt>In treatment</dt>
+                      <dd>{formatCount(a.inTreatment)}</dd>
+                    </div>
+                    <div>
+                      <dt>Never started</dt>
+                      <dd>{formatCount(a.neverStarted)}</dd>
+                    </div>
+                  </dl>
+                </div>
               </div>
-            </div>
-            <div className="ia-patient-facts">
-              <Ring value={a.repeatShare} label="have had more than one case" />
-              <dl>
-                <div>
-                  <dt>On file</dt>
-                  <dd>{formatCount(people.length)}</dd>
-                </div>
-                <div>
-                  <dt>In treatment</dt>
-                  <dd>{formatCount(a.inTreatment)}</dd>
-                </div>
-                <div>
-                  <dt>Never started</dt>
-                  <dd>{formatCount(a.neverStarted)}</dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-        </Card>
+            </Card>
 
-        <Card span="s6" title="Appliances ordered" hint={`Retainers, guards and splints in ${rangeInfo.long}.`}>
-          {a.appliances.length === 0 ? (
-            <p className="ia-none">No appliance orders in this window.</p>
-          ) : (
-            <ul className="ia-rank">
-              {a.appliances.map((p) => (
-                <li key={p.label}>
-                  <span className="ia-rank-head">
-                    <b>{p.label}</b>
-                    <span>
-                      {plural(p.orders, "order")} · {formatCount(p.units)} made
-                    </span>
-                  </span>
-                  <span className="ia-rank-track">
-                    <i style={{ width: `${(p.orders / a.appliances[0].orders) * 100}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+            <Card span="s6" title="Appliances ordered" hint={`Retainers, guards and splints in ${rangeInfo.long}.`}>
+              {a.appliances.length === 0 ? (
+                <p className="ia-none">No appliance orders in this window.</p>
+              ) : (
+                <Ranked
+                  rows={a.appliances.map((p) => ({
+                    label: p.label,
+                    value: p.orders,
+                    say: `${plural(p.orders, "order")} · ${formatCount(p.units)} made`,
+                  }))}
+                />
+              )}
+            </Card>
 
-        {multiBranch && a.branches.length > 0 && (
-          <Card span="s12" title="Branches" hint={`Where the cases opened in ${rangeInfo.long} were sent from.`}>
-            <ul className="ia-rank cols">
-              {a.branches.map((b) => (
-                <li key={b.label}>
-                  <span className="ia-rank-head">
-                    <b>{b.label}</b>
-                    <span>{plural(b.count, "case")}</span>
-                  </span>
-                  <span className="ia-rank-track">
-                    <i style={{ width: `${(b.count / a.branches[0].count) * 100}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+            {multiBranch && a.branches.length > 0 && (
+              <Card span="s12" title="Branches" hint={`Where the cases opened in ${rangeInfo.long} were sent from.`}>
+                <Ranked
+                  tone="cols gold"
+                  rows={a.branches.map((b) => ({ label: b.label, value: b.count, say: plural(b.count, "case") }))}
+                />
+              </Card>
+            )}
+          </>
         )}
       </div>
     </main>
@@ -796,7 +1043,14 @@ export default function Insights() {
 
 /* -------------------------------------------------------------- analysis */
 
-function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[], range: Range) {
+function analyse(
+  all: OrderSummary[],
+  people: Person[],
+  history: LedgerEntry[],
+  range: Range,
+  lab: boolean,
+  practices: PendingDoctor[],
+) {
   const first = Math.min(...all.map((o) => ms(o.created_at)).filter(Number.isFinite), Date.now());
   const { buckets, from, to, unit } = windowFor(range, first);
   const length = to - from;
@@ -810,6 +1064,7 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
       products: opened.filter((o) => o.kind === "PRODUCT").length,
       accessories: opened.filter((o) => o.kind === "ACCESSORY").length,
       patients: people.filter((p) => inside(p.created_at, a, b)).length,
+      practices: practices.filter((d) => inside(d.created_at, a, b)).length,
       completed: all.filter((o) => o.status === "COMPLETED" && inside(o.updated_at, a, b)).length,
       spend: history.filter((h) => inside(h.verified_at, a, b)).reduce((s, h) => s + Number(h.total), 0),
       paid: history.filter((h) => inside(h.verified_at, a, b)),
@@ -826,9 +1081,14 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
     products: per(all.filter((o) => o.kind === "PRODUCT"), (o) => o.created_at),
     accessories: per(all.filter((o) => o.kind === "ACCESSORY"), (o) => o.created_at),
     patients: per(people, (p) => p.created_at),
+    practices: per(practices, (d) => d.created_at),
     spend: per(history, (h) => h.verified_at, (h) => Number(h.total)),
     completed: per(all.filter((o) => o.status === "COMPLETED"), (o) => o.updated_at),
   };
+
+  /* Whose move a case is. The clinic reads what waits on it; the lab reads
+     what is on its own desk. */
+  const isYours = (o: OrderSummary) => (lab ? onLabDesk(o) : o.needs_doctor_action);
 
   // --- today: where the open cases are, and what is waiting
   const open = all.filter((o) => !closed(o));
@@ -843,16 +1103,19 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
     const row = stages.find((s) => s.key === key);
     if (!row) continue;
     row.total += 1;
-    if (o.needs_doctor_action) row.you += 1;
+    if (isYours(o)) row.you += 1;
   }
   const pipeMax = Math.max(1, ...stages.map((s) => s.total));
 
-  const waiting = open.filter((o) => o.needs_doctor_action);
-  const asks = URGENCY.map((status) => {
-    const count = waiting.filter((o) => o.status === status).length;
-    const words = ASK[status];
-    return { status, count, label: words ? (count === 1 ? words[0] : words[1].replace("{n}", String(count))) : status };
-  })
+  const waiting = open.filter(isYours);
+  const order = lab ? LAB_URGENCY : URGENCY;
+  const vocabulary = lab ? LAB_ASK : ASK;
+  const asks = order
+    .map((status) => {
+      const count = waiting.filter((o) => o.status === status).length;
+      const words = vocabulary[status];
+      return { status, count, label: words ? (count === 1 ? words[0] : words[1].replace("{n}", String(count))) : status };
+    })
     .filter((q) => q.count > 0)
     .sort((x, y) => y.count - x.count);
 
@@ -915,6 +1178,29 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
   }
   const branches = [...branchMap.entries()].map(([label, count]) => ({ label, count })).sort((x, y) => y.count - x.count);
 
+  // --- who sends the work, and who plans it (the lab's cuts)
+  const clinicMap = new Map<string, number>();
+  for (const o of now.opened) {
+    const k = o.clinic_name || o.doctor_name;
+    if (k) clinicMap.set(k, (clinicMap.get(k) ?? 0) + 1);
+  }
+  const clinics = [...clinicMap.entries()].map(([label, count]) => ({ label, count })).sort((x, y) => y.count - x.count);
+  const verified = practices.filter((d) => d.verification_status === "VERIFIED").length;
+  const sending = new Set(now.opened.map((o) => o.doctor_name).filter(Boolean)).size;
+  const practiceShare = verified ? Math.min(1, sending / verified) : 0;
+
+  const plannerMap = new Map<string, { label: string; open: number; desk: number }>();
+  for (const o of open) {
+    if (o.kind !== "ALIGNER") continue;
+    const label = o.assigned_to_name || "3D Align (unassigned)";
+    const row = plannerMap.get(label) ?? { label, open: 0, desk: 0 };
+    row.open += 1;
+    if (onLabDesk(o)) row.desk += 1;
+    plannerMap.set(label, row);
+  }
+  const planners = [...plannerMap.values()].sort((x, y) => y.open - x.open);
+  const plannerMax = Math.max(1, ...planners.map((p) => p.open));
+
   // --- money
   const kindMap = new Map<string, number>();
   for (const h of now.paid) kindMap.set(h.kind, (kindMap.get(h.kind) ?? 0) + Number(h.total));
@@ -942,7 +1228,9 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
 
   // --- what stands out, in words
   const facts: { label: string; value: string; note: string }[] = [];
-  const busiest = series.cases.reduce((best, v, i) => (v > (best === -1 ? 0 : series.cases[best]) ? i : best), -1);
+  if (lab && clinics[0]) {
+    facts.push({ label: "Busiest practice", value: clinics[0].label, note: `${plural(clinics[0].count, "case")} in the window` });
+  }
   const topBand = bands.filter((b) => b.key !== "unsized").sort((x, y) => y.value - x.value)[0];
   if (topBand) {
     facts.push({
@@ -960,14 +1248,20 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
     });
   }
   if (appliances[0]) {
-    facts.push({ label: "Most-ordered appliance", value: appliances[0].label, note: `${plural(appliances[0].orders, "order")}` });
+    facts.push({ label: "Most-ordered appliance", value: appliances[0].label, note: plural(appliances[0].orders, "order") });
   }
   if (median !== null) {
-    facts.push({ label: "Receipts confirmed", value: confirmTime.toLowerCase() === "under an hour" ? "Within the hour" : `In ${confirmTime}`, note: "typical time from sending a screenshot to confirmation" });
+    facts.push({
+      label: "Receipts confirmed",
+      value: confirmTime === "Under an hour" ? "Within the hour" : `In ${confirmTime}`,
+      note: "typical time from a screenshot being sent to confirmation",
+    });
   }
   if (withCases.length > 0) {
     facts.push({ label: "Returning patients", value: `${Math.round(repeatShare * 100)}%`, note: "of treated patients have had more than one case" });
   }
+
+  const busiest = series.cases.reduce((best, v, i) => (v > (best === -1 ? 0 : series.cases[best]) ? i : best), -1);
 
   return {
     first,
@@ -992,6 +1286,12 @@ function analyse(all: OrderSummary[], people: Patient[], history: LedgerEntry[],
     expressShare,
     appliances,
     branches,
+    clinics,
+    verified,
+    sending,
+    practiceShare,
+    planners,
+    plannerMax,
     kinds,
     confirmTime,
     repeatShare,

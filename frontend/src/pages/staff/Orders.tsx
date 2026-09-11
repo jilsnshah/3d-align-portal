@@ -1,13 +1,29 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+/* Every case the lab holds.
+ *
+ * It was four tabs of the same table, a free-text status menu in capitals and
+ * a search box, with the orthodontist menu the only thing on a row that did
+ * anything. Now it reads the way the clinic's case list does: a masthead that
+ * sums up what is shown, one console of filters — who the case is waiting on,
+ * what kind it is, which stage, whose plan it is, express — and the lab's case
+ * table, where the gold rail marks what is on the lab's desk and the line
+ * under each patient says what has to happen next.
+ *
+ * The queue links here with a stage in the address, and the stage and type
+ * stay in the address as they change, so a filtered list can be sent to a
+ * colleague as a link.
+ */
+
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { CaseSeries, PAGE_SIZE, api, formatDate } from "../../api";
-import { LoadMore } from "../../components/LoadMore";
-import { CategoryPill, Empty, Loading } from "../../components/ui";
+import { PAGE_SIZE, api } from "../../api";
+import type { CaseSeries, OrderSummary } from "../../api";
 import { useAuth } from "../../auth";
-import CaseProgress from "../../components/CaseProgress";
-import type { OrderSummary } from "../../api";
+import LabCaseTable from "../../components/LabCaseTable";
+import { LoadMore } from "../../components/LoadMore";
+import { Empty, Loading } from "../../components/ui";
+import { onLabDesk } from "../../workflow";
 
 const STATUSES = [
   "SUBMITTED",
@@ -24,6 +40,7 @@ const STATUSES = [
   "FIT_ISSUE",
   "ALIGNER_PRODUCTION",
   "DISPATCHING",
+  "PHASE_REVIEW",
   "COMPLETED",
   "CANCELLED",
 ];
@@ -57,44 +74,57 @@ const PRODUCT_STATUSES = [
 
 // Nothing is made for an accessory order, so the bench's stages never apply:
 // it is ordered, packed, sent.
-const ACCESSORY_STATUSES = [
+const ACCESSORY_STATUSES = ["DRAFT", "SUBMITTED", "PRODUCT_FABRICATION", "DISPATCHING", "COMPLETED", "CANCELLED"];
+
+const EVERY_STATUS = [
   "DRAFT",
-  "SUBMITTED",
+  ...STATUSES.slice(0, 13),
   "PRODUCT_FABRICATION",
-  "DISPATCHING",
-  "COMPLETED",
-  "CANCELLED",
+  ...STATUSES.slice(13),
 ];
 
-function statusesFor(series: CaseSeries): string[] {
+type Series = CaseSeries | "all";
+
+function statusesFor(series: Series): string[] {
   if (series === "enquiry") return ENQUIRY_STATUSES;
   if (series === "accessory") return ACCESSORY_STATUSES;
   if (series === "product") return PRODUCT_STATUSES;
-  return STATUSES;
+  if (series === "aligner") return STATUSES;
+  return EVERY_STATUS;
 }
 
-const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
-  {
-    key: "aligner",
-    label: "Aligner series",
-    hint: "AL numbers — cases in planning or production.",
-  },
-  {
-    key: "product",
-    label: "Other products",
-    hint: "Retainers, splints, trays and guards — made from the scan, no planning.",
-  },
-  {
-    key: "accessory",
-    label: "Accessories",
-    hint: "Stock items — nothing on the bench, straight to packing.",
-  },
-  {
-    key: "enquiry",
-    label: "Enquiries",
-    hint: "EN numbers — not yet through planning, no AL number spent.",
-  },
+/** "ALIGNER_PRODUCTION" as a person would write it. */
+function statusName(status: string): string {
+  const words = status.toLowerCase().replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+const SERIES: { key: Series; label: string; noun: string }[] = [
+  { key: "all", label: "Every type", noun: "cases" },
+  { key: "aligner", label: "Aligner series", noun: "aligner cases" },
+  { key: "product", label: "Other products", noun: "product orders" },
+  { key: "accessory", label: "Accessories", noun: "accessory orders" },
+  { key: "enquiry", label: "Enquiries", noun: "enquiries" },
 ];
+
+type Cut = "all" | "desk" | "clinic" | "closed";
+
+const CUTS: { key: Cut; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "desk", label: "On our desk" },
+  { key: "clinic", label: "With clinics" },
+  { key: "closed", label: "Closed" },
+];
+
+const isClosed = (o: OrderSummary) => o.status === "COMPLETED" || o.status === "CANCELLED";
+const isClinic = (o: OrderSummary) => !isClosed(o) && o.needs_doctor_action;
+
+function inCut(o: OrderSummary, cut: Cut): boolean {
+  if (cut === "desk") return onLabDesk(o);
+  if (cut === "clinic") return isClinic(o);
+  if (cut === "closed") return isClosed(o);
+  return true;
+}
 
 export default function StaffOrders() {
   const navigate = useNavigate();
@@ -103,190 +133,21 @@ export default function StaffOrders() {
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "";
   const requested = params.get("series");
-  const series: CaseSeries =
-    requested === "enquiry" || requested === "product" || requested === "accessory"
-      ? requested
+  /* Arriving with a stage but no type — from the queue — means every type at
+     that stage: a new submission has no AL number yet, so the aligner series
+     alone would hide it. */
+  const series: Series = SERIES.some((s) => s.key === requested)
+    ? (requested as Series)
+    : status
+      ? "all"
       : "aligner";
-  const [search, setSearch] = useState("");
 
-  const statusOptions = statusesFor(series);
+  const [search, setSearch] = useState(params.get("q") ?? "");
+  const [cut, setCut] = useState<Cut>("all");
+  const [planner, setPlanner] = useState("");
+  const [express, setExpress] = useState(false);
+  const [oldestFirst, setOldestFirst] = useState(true);
 
-  function switchSeries(next: CaseSeries) {
-    // A status that only exists on the other side would show an empty table
-    // and look like a bug, so it is dropped on the way across.
-    const keep =
-      status && statusesFor(next).includes(status) ? status : "";
-    const p: Record<string, string> = { series: next };
-    if (keep) p.status = keep;
-    setParams(p);
-  }
-
-  const orders = useInfiniteQuery({
-    queryKey: ["staff-orders", series, status, search],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api.staffOrders(
-        { series, status: status || undefined, search: search || undefined },
-        { limit: PAGE_SIZE + 1, offset: pageParam as number },
-      ),
-    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
-  });
-  const rows = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
-  const active = SERIES.find((s) => s.key === series)!;
-
-  return (
-    <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>{active.label}</h1>
-          <p className="sub">
-            {active.hint} {rows.length} shown.
-          </p>
-        </div>
-        <div className="row">
-          <span className="search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
-            </svg>
-            <input
-              placeholder="Case number, patient, doctor, clinic"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search cases"
-            />
-          </span>
-          <select
-            value={status}
-            onChange={(e) => {
-              const next = e.target.value;
-              setParams(next ? { status: next } : {});
-            }}
-          >
-            <option value="">Every status</option>
-            {statusOptions.map((s) => (
-              <option key={s} value={s}>
-                {s.replace(/_/g, " ").toLowerCase()}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="series-tabs" role="tablist" aria-label="Case series">
-        {SERIES.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            role="tab"
-            aria-selected={series === s.key}
-            className={series === s.key ? "active" : ""}
-            onClick={() => switchSeries(s.key)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      {orders.isLoading ? (
-        <Loading what="cases" />
-      ) : rows.length === 0 ? (
-        <Empty>
-          {series === "enquiry"
-            ? "No enquiries match."
-            : series === "product"
-              ? "No product orders match. Retainers, splints and trays appear here once a clinic orders one."
-              : "No cases in the aligner series match."}
-        </Empty>
-      ) : (
-        <>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Patient</th>
-                <th>Doctor</th>
-                <th>Align category</th>
-                {series === "aligner" && <th>Orthodontist</th>}
-                <th>Status</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((order) => (
-                <tr
-                  key={order.id}
-                  className="clickable"
-                  onClick={() => navigate(`/staff/orders/${order.id}`)}
-                >
-                  <td className="mono">
-                    {order.order_number}
-                    {order.priority === "EXPRESS" && (
-                      <span className="pill pill-gold" style={{ marginLeft: 8 }}>
-                        Express
-                      </span>
-                    )}
-                  </td>
-                  <td>{order.patient_name}</td>
-                  <td>
-                    {order.doctor_name}
-                    {order.clinic_name && <div className="dim">{order.clinic_name}</div>}
-                  </td>
-                  <td>
-                    {order.kind === "PRODUCT" ? (
-                      // A product has no Align band — what it is *is* the answer.
-                      <span>{order.product_label}</span>
-                    ) : (
-                      <CategoryPill
-                        label={order.category_label}
-                        confirmed={order.category_confirmed}
-                      />
-                    )}
-                  </td>
-                  {series === "aligner" && (
-                    // Stops the click reaching the row, which would open the case.
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <AssigneeCell order={order} canAssign={canAssign} />
-                    </td>
-                  )}
-                  <td>
-                    <CaseProgress
-                      status={order.status}
-                      label={order.status_label}
-                      kind={order.kind}
-                      phaseDone={order.phases_done}
-                      phaseTotal={order.phases_total}
-                    />
-                  </td>
-                  <td className="dim">{formatDate(order.updated_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <LoadMore query={orders} noun="cases" shown={rows.length} />
-        </>
-      )}
-    </main>
-  );
-}
-
-/** Who is planning a case, changed from the board itself.
- *
- *  The admin picks from the list; an orthodontist sees the name and cannot
- *  move it, because handing cases around is what divides the board in the
- *  first place. The roster is fetched once for the whole table rather than per
- *  row.
- */
-function AssigneeCell({
-  order,
-  canAssign,
-}: {
-  order: OrderSummary;
-  canAssign: boolean;
-}) {
-  const queryClient = useQueryClient();
   const people = useQuery({
     queryKey: ["orthodontists"],
     queryFn: api.orthodontists,
@@ -294,39 +155,247 @@ function AssigneeCell({
     staleTime: 5 * 60 * 1000,
   });
 
-  const assign = useMutation({
-    mutationFn: (userId: string | null) => api.assignCase(order.id, userId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
-      void queryClient.invalidateQueries({ queryKey: ["queue"] });
-    },
+  /** The type and stage live in the address; a stage that only exists on the
+      other side is dropped on the way across rather than left to empty the
+      table. */
+  function setFilter(next: { series?: Series; status?: string }) {
+    const s = next.series ?? series;
+    const st = next.status ?? status;
+    const p: Record<string, string> = { series: s };
+    if (st && statusesFor(s).includes(st)) p.status = st;
+    setParams(p, { replace: true });
+  }
+
+  const orders = useInfiniteQuery({
+    queryKey: ["staff-orders", series, status, search, planner],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.staffOrders(
+        {
+          series: series === "all" ? undefined : series,
+          status: status || undefined,
+          search: search || undefined,
+          assignedTo: planner || undefined,
+        },
+        { limit: PAGE_SIZE + 1, offset: pageParam as number },
+      ),
+    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
   });
 
-  if (!canAssign) {
-    return order.assigned_to_name ? (
-      <span>{order.assigned_to_name}</span>
-    ) : (
-      <span className="dim">3D Align</span>
-    );
+  const all = useMemo(() => (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE)), [orders.data]);
+  const active = SERIES.find((s) => s.key === series)!;
+
+  const base = useMemo(() => (express ? all.filter((o) => o.priority === "EXPRESS") : all), [all, express]);
+  const counts = useMemo(
+    () => Object.fromEntries(CUTS.map((c) => [c.key, base.filter((o) => inCut(o, c.key)).length])) as Record<Cut, number>,
+    [base],
+  );
+
+  /* One table, so the order carries what sections would have said: what is on
+     the lab's desk floats up, then what waits on a clinic, and finished work
+     sinks. Within each, the longest waiting first — or the most recent. */
+  const shown = useMemo(() => {
+    const band = (o: OrderSummary) => (onLabDesk(o) ? 0 : isClosed(o) ? 2 : 1);
+    return base
+      .filter((o) => inCut(o, cut))
+      .sort((a, b) => {
+        const d = band(a) - band(b);
+        if (d !== 0) return d;
+        return oldestFirst ? a.updated_at.localeCompare(b.updated_at) : b.updated_at.localeCompare(a.updated_at);
+      });
+  }, [base, cut, oldestFirst]);
+
+  const filtered = cut !== "all" || express || Boolean(status) || Boolean(planner);
+  function clearFilters() {
+    setCut("all");
+    setExpress(false);
+    setPlanner("");
+    setFilter({ status: "" });
   }
 
   return (
-    <select
-      className="assignee-select"
-      value={order.assigned_to_id ?? ""}
-      disabled={assign.isPending}
-      onChange={(e) => assign.mutate(e.target.value || null)}
-      title={assign.error ? String(assign.error) : undefined}
-    >
-      <option value="">3D Align</option>
-      {(people.data ?? [])
-        .filter((p) => p.is_active || p.id === order.assigned_to_id)
-        .map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.full_name || p.email}
-            {p.is_active ? "" : " (inactive)"}
-          </option>
-        ))}
-    </select>
+    <main className="page page-wide">
+      <header className="masthead">
+        <div className="masthead-say">
+          <span className="masthead-eyebrow">3D Align lab</span>
+          <h1>Cases</h1>
+          <p className="masthead-sum">
+            {orders.isLoading ? (
+              "Loading…"
+            ) : (
+              <>
+                <b>
+                  {all.length}
+                  {orders.hasNextPage ? "+" : ""}
+                </b>{" "}
+                {active.noun}
+                {status && (
+                  <>
+                    {" "}
+                    at <b>{statusName(status)}</b>
+                  </>
+                )}
+                {counts.desk > 0 && (
+                  <>
+                    {" · "}
+                    <b className="lit">{counts.desk}</b> on our desk
+                  </>
+                )}
+                {counts.clinic > 0 && (
+                  <>
+                    {" · "}
+                    <b>{counts.clinic}</b> with clinics
+                  </>
+                )}
+              </>
+            )}
+          </p>
+        </div>
+
+        <div className="masthead-do">
+          <span className="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Case, patient, doctor or clinic"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search cases"
+            />
+          </span>
+        </div>
+      </header>
+
+      <section className="console" aria-label="Filters">
+        <div className="cut" role="tablist" aria-label="Show">
+          {CUTS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              role="tab"
+              aria-selected={cut === c.key}
+              className={cut === c.key ? "on" : ""}
+              onClick={() => setCut(c.key)}
+            >
+              {c.key === "desk" && <span className="cut-dot" aria-hidden="true" />}
+              {c.label}
+              <span className="cut-n">{orders.isLoading ? "…" : counts[c.key]}</span>
+            </button>
+          ))}
+        </div>
+
+        <span className="console-rule" aria-hidden="true" />
+
+        <label className="pick">
+          <span>Type</span>
+          <select value={series} onChange={(e) => setFilter({ series: e.target.value as Series })}>
+            {SERIES.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="pick">
+          <span>Stage</span>
+          <select value={status} onChange={(e) => setFilter({ status: e.target.value })}>
+            <option value="">Any stage</option>
+            {statusesFor(series).map((s) => (
+              <option key={s} value={s}>
+                {statusName(s)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {canAssign && (
+          <label className="pick">
+            <span>Planned by</span>
+            <select value={planner} onChange={(e) => setPlanner(e.target.value)}>
+              <option value="">Anyone</option>
+              <option value="unassigned">3D Align (unassigned)</option>
+              {(people.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name || p.email}
+                  {p.is_active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <button
+          type="button"
+          className={express ? "flag on" : "flag"}
+          aria-pressed={express}
+          onClick={() => setExpress((v) => !v)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+          </svg>
+          Express
+        </button>
+
+        {filtered && (
+          <button type="button" className="btn-link clear" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
+
+        <span className="tally-say">
+          {shown.length === all.length ? `${all.length} shown` : `${shown.length} of ${all.length}`}
+        </span>
+
+        <button type="button" className="sort" onClick={() => setOldestFirst((v) => !v)} title="Change the order of the list">
+          {oldestFirst ? "Longest waiting" : "Most recent"}
+          <span aria-hidden="true"> ⇅</span>
+        </button>
+      </section>
+
+      {orders.isLoading ? (
+        <Loading what="cases" />
+      ) : all.length === 0 ? (
+        <Empty>
+          {search ? (
+            <>No case matches “{search}”.</>
+          ) : status ? (
+            <>
+              Nothing at {statusName(status)}.{" "}
+              <button type="button" className="btn-link" onClick={() => setFilter({ status: "" })}>
+                Show every stage
+              </button>
+            </>
+          ) : series === "enquiry" ? (
+            "No enquiries."
+          ) : series === "product" ? (
+            "No product orders yet. Retainers, splints and trays appear here once a clinic orders one."
+          ) : series === "accessory" ? (
+            "No accessory orders yet."
+          ) : (
+            "No cases in the aligner series yet."
+          )}
+        </Empty>
+      ) : shown.length === 0 ? (
+        <Empty>
+          No cases match these filters.{" "}
+          <button type="button" className="btn-link" onClick={clearFilters}>
+            Clear them
+          </button>
+        </Empty>
+      ) : (
+        <div className="stack">
+          <LabCaseTable
+            orders={shown}
+            canAssign={canAssign}
+            planner={series === "all" || series === "aligner"}
+            onOpen={(id) => navigate(`/staff/orders/${id}`)}
+          />
+          <LoadMore query={orders} noun="cases" shown={all.length} />
+        </div>
+      )}
+    </main>
   );
 }

@@ -1167,7 +1167,13 @@ export const api = {
   // staff
   queue: () => get<Queue>("/staff/queue"),
   staffOrders: (
-    params: { status?: string; search?: string; series?: CaseSeries } = {},
+    params: {
+      status?: string;
+      search?: string;
+      series?: CaseSeries;
+      /** An orthodontist's id, or "unassigned" for cases still with the lab. */
+      assignedTo?: string;
+    } = {},
     page: Page = {},
   ) =>
     get<OrderSummary[]>(
@@ -1175,6 +1181,7 @@ export const api = {
         status: params.status ?? "",
         search: params.search ?? "",
         series: params.series ?? "",
+        assigned_to: params.assignedTo ?? "",
       })}`,
     ),
   staffOrder: (id: string) => get<OrderDetail>(`/staff/orders/${id}`),

@@ -1,13 +1,29 @@
+/* Scan visits across every technician.
+ *
+ * The week was a column per technician with the visits stacked in it, so
+ * seeing what Tuesday looked like meant reading every column, and changing a
+ * visit meant switching to a list of cards. It is a board now: technicians
+ * down the side, the days across, today lit, every visit a chip in its cell,
+ * and a chip opens a panel to reassign or cancel that visit. The list, the
+ * routes, handover requests and leave sit beside it as views of the same
+ * diary, in one strip that counts what is waiting on the lab.
+ */
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import RouteMap from "../../components/RouteMap";
-import RouteSheet from "../../components/RouteSheet";
+import { Fragment, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api, formatDay, formatTime, toISODate } from "../../api";
+import type { Booking, Technician } from "../../api";
 import AttentionQueue from "../../components/AttentionQueue";
+import Avatar from "../../components/Avatar";
+import Drawer from "../../components/Drawer";
 import LeaveQueue from "../../components/LeaveQueue";
-import type { Booking } from "../../api";
-import { Empty, ErrorText, Field, Loading } from "../../components/ui";
+import RouteMap from "../../components/RouteMap";
+import RouteSheet from "../../components/RouteSheet";
+import { ConfirmButton, Empty, ErrorText, Loading } from "../../components/ui";
+
+type View = "week" | "list" | "routes" | "requests" | "leave";
 
 const STATUS_TONE: Record<string, string> = {
   ASSIGNED: "pill pill-gold",
@@ -17,310 +33,20 @@ const STATUS_TONE: Record<string, string> = {
   NO_SHOW: "pill pill-danger",
 };
 
-export default function AdminBookings() {
-  const queryClient = useQueryClient();
-  const [view, setView] = useState<"week" | "list" | "routes" | "requests" | "leave">("week");
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
-  const [statusFilter, setStatusFilter] = useState("");
-  const pending = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
-  const leavePending = useQuery({ queryKey: ["leave-queue"], queryFn: () => api.leaveQueue(true) });
+const STATUS_NAME: Record<string, string> = {
+  ASSIGNED: "Assigned",
+  EN_ROUTE: "En route",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No-show",
+};
 
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 6);
-
-  const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
-  const bookings = useQuery({
-    queryKey: ["bookings", view, toISODate(weekStart), statusFilter],
-    queryFn: () =>
-      api.bookings(
-        view === "week"
-          ? { from: toISODate(weekStart), to: toISODate(weekEnd) }
-          : { status: statusFilter || undefined },
-      ),
-  });
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    void queryClient.invalidateQueries({ queryKey: ["technicians"] });
-  };
-
-  return (
-    <main className="page">
-      <div className="page-head">
-        <div>
-          <h1>Bookings</h1>
-          <p className="sub">Scan visits across every technician.</p>
-        </div>
-        <div className="row">
-          <button
-            type="button"
-            className={view === "week" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
-            onClick={() => setView("week")}
-          >
-            Week
-          </button>
-          <button
-            type="button"
-            className={view === "list" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
-            onClick={() => setView("list")}
-          >
-            List
-          </button>
-          <button
-            type="button"
-            className={view === "routes" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
-            onClick={() => setView("routes")}
-          >
-            Routes
-          </button>
-          <button
-            type="button"
-            className={view === "leave" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
-            onClick={() => setView("leave")}
-          >
-            Leave
-            {(leavePending.data?.length ?? 0) > 0 && (
-              <span className="bell-count" style={{ marginLeft: 6 }}>
-                {leavePending.data?.length}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            className={view === "requests" ? "btn-dark btn-sm" : "btn-ghost btn-sm"}
-            onClick={() => setView("requests")}
-          >
-            Requests
-            {(pending.data?.length ?? 0) > 0 && (
-              <span className="bell-count" style={{ marginLeft: 6 }}>
-                {pending.data?.length}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* A stranded visit is somebody expecting a technician who is not coming,
-          so it sits above whatever view is open rather than behind a tab. */}
-      <div style={{ marginBottom: 16 }}>
-        <AttentionQueue />
-      </div>
-
-      {view === "leave" ? (
-        <LeaveQueue />
-      ) : view === "requests" ? (
-        <RequestsView />
-      ) : view === "routes" ? (
-        <RoutesView />
-      ) : view === "week" ? (
-        <>
-          <div className="row-between" style={{ marginBottom: 14 }}>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => shift(-7)}>
-              ‹ Previous
-            </button>
-            <strong>
-              {weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} —{" "}
-              {weekEnd.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-            </strong>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => shift(7)}>
-              Next ›
-            </button>
-          </div>
-
-          {bookings.isLoading || technicians.isLoading ? (
-            <Loading what="bookings" />
-          ) : (
-            <div className="week">
-              {technicians.data?.map((tech) => {
-                const mine = (bookings.data ?? []).filter(
-                  (b) => b.technician_name === tech.full_name,
-                );
-                return (
-                  <div className="week-col" key={tech.id}>
-                    <h5>
-                      {tech.full_name}
-                      {!tech.is_active && " · inactive"}
-                    </h5>
-                    {mine.length === 0 ? (
-                      <p className="dim">Nothing this week.</p>
-                    ) : (
-                      mine.map((b) => (
-                        <div
-                          key={b.id}
-                          className={`week-slot${b.status === "CANCELLED" || b.status === "NO_SHOW" ? " cancelled" : b.status === "COMPLETED" ? " done" : ""}`}
-                        >
-                          <b>
-                            {formatDay(b.starts_at)} {formatTime(b.starts_at)}
-                          </b>
-                          {b.order.patient_name}
-                          <div className="dim">{b.order.clinic_name || b.order.doctor_name}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          <div className="row" style={{ marginBottom: 14 }}>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{ maxWidth: 220 }}
-            >
-              <option value="">Every status</option>
-              {Object.keys(STATUS_TONE).map((s) => (
-                <option key={s} value={s}>
-                  {s.replace(/_/g, " ").toLowerCase()}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {bookings.isLoading ? (
-            <Loading what="bookings" />
-          ) : bookings.data?.length === 0 ? (
-            <Empty>No bookings match.</Empty>
-          ) : (
-            <div className="stack">
-              {bookings.data?.map((booking) => (
-                <BookingRow
-                  key={booking.id}
-                  booking={booking}
-                  technicians={technicians.data ?? []}
-                  onDone={invalidate}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </main>
-  );
-
-  function shift(days: number) {
-    const next = new Date(weekStart);
-    next.setDate(next.getDate() + days);
-    setWeekStart(next);
-  }
-}
-
-function BookingRow({
-  booking,
-  technicians,
-  onDone,
-}: {
-  booking: Booking;
-  technicians: { id: string; full_name: string }[];
-  onDone: () => void;
-}) {
-  const [target, setTarget] = useState("");
-  const reassign = useMutation({
-    mutationFn: (force: boolean) => api.reassignBooking(booking.id, target, force),
-    onSuccess: onDone,
-  });
-  const cancel = useMutation({
-    mutationFn: () => api.cancelAppointment(booking.id, "Cancelled by the lab."),
-    onSuccess: onDone,
-  });
-
-  const live = booking.status === "ASSIGNED" || booking.status === "EN_ROUTE";
-  const conflict = reassign.error instanceof Error && reassign.error.message.includes("not free");
-
-  return (
-    <div className="card">
-      <div className="card-head">
-        <div>
-          <h3>
-            {formatDay(booking.starts_at)} · {formatTime(booking.starts_at)}
-          </h3>
-          <p className="dim">
-            {booking.order.order_number} · {booking.order.patient_name} ·{" "}
-            {booking.order.clinic_name || booking.order.doctor_name}
-          </p>
-        </div>
-        <span className={STATUS_TONE[booking.status]}>{booking.status_label}</span>
-      </div>
-
-      <dl className="kv">
-        <dt>Technician</dt>
-        <dd>{booking.technician_name}</dd>
-        <dt>Where</dt>
-        <dd>{booking.location || "—"}</dd>
-        <dt>Contact</dt>
-        <dd>
-          {booking.contact_name || "—"}
-          {booking.contact_phone ? ` · ${booking.contact_phone}` : ""}
-        </dd>
-        {booking.access_notes && (
-          <>
-            <dt>Access</dt>
-            <dd>{booking.access_notes}</dd>
-          </>
-        )}
-        <dt>Assigned</dt>
-        <dd className="dim">{booking.assignment_reason}</dd>
-        {booking.cancel_reason && (
-          <>
-            <dt>Cancelled</dt>
-            <dd>{booking.cancel_reason}</dd>
-          </>
-        )}
-        {booking.outcome_notes && (
-          <>
-            <dt>Outcome</dt>
-            <dd>{booking.outcome_notes}</dd>
-          </>
-        )}
-      </dl>
-
-      {live && (
-        <div className="stack-sm" style={{ marginTop: 14 }}>
-          <div className="row">
-            <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ maxWidth: 220 }}>
-              <option value="">Reassign to…</option>
-              {technicians
-                .filter((t) => t.full_name !== booking.technician_name)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.full_name}
-                  </option>
-                ))}
-            </select>
-            <button
-              type="button"
-              className="btn-ghost btn-sm"
-              disabled={!target || reassign.isPending}
-              onClick={() => reassign.mutate(false)}
-            >
-              Reassign
-            </button>
-            {conflict && (
-              <button
-                type="button"
-                className="btn-danger btn-sm"
-                onClick={() => reassign.mutate(true)}
-              >
-                Assign anyway
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn-link"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate()}
-            >
-              Cancel visit
-            </button>
-          </div>
-          <ErrorText error={reassign.error ?? cancel.error} />
-        </div>
-      )}
-    </div>
-  );
+/** The calendar day a moment falls on, where the lab is — not in UTC, which
+    would put a nine o'clock visit on the day before for half of India's
+    mornings. */
+function localDay(value: Date | string): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function startOfWeek(d: Date): Date {
@@ -331,10 +57,508 @@ function startOfWeek(d: Date): Date {
   return copy;
 }
 
+function weekLabel(start: Date): string {
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const from = start.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const to = end.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return `${from} – ${to}`;
+}
+
+const VIEWS: { key: View; label: string }[] = [
+  { key: "week", label: "Week" },
+  { key: "list", label: "List" },
+  { key: "routes", label: "Routes" },
+  { key: "requests", label: "Requests" },
+  { key: "leave", label: "Leave" },
+];
+
+export default function AdminBookings() {
+  const [view, setView] = useState<View>("week");
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [statusFilter, setStatusFilter] = useState("");
+  const [techFilter, setTechFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const requests = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
+  const leave = useQuery({ queryKey: ["leave-queue"], queryFn: () => api.leaveQueue(true) });
+  const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const week = useQuery({
+    queryKey: ["bookings", "week", toISODate(weekStart)],
+    queryFn: () => api.bookings({ from: toISODate(weekStart), to: toISODate(weekEnd) }),
+  });
+  const list = useQuery({
+    queryKey: ["bookings", "list", statusFilter, techFilter],
+    queryFn: () => api.bookings({ status: statusFilter || undefined, technician_id: techFilter || undefined }),
+    enabled: view === "list",
+  });
+
+  const weekRows = useMemo(() => week.data ?? [], [week.data]);
+  const live = weekRows.filter((b) => b.status !== "CANCELLED");
+  const thisWeek = startOfWeek(new Date()).getTime() === weekStart.getTime();
+  const todayCount = live.filter((b) => localDay(b.starts_at) === localDay(new Date())).length;
+  const nRequests = requests.data?.length ?? 0;
+  const nLeave = leave.data?.length ?? 0;
+
+  const q = search.trim().toLowerCase();
+  const listRows = useMemo(
+    () =>
+      (list.data ?? []).filter(
+        (b) =>
+          !q ||
+          [b.order.patient_name, b.order.order_number, b.order.clinic_name, b.order.doctor_name, b.location].some((v) =>
+            (v ?? "").toLowerCase().includes(q),
+          ),
+      ),
+    [list.data, q],
+  );
+
+  const opened = openId ? [...weekRows, ...(list.data ?? [])].find((b) => b.id === openId) ?? null : null;
+
+  function shift(days: number) {
+    const next = new Date(weekStart);
+    next.setDate(next.getDate() + days);
+    setWeekStart(next);
+  }
+
+  return (
+    <main className="page page-wide bk">
+      <header className="masthead">
+        <div className="masthead-say">
+          <span className="masthead-eyebrow">3D Align lab</span>
+          <h1>Bookings</h1>
+          <p className="masthead-sum">
+            <b>{week.isLoading ? "…" : live.length}</b> {live.length === 1 ? "visit" : "visits"}{" "}
+            {thisWeek ? "this week" : `in the week of ${weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+            {thisWeek && (
+              <>
+                {" · "}
+                <b>{todayCount}</b> today
+              </>
+            )}
+            {nRequests > 0 && (
+              <>
+                {" · "}
+                <b className="lit">{nRequests}</b> handover {nRequests === 1 ? "request" : "requests"}
+              </>
+            )}
+            {nLeave > 0 && (
+              <>
+                {" · "}
+                <b className="lit">{nLeave}</b> leave {nLeave === 1 ? "request" : "requests"}
+              </>
+            )}
+          </p>
+        </div>
+        <div className="masthead-do">
+          <Link to="/staff/technicians">
+            <button type="button" className="btn-ghost">
+              Technicians
+            </button>
+          </Link>
+        </div>
+      </header>
+
+      {/* A stranded visit is somebody expecting a technician who is not coming,
+          so it sits above whatever view is open rather than behind a tab. */}
+      <div className="bk-alert">
+        <AttentionQueue />
+      </div>
+
+      <section className="console" aria-label="View">
+        <div className="cut" role="tablist" aria-label="View">
+          {VIEWS.map((v) => {
+            const n = v.key === "requests" ? nRequests : v.key === "leave" ? nLeave : null;
+            return (
+              <button
+                key={v.key}
+                type="button"
+                role="tab"
+                aria-selected={view === v.key}
+                className={view === v.key ? "on" : ""}
+                onClick={() => setView(v.key)}
+              >
+                {n !== null && n > 0 && <span className="cut-dot" aria-hidden="true" />}
+                {v.label}
+                {n !== null && <span className="cut-n">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {view === "week" && (
+          <>
+            <span className="console-rule" aria-hidden="true" />
+            <div className="bk-weeknav">
+              <button type="button" className="sort" onClick={() => shift(-7)} aria-label="Previous week">
+                ‹
+              </button>
+              <button
+                type="button"
+                className="sort"
+                disabled={thisWeek}
+                onClick={() => setWeekStart(startOfWeek(new Date()))}
+              >
+                This week
+              </button>
+              <button type="button" className="sort" onClick={() => shift(7)} aria-label="Next week">
+                ›
+              </button>
+            </div>
+            <span className="tally-say">{weekLabel(weekStart)}</span>
+          </>
+        )}
+
+        {view === "list" && (
+          <>
+            <span className="console-rule" aria-hidden="true" />
+            <label className="pick">
+              <span>Status</span>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="">Any status</option>
+                {Object.entries(STATUS_NAME).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pick">
+              <span>Technician</span>
+              <select value={techFilter} onChange={(e) => setTechFilter(e.target.value)}>
+                <option value="">Every technician</option>
+                {(technicians.data ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="search bk-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+              </svg>
+              <input
+                placeholder="Patient, case or clinic"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search visits"
+              />
+            </span>
+            <span className="tally-say">
+              {listRows.length} {listRows.length === 1 ? "visit" : "visits"}
+            </span>
+          </>
+        )}
+      </section>
+
+      {view === "leave" ? (
+        <LeaveQueue />
+      ) : view === "requests" ? (
+        <RequestsView />
+      ) : view === "routes" ? (
+        <RoutesView />
+      ) : view === "week" ? (
+        week.isLoading || technicians.isLoading ? (
+          <Loading what="bookings" />
+        ) : (
+          <WeekBoard start={weekStart} bookings={weekRows} technicians={technicians.data ?? []} onOpen={setOpenId} />
+        )
+      ) : list.isLoading ? (
+        <Loading what="bookings" />
+      ) : listRows.length === 0 ? (
+        <Empty>No visits match.</Empty>
+      ) : (
+        <BookingTable rows={listRows} onOpen={setOpenId} />
+      )}
+
+      {opened && (
+        <BookingPanel booking={opened} technicians={technicians.data ?? []} onClose={() => setOpenId(null)} />
+      )}
+    </main>
+  );
+}
+
+/** The week as a board: who is where, on which day. */
+function WeekBoard({
+  start,
+  bookings,
+  technicians,
+  onOpen,
+}: {
+  start: Date;
+  bookings: Booking[];
+  technicians: Technician[];
+  onOpen: (id: string) => void;
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const today = localDay(new Date());
+  // Everyone active, and anyone inactive who still has a visit this week —
+  // a visit left on a closed account is exactly what the board must show.
+  const people = technicians.filter(
+    (t) => t.is_active || bookings.some((b) => b.technician_name === t.full_name),
+  );
+
+  if (people.length === 0) {
+    return (
+      <Empty>
+        No technicians yet. <Link to="/staff/technicians">Add one</Link> to start taking bookings.
+      </Empty>
+    );
+  }
+
+  return (
+    <div className="bk-board-wrap">
+      <div className="bk-board">
+        <div className="bk-corner">Technician</div>
+        {days.map((d) => {
+          const key = localDay(d);
+          const n = bookings.filter((b) => localDay(b.starts_at) === key && b.status !== "CANCELLED").length;
+          return (
+            <div key={key} className={`bk-day${key === today ? " today" : ""}`}>
+              <b>{d.toLocaleDateString("en-IN", { weekday: "short" })}</b>
+              <span>{d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+              <small>{n === 0 ? "No visits" : `${n} ${n === 1 ? "visit" : "visits"}`}</small>
+            </div>
+          );
+        })}
+
+        {people.map((t) => {
+          const mine = bookings.filter((b) => b.technician_name === t.full_name);
+          const live = mine.filter((b) => b.status !== "CANCELLED").length;
+          return (
+            <Fragment key={t.id}>
+              <div className="bk-tech">
+                <Avatar name={t.full_name} />
+                <span>
+                  <b>{t.full_name}</b>
+                  <small>{t.is_active ? `${live} this week · up to ${t.max_daily_jobs} a day` : "Inactive"}</small>
+                </span>
+              </div>
+              {days.map((d) => {
+                const key = localDay(d);
+                const cell = mine
+                  .filter((b) => localDay(b.starts_at) === key)
+                  .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+                return (
+                  <div key={key} className={`bk-cell${key === today ? " today" : ""}`}>
+                    {cell.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        className={`bk-chip ${b.status.toLowerCase()}${b.needs_attention ? " alert" : ""}`}
+                        onClick={() => onOpen(b.id)}
+                        title={`${formatTime(b.starts_at)} · ${b.order.patient_name} · ${b.status_label}`}
+                      >
+                        <b>{formatTime(b.starts_at)}</b>
+                        <span>{b.order.patient_name}</span>
+                        <small>{b.order.clinic_name || b.order.doctor_name}</small>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BookingTable({ rows, onOpen }: { rows: Booking[]; onOpen: (id: string) => void }) {
+  return (
+    <div className="case-table bk-table">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Patient</th>
+            <th>Clinic</th>
+            <th>Technician</th>
+            <th>Where</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((b) => {
+            const over = b.status === "CANCELLED" || b.status === "COMPLETED" || b.status === "NO_SHOW";
+            return (
+              <tr
+                key={b.id}
+                className={`clickable${b.needs_attention ? " wants" : ""}${over ? " done" : ""}`}
+                onClick={() => onOpen(b.id)}
+              >
+                <td className="col-when">
+                  {formatDay(b.starts_at)}
+                  <small>{formatTime(b.starts_at)}</small>
+                </td>
+                <td>
+                  <span className="cell-title">{b.order.patient_name}</span>
+                  <span className="pt-meta mono">{b.order.order_number}</span>
+                </td>
+                <td>{b.order.clinic_name || b.order.doctor_name}</td>
+                <td>{b.technician_name}</td>
+                <td className="bk-where" title={b.location}>
+                  {b.location || <span className="dim">—</span>}
+                </td>
+                <td>
+                  <span className={STATUS_TONE[b.status] ?? "pill"}>{b.status_label}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** One visit, opened: where and with whom, and — while it is still ahead — the
+    two things the lab can do about it. */
+function BookingPanel({
+  booking: b,
+  technicians,
+  onClose,
+}: {
+  booking: Booking;
+  technicians: Technician[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState("");
+  const done = () => {
+    void queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    void queryClient.invalidateQueries({ queryKey: ["technicians"] });
+  };
+  const reassign = useMutation({
+    mutationFn: (force: boolean) => api.reassignBooking(b.id, target, force),
+    onSuccess: () => {
+      setTarget("");
+      done();
+    },
+  });
+  const cancel = useMutation({
+    mutationFn: () => api.cancelAppointment(b.id, "Cancelled by the lab."),
+    onSuccess: done,
+  });
+
+  const live = b.status === "ASSIGNED" || b.status === "EN_ROUTE";
+  const conflict = reassign.error instanceof Error && reassign.error.message.includes("not free");
+
+  return (
+    <Drawer
+      eyebrow="Scan visit"
+      title={b.order.patient_name}
+      sub={`${formatDay(b.starts_at)} · ${formatTime(b.starts_at)} – ${formatTime(b.ends_at)}`}
+      onClose={onClose}
+      foot={
+        live ? (
+          <>
+            <div className="dw-actions start">
+              <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Reassign to">
+                <option value="">Reassign to…</option>
+                {technicians
+                  .filter((t) => t.is_active && t.full_name !== b.technician_name)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.full_name}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                className={conflict ? "btn-danger" : "btn-dark"}
+                disabled={!target || reassign.isPending}
+                onClick={() => reassign.mutate(conflict)}
+              >
+                {conflict ? "Assign anyway" : "Reassign"}
+              </button>
+              <ConfirmButton
+                label="Cancel visit"
+                confirmLabel="Cancel this visit"
+                className="btn-ghost"
+                disabled={cancel.isPending}
+                onConfirm={() => cancel.mutate()}
+              />
+            </div>
+            <ErrorText error={reassign.error ?? cancel.error} />
+          </>
+        ) : undefined
+      }
+    >
+      <section className="dw-section">
+        <h3>Status</h3>
+        <p className="dw-line">
+          <span className={STATUS_TONE[b.status] ?? "pill"}>{b.status_label}</span>
+          {b.assignment_reason && <span className="dim">{b.assignment_reason}</span>}
+        </p>
+        {b.needs_attention && <p className="dw-note bad">{b.attention_reason || "Nobody could cover this visit."}</p>}
+        {b.cancel_reason && <p className="dw-note">Cancelled: {b.cancel_reason}</p>}
+        {b.outcome_notes && <p className="dw-note">Outcome: {b.outcome_notes}</p>}
+      </section>
+
+      <section className="dw-section">
+        <h3>The visit</h3>
+        <dl className="dw-dl">
+          <div>
+            <dt>Case</dt>
+            <dd>
+              <Link to={`/staff/orders/${b.order.id}`} onClick={onClose} className="mono">
+                {b.order.order_number}
+              </Link>
+            </dd>
+          </div>
+          <div>
+            <dt>Clinic</dt>
+            <dd>{b.order.clinic_name || "—"}</dd>
+          </div>
+          <div>
+            <dt>Doctor</dt>
+            <dd>{b.order.doctor_name}</dd>
+          </div>
+          <div>
+            <dt>Technician</dt>
+            <dd>
+              {b.technician_name}
+              {b.technician_phone && <span className="dim"> · {b.technician_phone}</span>}
+            </dd>
+          </div>
+          <div className="wide">
+            <dt>Where</dt>
+            <dd>{b.location || "—"}</dd>
+          </div>
+          <div>
+            <dt>Contact</dt>
+            <dd>
+              {b.contact_name || "—"}
+              {b.contact_phone ? ` · ${b.contact_phone}` : ""}
+            </dd>
+          </div>
+          {b.access_notes && (
+            <div className="wide">
+              <dt>Access</dt>
+              <dd>{b.access_notes}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+    </Drawer>
+  );
+}
 
 /** One technician's day, re-costed against traffic and drawn on a map. */
 function RoutesView() {
-  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [day, setDay] = useState(() => localDay(new Date()));
   const [technicianId, setTechnicianId] = useState("");
 
   const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
@@ -348,8 +572,9 @@ function RoutesView() {
 
   return (
     <div className="stack">
-      <div className="card row" style={{ gap: 14 }}>
-        <Field label="Technician">
+      <section className="console" aria-label="Route">
+        <label className="pick">
+          <span>Technician</span>
           <select value={chosen} onChange={(e) => setTechnicianId(e.target.value)}>
             {technicians.data?.map((t) => (
               <option key={t.id} value={t.id}>
@@ -357,13 +582,15 @@ function RoutesView() {
               </option>
             ))}
           </select>
-        </Field>
-        <Field label="Day">
-          <input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
-        </Field>
-      </div>
+        </label>
+        <label className="pick">
+          <span>Day</span>
+          <input className="bk-date" type="date" value={day} onChange={(e) => setDay(e.target.value)} />
+        </label>
+      </section>
 
-      {route.isLoading && <Loading what="the route" />}
+      {!chosen && <Empty>No technicians yet.</Empty>}
+      {route.isLoading && chosen && <Loading what="the route" />}
       {route.data && (
         <div className="split">
           <div className="card">
@@ -377,7 +604,6 @@ function RoutesView() {
     </div>
   );
 }
-
 
 /** Handover requests from technicians.
 
@@ -420,22 +646,24 @@ function RequestsView() {
   }
 
   return (
-    <div className="stack">
+    <div className="bk-reqs">
       <ErrorText error={resolve.error} />
       {requests.data.map((r) => (
-        <div className="card stack-sm" key={r.id}>
-          <div className="row-between">
+        <article className="bk-req" key={r.id}>
+          <header className="bk-req-head">
+            <Avatar name={r.requested_by} />
             <div>
-              <b>{r.requested_by}</b>{" "}
-              <span className="dim">wants to hand over {formatDay(r.starts_at)}</span>{" "}
-              <b className="num">{formatTime(r.starts_at)}</b>
+              <b>{r.requested_by}</b>
+              <span>
+                wants to hand over {formatDay(r.starts_at)} at <b className="num">{formatTime(r.starts_at)}</b>
+              </span>
             </div>
             <span className="pill pill-warn">Awaiting the lab</span>
-          </div>
-          <div className="dim">
-            {r.order_reference} · {r.patient_name} · {r.clinic_name}
-          </div>
-          <p>“{r.reason}”</p>
+          </header>
+          <p className="bk-req-case">
+            <span className="mono">{r.order_reference}</span> · {r.patient_name} · {r.clinic_name}
+          </p>
+          <blockquote>“{r.reason}”</blockquote>
 
           <input
             placeholder="Note (optional)"
@@ -445,27 +673,24 @@ function RequestsView() {
 
           {conflict[r.id] && (
             <div className="banner banner-warn">
-              {conflict[r.id]} Assigning anyway will put them on a visit they cannot
-              reach on time.
+              {conflict[r.id]} Assigning anyway will put them on a visit they cannot reach on time.
             </div>
           )}
 
-          <div className="row">
+          <div className="bk-req-do">
             <button
               type="button"
               className="btn-primary"
               disabled={resolve.isPending}
-              onClick={() =>
-                resolve.mutate({ id: r.id, body: { action: "ANY", note: note[r.id] ?? "" } })
-              }
+              onClick={() => resolve.mutate({ id: r.id, body: { action: "ANY", note: note[r.id] ?? "" } })}
             >
               Give it to whoever can reach it
             </button>
 
             <select
               value={pick[r.id] ?? ""}
-              style={{ width: "auto" }}
               onChange={(e) => setPick({ ...pick, [r.id]: e.target.value })}
+              aria-label="Choose a technician"
             >
               <option value="">Choose a technician…</option>
               {technicians.data
@@ -497,16 +722,14 @@ function RequestsView() {
 
             <button
               type="button"
-              className="btn-danger"
+              className="btn-link"
               disabled={resolve.isPending}
-              onClick={() =>
-                resolve.mutate({ id: r.id, body: { action: "DECLINE", note: note[r.id] ?? "" } })
-              }
+              onClick={() => resolve.mutate({ id: r.id, body: { action: "DECLINE", note: note[r.id] ?? "" } })}
             >
               Decline
             </button>
           </div>
-        </div>
+        </article>
       ))}
     </div>
   );
