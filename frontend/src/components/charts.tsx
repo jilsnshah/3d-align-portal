@@ -203,8 +203,11 @@ export function ColumnChart({
           })}
           {data.map((point, index) => {
             // Every label on a 31-day month is a smear, so only every third
-            // day is written and the tooltip carries the rest.
-            const skip = data.length > 14 && index % 3 !== 0;
+            // day is written and the tooltip carries the rest — and on a narrow
+            // screen, only as many as fit, about one per 52 pixels.
+            const fit = Math.max(1, Math.floor(plotW / 52));
+            const every = Math.max(data.length > 14 ? 3 : 1, Math.ceil(data.length / fit));
+            const skip = index % every !== 0;
             return skip ? null : (
               <text
                 key={point.key}

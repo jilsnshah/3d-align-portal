@@ -27,33 +27,12 @@ import { api, formatDate, since } from "../../api";
 import type { OrderSummary, Patient } from "../../api";
 import StageTrack from "../../components/StageTrack";
 import { CategoryPill, Empty, ErrorText, Field, Loading, StatusPill } from "../../components/ui";
+import { everyCase, everyPatient } from "../../fetchAll";
 import { ASK_ONE } from "../../workflow";
 
-/** Read in pages this size until a short page says there are no more. */
-const CHUNK = 100;
 /** Rows drawn at once; more on request, so a large practice is not one
     thousand-row table on arrival. */
 const STEP = 50;
-
-async function everyPatient(): Promise<Patient[]> {
-  const out: Patient[] = [];
-  for (let offset = 0; offset < 5000; offset += CHUNK) {
-    const page = await api.patients({ limit: CHUNK, offset });
-    out.push(...page);
-    if (page.length < CHUNK) break;
-  }
-  return out;
-}
-
-async function everyCase(): Promise<OrderSummary[]> {
-  const out: OrderSummary[] = [];
-  for (let offset = 0; offset < 5000; offset += CHUNK) {
-    const page = await api.orders(false, { limit: CHUNK, offset });
-    out.push(...page);
-    if (page.length < CHUNK) break;
-  }
-  return out;
-}
 
 type State = "needs" | "active" | "done" | "new";
 

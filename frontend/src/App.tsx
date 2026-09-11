@@ -14,6 +14,7 @@ import DoctorOrderDetail from "./pages/doctor/OrderDetail";
 import Patients from "./pages/doctor/Patients";
 import DoctorPayments from "./pages/doctor/Payments";
 import Profile from "./pages/doctor/Profile";
+import Insights from "./pages/doctor/Insights";
 import StaffQueue from "./pages/staff/Queue";
 import StaffOrders from "./pages/staff/Orders";
 import StaffOrderDetail from "./pages/staff/OrderDetail";
@@ -98,7 +99,7 @@ export default function App() {
         <Route path="/catalogue" element={<Catalogue />} />
         <Route path="/patients" element={<Patients />} />
         <Route path="/payments" element={<DoctorPayments />} />
-        <Route path="/stats" element={<StatsPage />} />
+        <Route path="/stats" element={<Insights />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
