@@ -10,10 +10,10 @@
  * Now:
  *   the balance, set large, with the money split into due, being checked and
  *   paid, and who to pay;
- *   the open charges as one list, the ones that went wrong first;
+ *   every charge, open and settled, in one list with the case list's filters —
+ *   status, what it is for, month, search — and a file for the accountant;
  *   each charge opening into a panel that pays it — a UPI code to scan from
  *   the desk, or the UPI app on a phone, and then the screenshot;
- *   and the paid history by month, with a chart and a file for the accountant.
  *
  * Nothing here raises or settles a charge. The screenshot goes through the same
  * endpoint the case page uses, and the lab still confirms each one.
@@ -27,7 +27,7 @@ import { Link } from "react-router-dom";
 import qrcode from "qrcode-generator";
 
 import { api, formatDate } from "../../api";
-import type { LedgerEntry, StatsBucket } from "../../api";
+import type { LedgerEntry } from "../../api";
 import { useAuth } from "../../auth";
 import { ErrorText, Loading } from "../../components/ui";
 
@@ -175,26 +175,9 @@ function downloadCsv(rows: LedgerEntry[], fy: string) {
 export default function Payments() {
   const { me } = useAuth();
   const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger });
-  const year = new Date().getFullYear();
-  const stats = useQuery({
-    queryKey: ["stats", "payments", year],
-    // The month is ignored for a year view; the call asks for one all the same.
-    queryFn: () => api.practiceStats({ view: "year", year, month: new Date().getMonth() + 1 }),
-  });
   const [openId, setOpenId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
 
   const data = ledger.data;
-  const history = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const rows = [...(data?.history ?? [])].sort((a, b) =>
-      (b.verified_at ?? b.submitted_at ?? "").localeCompare(a.verified_at ?? a.submitted_at ?? ""),
-    );
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.order_reference, r.subject, r.label, r.reference].some((v) => (v ?? "").toLowerCase().includes(q)),
-    );
-  }, [data, search]);
 
   if (ledger.isLoading) return <Loading what="payments" />;
   if (!data) return null;
@@ -208,7 +191,7 @@ export default function Payments() {
   const owing = [...rejected, ...toPay];
   const owingCases = new Set(owing.map((p) => p.order_id)).size;
   const to = payee(data.pending.find((p) => p.upi_link)?.upi_link ?? "");
-  const opened = data.pending.find((p) => p.id === openId) ?? null;
+  const opened = [...data.pending, ...data.history].find((p) => p.id === openId) ?? null;
   const clinic = me?.doctor?.clinic_name;
 
   return (
@@ -310,250 +293,341 @@ export default function Payments() {
         </aside>
       </section>
 
-      {data.pending.length > 0 && (
-        <section className="py-section" aria-labelledby="py-open-title">
-          <header className="py-head">
-            <div>
-              <span className="py-kicker">Open charges</span>
-              <h2 id="py-open-title">To pay</h2>
-            </div>
-            <span className="py-head-sum">
-              <b>{data.pending.length}</b> open · <b>{money(due)}</b> due
-              {review > 0 && (
-                <>
-                  {" "}
-                  · <b>{money(review)}</b> being checked
-                </>
-              )}
-            </span>
-          </header>
-
-          {/* The ones that went wrong first: money has already left the
-              account against them and the charge is still open. */}
-          {rejected.length > 0 && (
-            <ChargeGroup
-              title="Receipt not accepted"
-              note="Send a new screenshot for these."
-              tone="bad"
-              rows={rejected}
-              onOpen={setOpenId}
-            />
-          )}
-          {toPay.length > 0 && <ChargeGroup title="Awaiting payment" rows={toPay} onOpen={setOpenId} />}
-          {checking.length > 0 && (
-            <ChargeGroup
-              title="Being checked by 3D Align"
-              note="Nothing else is needed from you."
-              tone="wait"
-              rows={checking}
-              onOpen={setOpenId}
-            />
-          )}
-        </section>
-      )}
-
-      <section className="py-section" aria-labelledby="py-paid-title">
-        <header className="py-head">
-          <div>
-            <span className="py-kicker">History</span>
-            <h2 id="py-paid-title">Paid</h2>
-          </div>
-          <div className="py-tools">
-            <span className="search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" strokeLinecap="round" />
-              </svg>
-              <input
-                placeholder="Case, patient or UPI reference"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                aria-label="Search payments"
-              />
-            </span>
-            <button
-              type="button"
-              className="py-csv"
-              disabled={history.length === 0}
-              onClick={() => downloadCsv(history, data.financial_year)}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
-              </svg>
-              Download CSV
-            </button>
-          </div>
-        </header>
-
-        <PaidChart series={stats.data?.series ?? []} year={year} paidTotal={Number(data.paid_total)} />
-        <History rows={history} searching={Boolean(search.trim())} />
-      </section>
+      {/* Every charge, open and settled, in the same list-and-filters shape as
+          the case and patient lists. */}
+      <ChargeList rows={[...data.pending, ...data.history]} fy={data.financial_year} onOpen={setOpenId} />
 
       {opened && <PaySheet entry={opened} onClose={() => setOpenId(null)} />}
     </main>
   );
 }
 
-function ChargeGroup({
-  title,
-  note,
-  tone,
+type Cut = "all" | "DUE" | "REJECTED" | "SUBMITTED" | "VERIFIED";
+
+const CUTS: { key: Cut; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "DUE", label: "To pay" },
+  { key: "REJECTED", label: "Not accepted" },
+  { key: "SUBMITTED", label: "Being checked" },
+  { key: "VERIFIED", label: "Paid" },
+];
+
+const KIND_NAME: Record<string, string> = {
+  TREATMENT_PLAN: "Treatment plan",
+  TRAINING_FIT: "Training aligner fit",
+  PRODUCTION_PHASE: "Production phases",
+  PRODUCT_ORDER: "Products and accessories",
+};
+
+const STATUS_PILL: Record<string, string> = {
+  DUE: "pill pill-warn",
+  REJECTED: "pill pill-danger",
+  SUBMITTED: "pill pill-gold",
+  VERIFIED: "pill pill-ok",
+};
+
+/** What wants the clinic first: a receipt that bounced, then what is owed. */
+const RANK: Record<string, number> = { REJECTED: 0, DUE: 1, SUBMITTED: 2, VERIFIED: 3 };
+
+const ACTION: Record<string, string> = {
+  DUE: "Pay",
+  REJECTED: "Send again",
+  SUBMITTED: "View",
+  VERIFIED: "Receipt",
+};
+
+/** When anything happened to a charge: confirmed, or at least sent. A charge
+    still waiting to be paid has neither. */
+function dateOf(e: LedgerEntry): string | null {
+  return e.verified_at ?? e.submitted_at ?? null;
+}
+
+function monthKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shortDay(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "2-digit" }) });
+}
+
+type Sort = "action" | "newest" | "amount";
+
+/** Every charge on the practice, open and settled, in one list — the same
+    filter strip and table as the case and patient lists, so money reads the
+    way the rest of the portal does. A row opens the charge: to pay it, to see
+    the receipt that is being checked, or to see what was paid. */
+function ChargeList({
   rows,
+  fy,
   onOpen,
 }: {
-  title: string;
-  note?: string;
-  tone?: "bad" | "wait";
   rows: LedgerEntry[];
+  fy: string;
   onOpen: (id: string) => void;
 }) {
-  return (
-    <div className={`py-group${tone ? ` ${tone}` : ""}`}>
-      <div className="py-group-head">
-        <b>{title}</b>
-        {note && <span>{note}</span>}
-      </div>
-      <ul className="py-rows">
-        {rows.map((e) => (
-          <li key={e.id} className={`py-row ${e.status.toLowerCase()}`}>
-            <button type="button" className="py-row-hit" onClick={() => onOpen(e.id)}>
-              <span className="py-kind">{KIND_ICON[e.kind]}</span>
-              <span className="py-what">
-                <b>{e.label}</b>
-                <span>
-                  <span className="mono">{e.order_reference}</span> · {e.subject} · {e.order_status_label}
-                </span>
-                {e.status === "REJECTED" && e.rejected_reason && <span className="py-why">{e.rejected_reason}</span>}
-              </span>
-              <span className="py-amt">
-                <b>{money(e.total)}</b>
-                {Number(e.shipping_amount) > 0 && (
-                  <small>
-                    {money(e.amount)} + {money(e.shipping_amount)} delivery
-                  </small>
-                )}
-              </span>
-              <span className="py-act">
-                {e.status === "SUBMITTED" ? "View receipt" : e.status === "REJECTED" ? "Send again" : "Pay"}
-                <Arrow />
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+  const [cut, setCut] = useState<Cut>("all");
+  const [kind, setKind] = useState("");
+  const [month, setMonth] = useState("");
+  const [sort, setSort] = useState<Sort>("action");
+  const [search, setSearch] = useState("");
 
-/** What the practice paid each month this year. A single series, so no legend
-    — the caption names it — and each bar says its month and amount on hover.
-    Months still to come are drawn flat. */
-function PaidChart({ series, year, paidTotal }: { series: StatsBucket[]; year: number; paidTotal: number }) {
-  if (series.length === 0) return null;
-  const values = series.map((b) => Number(b.paid));
-  const max = Math.max(...values);
-  const total = values.reduce((a, b) => a + b, 0);
-  const now = new Date().getMonth();
-  return (
-    <figure className="py-chart">
-      <figcaption>
-        <span>Paid by month, {year}</span>
-        <span className="py-chart-sum">
-          <b>{money(total)}</b> this year · {money(paidTotal)} in all
-        </span>
-      </figcaption>
-      <div className="py-bars">
-        {series.map((b, i) => {
-          const value = values[i];
-          const ahead = series.length === 12 && i > now;
-          const current = series.length === 12 && i === now;
-          return (
-            <div
-              key={b.key}
-              className={`py-bar${current ? " now" : ""}${ahead ? " ahead" : ""}`}
-              title={`${b.label}: ${money(value)}`}
-            >
-              <span className="py-bar-val">{value > 0 && (current || value === max) ? money(value) : ""}</span>
-              <span className="py-bar-col">
-                <i style={{ height: max > 0 ? `${value > 0 ? Math.max(6, (value / max) * 100) : 0}%` : "0%" }} />
-              </span>
-              <span className="py-bar-m">{b.label.slice(0, 3)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </figure>
-  );
-}
-
-/** Settled charges by the month they were confirmed, newest first. */
-function History({ rows, searching }: { rows: LedgerEntry[]; searching: boolean }) {
-  if (rows.length === 0) {
-    return <p className="py-empty">{searching ? "No payment matches that." : "No confirmed payments yet."}</p>;
-  }
-  const months: { key: string; label: string; rows: LedgerEntry[]; total: number }[] = [];
-  for (const r of rows) {
-    const when = new Date(r.verified_at ?? r.submitted_at ?? "");
-    const key = `${when.getFullYear()}-${when.getMonth()}`;
-    let m = months.find((x) => x.key === key);
-    if (!m) {
-      m = {
-        key,
-        label: when.toLocaleDateString("en-IN", { month: "long", year: "numeric" }),
-        rows: [],
-        total: 0,
-      };
-      months.push(m);
+  // Only what the practice actually has, so no menu offers an empty answer.
+  const kinds = useMemo(() => [...new Set(rows.map((r) => r.kind))], [rows]);
+  const months = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rows) {
+      const d = dateOf(r);
+      if (d) seen.set(monthKey(d), new Date(d).toLocaleDateString("en-IN", { month: "long", year: "numeric" }));
     }
-    m.rows.push(r);
-    m.total += Number(r.total);
+    return [...seen.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [rows]);
+
+  const q = search.trim().toLowerCase();
+  const base = useMemo(
+    () =>
+      rows.filter((r) => {
+        const d = dateOf(r);
+        return (
+          (!kind || r.kind === kind) &&
+          (!month || (d !== null && monthKey(d) === month)) &&
+          (!q || [r.order_reference, r.subject, r.label, r.reference].some((v) => (v ?? "").toLowerCase().includes(q)))
+        );
+      }),
+    [rows, kind, month, q],
+  );
+
+  const counts = useMemo(
+    () =>
+      Object.fromEntries(
+        CUTS.map((c) => [c.key, c.key === "all" ? base.length : base.filter((r) => r.status === c.key).length]),
+      ) as Record<Cut, number>,
+    [base],
+  );
+
+  const shown = useMemo(() => {
+    const out = base.filter((r) => cut === "all" || r.status === cut);
+    return out.sort((a, b) => {
+      if (sort === "amount") return Number(b.total) - Number(a.total);
+      if (sort === "action") {
+        const d = RANK[a.status] - RANK[b.status];
+        if (d !== 0) return d;
+      }
+      // A charge still open has no date yet; it is the newest thing there is.
+      return (dateOf(b) ?? "9999").localeCompare(dateOf(a) ?? "9999");
+    });
+  }, [base, cut, sort]);
+
+  const total = shown.reduce((n, r) => n + Number(r.total), 0);
+  const any = cut !== "all" || Boolean(kind) || Boolean(month);
+  function clear() {
+    setCut("all");
+    setKind("");
+    setMonth("");
   }
+
   return (
-    <div className="py-history">
-      {months.map((m) => (
-        <section key={m.key} className="py-month">
-          <header>
-            <b>{m.label}</b>
-            <span>
-              {m.rows.length} payment{m.rows.length === 1 ? "" : "s"} · {money(m.total)}
-            </span>
-          </header>
-          <ul>
-            {m.rows.map((r) => {
-              const when = new Date(r.verified_at ?? r.submitted_at ?? "");
-              return (
-                <li key={r.id}>
-                  <span className="py-h-date">
-                    <b>{when.getDate()}</b>
-                    <small>{when.toLocaleDateString("en-IN", { weekday: "short" })}</small>
-                  </span>
-                  <span className="py-kind sm">{KIND_ICON[r.kind]}</span>
-                  <span className="py-what">
-                    <b>{r.label}</b>
-                    <span>
-                      <Link to={`/orders/${r.order_id}`} className="mono">
-                        {r.order_reference}
-                      </Link>{" "}
-                      · {r.subject}
-                    </span>
-                  </span>
-                  <span className="py-h-ref">
-                    {r.proof_file_id ? (
-                      <a href={`/api/orders/${r.order_id}/files/${r.proof_file_id}`} target="_blank" rel="noreferrer">
-                        {r.reference || "Receipt"}
-                      </a>
-                    ) : (
-                      r.reference || "—"
-                    )}
-                  </span>
-                  <span className="py-h-amt">{money(r.total)}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
-    </div>
+    <section className="py-section" aria-labelledby="py-list-title">
+      <header className="py-head">
+        <div>
+          <span className="py-kicker">Every charge</span>
+          <h2 id="py-list-title">Charges and payments</h2>
+        </div>
+        <div className="py-tools">
+          <span className="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Case, patient or UPI reference"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search charges"
+            />
+          </span>
+          <label className="pick">
+            <span>Order</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+              <option value="action">Needs you first</option>
+              <option value="newest">Newest first</option>
+              <option value="amount">Largest first</option>
+            </select>
+          </label>
+          <button type="button" className="py-csv" disabled={shown.length === 0} onClick={() => downloadCsv(shown, fy)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
+            </svg>
+            Download CSV
+          </button>
+        </div>
+      </header>
+
+      <section className="console" aria-label="Filters">
+        <div className="cut" role="tablist" aria-label="Show">
+          {CUTS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              role="tab"
+              aria-selected={cut === c.key}
+              className={cut === c.key ? "on" : ""}
+              onClick={() => setCut(c.key)}
+            >
+              {c.key === "DUE" && <span className="cut-dot" aria-hidden="true" />}
+              {c.key === "REJECTED" && counts.REJECTED > 0 && <span className="cut-dot bad" aria-hidden="true" />}
+              {c.label}
+              <span className="cut-n">{counts[c.key]}</span>
+            </button>
+          ))}
+        </div>
+
+        <span className="console-rule" aria-hidden="true" />
+
+        {kinds.length > 1 && (
+          <label className="pick">
+            <span>For</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="">Any charge</option>
+              {kinds.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_NAME[k] ?? k}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {months.length > 0 && (
+          <label className="pick">
+            <span>Month</span>
+            <select value={month} onChange={(e) => setMonth(e.target.value)}>
+              <option value="">Any month</option>
+              {months.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {any && (
+          <button type="button" className="btn-link clear" onClick={clear}>
+            Clear filters
+          </button>
+        )}
+
+        <span className="tally-say">
+          {shown.length} {shown.length === 1 ? "charge" : "charges"} · {money(total)}
+        </span>
+
+      </section>
+
+      {rows.length === 0 ? (
+        <p className="py-empty">Nothing has been charged to this practice yet.</p>
+      ) : shown.length === 0 ? (
+        <p className="py-empty">
+          No charge matches these filters.{" "}
+          <button
+            type="button"
+            className="btn-link"
+            onClick={() => {
+              clear();
+              setSearch("");
+            }}
+          >
+            Show every charge
+          </button>
+        </p>
+      ) : (
+        <div className="case-table pyt">
+          <table>
+            <thead>
+              <tr>
+                <th className="col-charge">Charge</th>
+                <th>Case stage</th>
+                <th className="num">Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Receipt</th>
+                <th aria-label="Action" />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => {
+                const d = dateOf(r);
+                return (
+                  <tr
+                    key={r.id}
+                    className={`clickable${r.status === "DUE" ? " wants" : ""}${r.status === "REJECTED" ? " bad" : ""}`}
+                    onClick={() => onOpen(r.id)}
+                  >
+                    <td className="col-charge">
+                      <span className="pyt-charge">
+                        <span className={`py-kind xs ${r.status.toLowerCase()}`}>{KIND_ICON[r.kind]}</span>
+                        <span className="py-what">
+                          <b>{r.label}</b>
+                          <span>
+                            <span className="mono">{r.order_reference}</span> · {r.subject}
+                          </span>
+                          {r.status === "REJECTED" && r.rejected_reason && (
+                            <span className="py-why">{r.rejected_reason}</span>
+                          )}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="pyt-stage">{r.order_status_label}</td>
+                    <td className="pyt-amt">
+                      <b>{money(r.total)}</b>
+                      {Number(r.shipping_amount) > 0 && <small>incl. {money(r.shipping_amount)} delivery</small>}
+                    </td>
+                    <td>
+                      <span className={STATUS_PILL[r.status] ?? "pill"}>{r.status_label}</span>
+                    </td>
+                    <td className="col-when" title={d ? formatDate(d) : undefined}>
+                      {d ? shortDay(d) : "—"}
+                      {d && <small>{r.status === "VERIFIED" ? "confirmed" : "sent"}</small>}
+                    </td>
+                    <td className="pyt-ref">
+                      {r.proof_file_id ? (
+                        <a
+                          href={`/api/orders/${r.order_id}/files/${r.proof_file_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {r.reference || "Screenshot"}
+                        </a>
+                      ) : (
+                        r.reference || <span className="dim">—</span>
+                      )}
+                    </td>
+                    <td className="pyt-act">
+                      <span className={`pyt-btn ${r.status.toLowerCase()}`}>{ACTION[r.status] ?? "Open"}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="col-charge">
+                  {shown.length} {shown.length === 1 ? "charge" : "charges"} shown
+                </td>
+                <td />
+                <td className="pyt-amt">
+                  <b>{money(total)}</b>
+                </td>
+                <td colSpan={4} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -618,7 +692,7 @@ function PaySheet({ entry: e, onClose }: { entry: LedgerEntry; onClose: () => vo
       <aside className="py-sheet" role="dialog" aria-modal="true" aria-label={`Pay ${e.label}`}>
         <header className="py-sheet-head">
           <div>
-            <span className="py-eyebrow">{e.status === "SUBMITTED" ? "Receipt with 3D Align" : "Pay 3D Align"}</span>
+            <span className="py-eyebrow">{e.status === "VERIFIED" ? "Paid to 3D Align" : e.status === "SUBMITTED" ? "Receipt with 3D Align" : "Pay 3D Align"}</span>
             <b className="py-sheet-amt">{money(e.total)}</b>
             <p>
               {e.label} ·{" "}
@@ -648,6 +722,24 @@ function PaySheet({ entry: e, onClose }: { entry: LedgerEntry; onClose: () => vo
               <button type="button" className="py-send" onClick={onClose}>
                 Done
               </button>
+            </div>
+          ) : e.status === "VERIFIED" ? (
+            <div className="py-done">
+              <i aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 12.5 4.5 4.5L19 7.5" />
+                </svg>
+              </i>
+              <b>Paid</b>
+              <p>
+                Confirmed by 3D Align{e.verified_at ? ` on ${formatDate(e.verified_at)}` : ""}
+                {e.reference ? ` · UPI reference ${e.reference}` : ""}.
+              </p>
+              {e.proof_file_id && (
+                <a className="py-csv" href={`/api/orders/${e.order_id}/files/${e.proof_file_id}`} target="_blank" rel="noreferrer">
+                  View the screenshot
+                </a>
+              )}
             </div>
           ) : e.status === "SUBMITTED" ? (
             <div className="py-done wait">
