@@ -264,38 +264,27 @@ export default function DoctorOrders() {
           most often is on top and set as a segment; the rest are quiet menus
           under it, and what is currently on can be cleared in one place. */}
       <section className="console" aria-label="Filters">
-        <div className="console-top">
-          <div className="cut" role="tablist" aria-label="Show">
-            {ATTENTION.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                role="tab"
-                aria-selected={attention === a.key}
-                className={attention === a.key ? "on" : ""}
-                onClick={() => setAttention(a.key)}
-              >
-                {a.key === "needs" && (
-                  <span className="cut-dot" aria-hidden="true" />
-                )}
-                {a.label}
-                <span className="cut-n">{counts[a.key]}</span>
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            className="sort"
-            onClick={() => setOldestFirst((v) => !v)}
-            title="Change the order of the list"
-          >
-            {oldestFirst ? "Longest waiting" : "Most recent"}
-            <span aria-hidden="true"> ⇅</span>
-          </button>
+        <div className="cut" role="tablist" aria-label="Show">
+          {ATTENTION.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              role="tab"
+              aria-selected={attention === a.key}
+              className={attention === a.key ? "on" : ""}
+              onClick={() => setAttention(a.key)}
+            >
+              {a.key === "needs" && (
+                <span className="cut-dot" aria-hidden="true" />
+              )}
+              {a.label}
+              <span className="cut-n">{counts[a.key]}</span>
+            </button>
+          ))}
         </div>
 
-        <div className="console-row">
+        <span className="console-rule" aria-hidden="true" />
+
           <label className="pick">
             <span>Type</span>
             <select value={series} onChange={(e) => setSeries(e.target.value as CaseSeries)}>
@@ -343,7 +332,7 @@ export default function DoctorOrders() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
             </svg>
-            Express only
+            Express
           </button>
 
           {filtered && (
@@ -357,7 +346,16 @@ export default function DoctorOrders() {
               ? `${all.length} case${all.length === 1 ? "" : "s"}`
               : `${shown.length} of ${all.length}`}
           </span>
-        </div>
+
+          <button
+            type="button"
+            className="sort"
+            onClick={() => setOldestFirst((v) => !v)}
+            title="Change the order of the list"
+          >
+            {oldestFirst ? "Longest waiting" : "Most recent"}
+            <span aria-hidden="true"> ⇅</span>
+          </button>
       </section>
 
       {orders.isLoading ? (
@@ -407,9 +405,23 @@ export default function DoctorOrders() {
 }
 
 function archLabel(arch: OrderSummary["arch"]): string {
-  if (arch === "UPPER") return "Upper arch";
-  if (arch === "LOWER") return "Lower arch";
-  return "Both arches";
+  if (arch === "UPPER") return "Upper";
+  if (arch === "LOWER") return "Lower";
+  return "Both";
+}
+
+/** "11 Sep, 10:30" — the year only when it is not this one. The full stamp is
+    on the hover, so the column can be a third of the width. */
+function shortWhen(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const day = d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "2-digit" }),
+  });
+  const time = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day}, ${time}`;
 }
 
 type Money = { due: number; review: number; paid: number };
@@ -435,7 +447,9 @@ function TreatmentCell({ order }: { order: OrderSummary }) {
       {order.category_label ? (
         <CategoryPill label={order.category_label} confirmed={order.category_confirmed} />
       ) : (
-        <span className="dim">Sizing with the plan</span>
+        <span className="dim" title="The band is set when the treatment plan is made">
+          Not sized yet
+        </span>
       )}
       <span className="cell-arch">{archLabel(order.arch)}</span>
     </span>
@@ -459,10 +473,10 @@ function StageTrack({ order }: { order: OrderSummary }) {
       </span>
       <span className="track-say">
         {phased
-          ? `Phase ${order.phases_done + 1} of ${order.phases_total}`
+          ? `Phase ${order.phases_done + 1}/${order.phases_total}`
           : done
-            ? "Complete"
-            : `Stage ${Math.max(at + 1, 1)} of ${stages.length}`}
+            ? "Done"
+            : `${Math.max(at + 1, 1)}/${stages.length}`}
       </span>
     </span>
   );
@@ -551,8 +565,8 @@ function CaseTable({
                 {/* The date and time as asked for, with how long ago on the
                     hover — the figure that decides what to open first, kept
                     without spending a column on it. */}
-                <td className="col-when" title={`${since(order.updated_at)} ago`}>
-                  {formatDate(order.updated_at)}
+                <td className="col-when" title={`${formatDate(order.updated_at)} · ${since(order.updated_at)} ago`}>
+                  {shortWhen(order.updated_at)}
                 </td>
                 <td className="col-branch dim" title={order.branch_label}>
                   {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}
