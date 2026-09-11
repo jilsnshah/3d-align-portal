@@ -2294,21 +2294,23 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 /* --- the welcome ---
-   Set on the brand's own black and lit from behind the photograph, so it
-   stands apart from the ivory page instead of dissolving into it. */
+   The brand's black, with the day's one fact as the headline and the practice
+   drawn beside it as an arch: each stage of the aligner journey a point on the
+   curve, sized by how many cases stand there, lit gold where they wait on the
+   clinic. */
 .hm-hero {
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
   align-items: center;
   gap: var(--s-5);
-  padding: 40px 44px;
+  padding: 38px 40px 32px 48px;
   overflow: hidden;
   color: #f4efe2;
   background:
-    radial-gradient(48% 85% at 80% 46%, rgba(212, 175, 55, 0.28) 0%, rgba(212, 175, 55, 0) 62%),
-    radial-gradient(45% 70% at 0% 0%, rgba(212, 175, 55, 0.12) 0%, transparent 60%),
+    radial-gradient(46% 80% at 74% 78%, rgba(212, 175, 55, 0.2) 0%, rgba(212, 175, 55, 0) 64%),
+    radial-gradient(40% 60% at 0% 0%, rgba(212, 175, 55, 0.12) 0%, transparent 60%),
     linear-gradient(155deg, #1a1a1d 0%, #0b0b0c 58%, #131315 100%);
   border-radius: 28px;
   box-shadow: var(--shadow-lg);
@@ -2320,12 +2322,12 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   z-index: -1;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 28px 48px;
-  opacity: 0.13;
-  -webkit-mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 72%);
-  mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 72%);
+  opacity: 0.12;
+  -webkit-mask-image: radial-gradient(55% 90% at 0% 0%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(55% 90% at 0% 0%, #000 0%, transparent 72%);
 }
 
-.hm-say { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.hm-say { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 20px; }
 .hm-greet {
   font-size: var(--t-micro);
   font-weight: 700;
@@ -2334,42 +2336,42 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   color: var(--gold-bright);
 }
 .hm-say h1 {
+  max-width: 14ch;
   margin: 0;
   font-family: var(--display);
   font-weight: 400;
-  font-size: clamp(3rem, 6.2vw, 5.2rem);
-  line-height: 0.94;
-  letter-spacing: -0.026em;
+  font-size: clamp(2.5rem, 4.3vw, 3.8rem);
+  line-height: 1.02;
+  letter-spacing: -0.022em;
   color: var(--white);
+  text-wrap: balance;
 }
+.hm-say h1 em { font-style: italic; color: var(--gold-lift); }
 .hm-say h1::after { display: none; }
-.hm-sum { max-width: 44ch; margin: 0; font-size: 1.04rem; line-height: 1.6; color: rgba(244, 239, 226, 0.7); }
-.hm-sum b { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--white); }
-.hm-sum b.lit { color: var(--gold-lift); }
-.hm-do { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.hm-do { display: flex; flex-wrap: wrap; gap: 10px; }
 .hm-cta {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 15px 24px;
+  padding: 13px 20px;
   font: inherit;
-  font-size: var(--t-body);
+  font-size: var(--t-sm);
   font-weight: 650;
   color: var(--black);
   background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
   border: 0;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 12px 30px rgba(212, 175, 55, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: 0 12px 30px rgba(212, 175, 55, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
 .hm-cta svg { width: 16px; height: 16px; transition: transform var(--fast) var(--ease); }
 .hm-cta:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(212, 175, 55, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 .hm-cta:hover svg { transform: translateX(3px); }
 .hm-ghost {
-  padding: 14px 18px;
+  padding: 12px 16px;
   font: inherit;
-  font-size: var(--t-body);
+  font-size: var(--t-sm);
   font-weight: 600;
   color: #f4efe2;
   background: rgba(255, 255, 255, 0.04);
@@ -2380,113 +2382,195 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .hm-ghost:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--gold-bright); }
 
-/* The photograph in the shape of an arch — the one outline every doctor here
-   works inside all day — with the light behind it that the band is lit by. */
-.hm-art { position: relative; display: grid; place-items: center; min-height: 380px; }
-.hm-art::before {
-  content: "";
-  position: absolute;
-  width: min(540px, 115%);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(246, 230, 180, 0.2) 0%, rgba(212, 175, 55, 0.06) 45%, transparent 68%);
-}
-.hm-arcs {
-  position: absolute;
-  width: min(440px, 94%);
-  aspect-ratio: 1 / 1.06;
-  border: 1px solid rgba(212, 175, 55, 0.4);
-  border-radius: 999px 999px 40px 40px;
-  transform: translate(18px, -8px);
-}
-.hm-arcs::after {
-  content: "";
-  position: absolute;
-  inset: -18px;
-  border: 1px dashed rgba(212, 175, 55, 0.22);
-  border-radius: inherit;
-}
-.hm-arch {
-  position: relative;
-  width: min(390px, 84%);
-  aspect-ratio: 1 / 1.06;
-  margin: 0;
-  overflow: hidden;
-  border-radius: 999px 999px 32px 32px;
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(212, 175, 55, 0.25);
-}
-.hm-arch img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 42% 50%; }
-.hm-arch::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(212, 175, 55, 0.08) 0%, transparent 42%, rgba(11, 11, 12, 0.3) 100%);
-}
-.hm-box {
-  position: absolute;
-  right: 0;
-  bottom: 2%;
-  width: min(176px, 32%);
-  filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.6));
-  animation: spot-float 7s ease-in-out infinite;
-}
-
-/* the one thing waiting, on the photograph */
+/* the one thing waiting, under the headline */
 .hm-next {
-  position: absolute;
-  z-index: 2;
-  left: 0;
-  bottom: 5%;
-  width: min(290px, 66%);
-  padding: 16px 18px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  border-radius: 18px;
-  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-}
-.hm-next.wait { height: 128px; }
-.hm-next-eyebrow {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 2px 14px;
+  width: 100%;
+  max-width: 540px;
+  padding: 12px 12px 12px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 18px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.hm-next.wait { height: 68px; }
+.hm-next-icon {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border-radius: 13px;
+}
+.hm-next-icon svg { width: 20px; height: 20px; }
+.hm-next.clear .hm-next-icon { color: var(--white); background: var(--ok); }
+.hm-next-say { grid-column: 2; margin: 0; font-size: var(--t-body); font-weight: 620; line-height: 1.3; color: var(--white); }
+.hm-next-say small {
+  margin-right: 8px;
   font-size: var(--t-micro);
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--gold-deep);
+  color: var(--gold-lift);
 }
-.hm-next-eyebrow::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--gold);
-  animation: ws-pulse 2.4s var(--ease) infinite;
-}
-.hm-next.clear .hm-next-eyebrow { color: var(--ok); }
-.hm-next.clear .hm-next-eyebrow::before { background: var(--ok); animation: none; }
-.hm-next-say { margin: 8px 0 2px; font-size: 1.04rem; font-weight: 650; line-height: 1.3; color: var(--ink); }
-.hm-next-note { margin: 0; font-size: var(--t-xs); color: var(--ink-3); }
+.hm-next-note { grid-column: 2; margin: 0; font-size: var(--t-xs); color: rgba(244, 239, 226, 0.58); }
 .hm-next-go {
+  grid-column: 3;
+  grid-row: 1 / span 2;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 12px;
-  padding: 8px 14px;
+  padding: 9px 15px;
   font: inherit;
   font-size: var(--t-sm);
   font-weight: 650;
-  color: var(--white);
-  background: var(--black-2);
+  color: var(--black);
+  background: var(--white);
   border: 0;
   border-radius: 999px;
   cursor: pointer;
-  transition: transform var(--fast) var(--ease);
+  transition: transform var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.hm-next-go svg { width: 14px; height: 14px; color: var(--gold-lift); }
-.hm-next-go:hover { transform: translateY(-1px); }
+.hm-next-go svg { width: 14px; height: 14px; }
+.hm-next-go:hover { transform: translateY(-1px); background: var(--gold-lift); }
+
+/* the practice as an arch */
+.hm-pipe { position: relative; width: 100%; aspect-ratio: 680 / 400; margin: 18px 0 34px; }
+.hm-pipe svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.pipe-ticks line { stroke: rgba(212, 175, 55, 0.3); stroke-width: 1; }
+.pipe-track { fill: none; stroke: rgba(255, 255, 255, 0.07); stroke-width: 12; stroke-linecap: round; }
+.pipe-line {
+  fill: none;
+  stroke: url(#pipeInk);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pipe-draw 1.6s var(--ease-out) 0.15s forwards;
+}
+@keyframes pipe-draw { to { stroke-dashoffset: 0; } }
+
+.pipe-center {
+  position: absolute;
+  top: var(--top);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.pipe-center b {
+  font-size: clamp(2.8rem, 5vw, 4.4rem);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  color: var(--white);
+}
+.pipe-center span {
+  margin-top: 10px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.62);
+}
+.pipe-center small { margin-top: 4px; font-size: var(--t-xs); color: rgba(244, 239, 226, 0.42); }
+
+.pipe-node {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  animation: pipe-pop 0.6s var(--ease-out) forwards;
+  animation-delay: var(--d);
+}
+@keyframes pipe-pop {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+.pipe-node:focus-visible { outline: none; }
+.pipe-dot {
+  display: grid;
+  place-items: center;
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  font-size: 15px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--white);
+  background: radial-gradient(circle at 35% 30%, #2e2e33, #151518);
+  border: 1.5px solid rgba(212, 175, 55, 0.7);
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.pipe-node.none .pipe-dot { background: #242428; border-color: rgba(255, 255, 255, 0.16); box-shadow: none; }
+.pipe-node.you .pipe-dot {
+  color: var(--black);
+  background: radial-gradient(circle at 35% 30%, #f7e6a6, var(--gold-bright) 60%, var(--gold));
+  border-color: var(--gold-lift);
+  box-shadow: 0 0 0 6px rgba(212, 175, 55, 0.14), 0 10px 26px rgba(212, 175, 55, 0.35);
+}
+.pipe-node.you::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid rgba(212, 175, 55, 0.6);
+  border-radius: 999px;
+  animation: pipe-halo 2.4s var(--ease) infinite;
+}
+@keyframes pipe-halo {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+.pipe-node:hover .pipe-dot,
+.pipe-node:focus-visible .pipe-dot { transform: scale(1.08); border-color: var(--white); }
+.pipe-say { position: absolute; display: flex; flex-direction: column; gap: 2px; white-space: nowrap; pointer-events: none; }
+.pipe-say b { font-size: var(--t-sm); font-weight: 600; color: rgba(244, 239, 226, 0.86); transition: color var(--fast) var(--ease); }
+.pipe-node.none .pipe-say b { color: rgba(244, 239, 226, 0.4); }
+.pipe-say small { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold-lift); }
+.pipe-node:hover .pipe-say b { color: var(--white); }
+.pipe-node.above-l .pipe-say { bottom: calc(100% + 8px); right: 20%; align-items: flex-end; text-align: right; }
+.pipe-node.above-r .pipe-say { bottom: calc(100% + 8px); left: 20%; align-items: flex-start; text-align: left; }
+.pipe-node.below .pipe-say { top: calc(100% + 10px); left: 50%; align-items: center; text-align: center; transform: translateX(-50%); }
+.pipe-node.left .pipe-say { right: calc(100% + 12px); bottom: 55%; align-items: flex-end; text-align: right; }
+.pipe-node.right .pipe-say { left: calc(100% + 12px); bottom: 55%; align-items: flex-start; text-align: left; }
+/* Under the arch rather than in a corner: every corner is some label's at one
+   width or another, and the space below the curve is nobody's. */
+.hm-pipe-key {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 50%;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: rgba(244, 239, 226, 0.6);
+}
+.hm-pipe-key span { display: inline-flex; align-items: center; gap: 6px; }
+.hm-pipe-key span::before { content: ""; width: 9px; height: 9px; border-radius: 999px; }
+.k-you::before { background: var(--gold-bright); }
+.k-lab::before { background: #1c1c20; box-shadow: inset 0 0 0 1.5px rgba(212, 175, 55, 0.7); }
 
 /* --- the practice, in four figures --- */
 .hm-kpis {
@@ -2917,25 +3001,37 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 @media (max-width: 900px) {
   .hm-hero { grid-template-columns: 1fr; padding: 30px 26px; }
-  .hm-art { min-height: 360px; }
+  .hm-pipe { max-width: 640px; justify-self: center; }
   .hm-desk { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
   .hm { gap: var(--s-6); }
   .hm-hero { padding: 24px 18px 20px; border-radius: 22px; }
-  .hm-say h1 { font-size: 3rem; }
-  .hm-sum { font-size: var(--t-body); }
+  .hm-say h1 { font-size: 2.3rem; }
   .hm-do { width: 100%; }
   .hm-cta { flex: 1 1 100%; justify-content: center; }
   .hm-ghost { flex: 1; padding: 12px 14px; font-size: var(--t-sm); }
-  /* On a phone the waiting card sits under the photograph rather than over
-     it, so neither is hidden by the other. */
-  .hm-art { display: flex; flex-direction: column; align-items: center; min-height: 0; }
-  .hm-arcs { display: none; }
-  .hm-arch { width: 78%; }
-  .hm-box { top: 44%; bottom: auto; width: 30%; }
-  .hm-next { position: relative; left: auto; bottom: auto; width: 100%; margin-top: -36px; }
+  .hm-say { gap: 16px; }
+  .hm-next { grid-template-columns: 38px minmax(0, 1fr); }
+  .hm-next-icon { width: 38px; height: 38px; }
+  .hm-next-go { grid-column: 1 / -1; grid-row: auto; justify-self: start; margin-top: 8px; }
+  /* The arch keeps its proportions on a phone; its dots and labels shrink
+     and the side labels wrap, so nothing crosses the curve. */
+  .hm-pipe { margin: 44px 0 52px; }
+  .pipe-dot { width: calc(var(--r) * 1.45); height: calc(var(--r) * 1.45); font-size: 12px; }
+  .pipe-say b { font-size: 0.7rem; }
+  .pipe-say small { font-size: 0.55rem; }
+  .pipe-node.left .pipe-say,
+  .pipe-node.right .pipe-say,
+  .pipe-node.above-l .pipe-say,
+  .pipe-node.above-r .pipe-say { width: 68px; white-space: normal; }
+  .pipe-center b { font-size: 2.2rem; }
+  .pipe-center span { margin-top: 6px; font-size: 0.56rem; }
+  .pipe-center { top: 50%; }
+  .pipe-center span { max-width: 120px; }
+  .pipe-center small { display: none; }
+  .hm-pipe-key { top: calc(100% + 30px); }
   .hm-kpis { gap: var(--s-2); margin-top: 0; }
   .hm-kpi { min-height: 118px; padding: 14px; }
   .hm-kpi-value { font-size: 1.5rem; }
@@ -2958,8 +3054,11 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 
 @media (prefers-reduced-motion: reduce) {
   .hm > *,
-  .hm-box,
-  .hm-next-eyebrow::before { animation: none; }
+  .pipe-line,
+  .pipe-node,
+  .pipe-node.you::before { animation: none; }
+  .pipe-node { opacity: 1; }
+  .pipe-line { stroke-dashoffset: 0; }
   .hm-cta:hover,
   .hm-kpi:hover,
   .hm-asks button:hover,
