@@ -11,32 +11,44 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api, formatBytes, formatDate } from "../api";
-import type { BinnedFile, OrderDetail, OrderFile, RecordSet, SlotState } from "../api";
+import type { BinnedFile, FileCategory, OrderDetail, OrderFile, RecordSet, SlotState } from "../api";
 import SlotDiagram, { hasDiagram } from "./SlotDiagram";
 import { Banner, ConfirmButton, ErrorText, Loading } from "./ui";
 
 export default function FileExplorer({
   order,
   onChanged,
+  only,
+  embedded = false,
 }: {
   order: OrderDetail;
   onChanged: () => void;
+  /** Just these sets — the ones a particular step is asking for. */
+  only?: FileCategory[];
+  /** Placed inside the step that asks for the files, rather than as the
+      cabinet: no heading, no bin, only the sets that can still be changed,
+      and every one of them open. */
+  embedded?: boolean;
 }) {
   const [preview, setPreview] = useState<OrderFile | null>(null);
   const [showBin, setShowBin] = useState(false);
 
-  const sets = order.record_sets;
+  const sets = order.record_sets.filter(
+    (s) => !only || (only.includes(s.category as FileCategory) && (!embedded || s.editable)),
+  );
 
   return (
-    <div className="stack-sm">
-      <div className="row-between">
-        <h4>Records</h4>
-        {order.binned_count > 0 && (
-          <button type="button" className="btn-link" onClick={() => setShowBin((v) => !v)}>
-            {showBin ? "Hide" : "Show"} recycle bin ({order.binned_count})
-          </button>
-        )}
-      </div>
+    <div className={`stack-sm${embedded ? " files-embedded" : ""}`}>
+      {!embedded && (
+        <div className="row-between">
+          <h4>Records</h4>
+          {order.binned_count > 0 && (
+            <button type="button" className="btn-link" onClick={() => setShowBin((v) => !v)}>
+              {showBin ? "Hide" : "Show"} recycle bin ({order.binned_count})
+            </button>
+          )}
+        </div>
+      )}
 
       {showBin && <RecycleBin order={order} onChanged={onChanged} onPreview={setPreview} />}
 
@@ -48,6 +60,7 @@ export default function FileExplorer({
             key={set.category}
             order={order}
             set={set}
+            open={embedded ? true : undefined}
             onChanged={onChanged}
             onPreview={setPreview}
           />
@@ -64,11 +77,14 @@ export default function FileExplorer({
 function RecordSetCard({
   order,
   set,
+  open,
   onChanged,
   onPreview,
 }: {
   order: OrderDetail;
   set: RecordSet;
+  /** Forces the set open; left alone, an incomplete set opens by itself. */
+  open?: boolean;
   onChanged: () => void;
   onPreview: (f: OrderFile) => void;
 }) {
@@ -77,7 +93,7 @@ function RecordSetCard({
   const current = set.slots.filter((s) => s.file).length + set.extras.filter((f) => f.is_current).length;
 
   return (
-    <details className="fold" open={!set.complete || set.category === "INTRAORAL_SCAN"}>
+    <details className="fold" open={open ?? (!set.complete || set.category === "INTRAORAL_SCAN")}>
       <summary>
         <span className="fold-chevron">▶</span>
         <h4>{set.label}</h4>

@@ -1,14 +1,39 @@
+/* The case workspace.
+ *
+ * Where a doctor spends the working day, so it is built around the one
+ * question they open a case to answer: what happens next, and is it me?
+ *
+ * The page used to be every part of the case at once — an action panel, a
+ * records cabinet with eight folds open, a price table, payments in a column
+ * on the right and the history under them — and a doctor read all of it to
+ * find the one thing being asked. Now it is four layers, each quieter than the
+ * one above:
+ *
+ *   1. who and what — the patient, the treatment, the stage;
+ *   2. the journey — where the case has been, and when;
+ *   3. now — the single thing that happens next, with everything needed to do
+ *      it inside it (the upload slots it wants, the payment it waits on);
+ *   4. the file — overview, records, payments and history, one at a time.
+ *
+ * Beside "now" sits a column of four figures that answer the side questions
+ * — owed anything? records complete? how many aligners? where is the parcel?
+ * — and each opens the tab that holds the detail.
+ *
+ * Every action, rule and request is unchanged; only where things live is new.
+ */
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import AddressChooser from "../../components/AddressChooser";
-import PaymentPanel from "../../components/PaymentPanel";
+import PaymentPanel, { PaymentRow } from "../../components/PaymentPanel";
 import PhaseTracker from "../../components/PhaseTracker";
 import FitIssueThread from "../../components/FitIssueThread";
-import { api, formatDate, formatMoney } from "../../api";
-import type { OrderDetail as Order, Slot } from "../../api";
-import { completedCopy, stageIndex, waitingCopyFor } from "../../workflow";
+import { api, formatDate, formatMoney, formatRange, since } from "../../api";
+import type { FileCategory, OrderDetail as Order, Slot } from "../../api";
+import { completedCopy, stageIndex, stagesFor, waitingCopyFor } from "../../workflow";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
 import StageBrowser from "../../components/StageBrowser";
@@ -18,22 +43,61 @@ import {
   CaseSummary,
   SimulationCard,
   InvoiceCard,
-  OrderHeader,
   PlanCard,
-  ProgressRail,
   QuoteCard,
   ShipmentsCard,
   Timeline,
   Waiting,
-  sectionOrder,
 } from "../../components/OrderView";
-import type { SectionKey } from "../../components/OrderView";
-import { Banner, ConfirmButton, ErrorText, Field, Loading } from "../../components/ui";
+import {
+  Banner,
+  CategoryPill,
+  ConfirmButton,
+  ErrorText,
+  Field,
+  Loading,
+  StatusPill,
+} from "../../components/ui";
+
+type Tab = "overview" | "records" | "payments" | "history";
+
+const RECORD_CATEGORIES: FileCategory[] = ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"];
+
+function archLabel(arch: Order["arch"]): string {
+  return arch === "BOTH" ? "Both arches" : arch === "UPPER" ? "Upper arch" : "Lower arch";
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+/** What the clinic owes on this case, split the way it is acted on. */
+function moneyOf(order: Order) {
+  const due = order.payments.filter((p) => p.status !== "VERIFIED" && p.status !== "SUBMITTED");
+  const checking = order.payments.filter((p) => p.status === "SUBMITTED");
+  const paid = order.payments.filter((p) => p.status === "VERIFIED");
+  const sum = (list: typeof due) => list.reduce((n, p) => n + Number(p.total), 0);
+  return { due, checking, paid, dueTotal: sum(due), paidTotal: sum(paid) };
+}
+
+/** Views still missing from the sets the clinic can actually still change. A
+    locked set's gap is not something they can do anything about, so it is not
+    counted against them. */
+function missingViews(order: Order): number {
+  return order.record_sets
+    .filter((s) => s.editable)
+    .reduce((n, s) => {
+      if (s.slots.length > 0) return n + s.missing.length;
+      const onFile = s.extras.filter((f) => f.is_current).length;
+      return n + (s.required && onFile === 0 ? 1 : 0);
+    }, 0);
+}
 
 export default function DoctorOrderDetail() {
   const { orderId = "" } = useParams();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
   const order = useQuery({
     queryKey: ["order", orderId],
@@ -44,12 +108,13 @@ export default function DoctorOrderDetail() {
     void queryClient.invalidateQueries({ queryKey: ["order", orderId] });
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
     void queryClient.invalidateQueries({ queryKey: ["unread"] });
+    void queryClient.invalidateQueries({ queryKey: ["payment-ledger"] });
   };
 
-  /* Which stage is being looked at, or null for the case's own. Held
-     here because the rail sets it and the browser reads it, and because
-     every action panel below has to know to stand down while a past
-     stage is open. */
+  /* Which stage is being looked at, or null for the case's own. Held here
+     because the journey sets it and the "now" panel reads it: while a past
+     stage is open, nothing can be done — an action against a stage the case
+     has already left is not a thing that should be possible. */
   const [viewing, setViewing] = useState<number | null>(null);
 
   const confirmDelivery = useMutation({
@@ -70,107 +135,522 @@ export default function DoctorOrderDetail() {
   if (order.isError || !order.data) return <div className="page">Case not found.</div>;
 
   const data = order.data;
-  const sections = sectionOrder(data.status);
+  const stages = stagesFor(data.kind, data.intake);
+  const liveStage = stageIndex(data.kind, data.status, data.intake);
+  const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
 
-  const render = (key: SectionKey, isLive: boolean) => {
-    switch (key) {
-      case "quote":
-        return <QuoteCard key={key} order={data} open={isLive} />;
-      case "plan":
-        return <PlanCard key={key} order={data} open={isLive} />;
-      case "shipments":
-        return (
-          <ShipmentsCard
-            key={key}
+  const openIssue = data.phase_issues.find((i) => i.status === "OPEN") ?? null;
+  const money = moneyOf(data);
+  const missing = data.kind === "ACCESSORY" ? 0 : missingViews(data);
+
+  const needsYou =
+    (data.needs_doctor_action && data.status !== "CANCELLED") ||
+    Boolean(data.awaiting_phase_decision) ||
+    (openIssue !== null && openIssue.awaiting !== "LAB");
+  const tone = needsYou
+    ? "you"
+    : data.status === "COMPLETED"
+      ? "done"
+      : data.status === "CANCELLED"
+        ? "stop"
+        : "lab";
+  const eyebrow = {
+    you: "Your move",
+    lab: "With 3D Align",
+    done: "Complete",
+    stop: "Cancelled",
+  }[tone];
+  const upNext = liveStage >= 0 ? stages[liveStage + 1]?.label : undefined;
+
+  /* The plan fee is asked for inside the plan step itself, so it is not
+     mentioned a second time underneath it. */
+  const planFeeInStep = data.status === "PLAN_SHARED" && data.plan_locked;
+  const alsoDue = money.due.filter((p) => !(planFeeInStep && p.kind === "TREATMENT_PLAN"));
+
+  const tabs: { key: Tab; label: string; badge?: string; warn?: boolean }[] = [
+    { key: "overview", label: "Overview" },
+    ...(data.kind !== "ACCESSORY"
+      ? [{ key: "records" as Tab, label: "Records", badge: missing > 0 ? `${missing} missing` : undefined, warn: missing > 0 }]
+      : []),
+    ...(data.payments.length > 0
+      ? [
+          {
+            key: "payments" as Tab,
+            label: "Payments",
+            badge:
+              money.dueTotal > 0
+                ? `${formatMoney(money.dueTotal)} due`
+                : money.checking.length > 0
+                  ? "Being checked"
+                  : undefined,
+            warn: money.dueTotal > 0,
+          },
+        ]
+      : []),
+    { key: "history", label: "History", badge: data.events.length > 0 ? String(data.events.length) : undefined },
+  ];
+  // Looking back is reading, not working: only what is unaffected by it stays.
+  const allowed = lookingBack ? tabs.filter((t) => t.key === "payments" || t.key === "history") : tabs;
+  const tab: Tab = allowed.find((t) => t.key === params.get("tab"))?.key ?? allowed[0].key;
+
+  function showTab(key: Tab, scroll = false) {
+    const query = new URLSearchParams(params);
+    if (key === "overview") query.delete("tab");
+    else query.set("tab", key);
+    setParams(query, { replace: true });
+    if (scroll) {
+      requestAnimationFrame(() =>
+        document.getElementById("ws-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  }
+
+  const plan = [...data.plans].reverse().find((p) => p.status !== "SUPERSEDED") ?? null;
+  const quote = data.quotes[data.quotes.length - 1] ?? null;
+  const delivered = data.shipments.filter((s) => s.status === "DELIVERED").length;
+  const inTransit = data.shipments.length - delivered;
+  const activePhase = data.phase_plan.find((p) => p.status === "ACTIVE" || p.status === "ISSUE");
+
+  return (
+    <main className="page ws">
+      <header className="ws-head">
+        <Link to="/orders" className="ws-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5M11 6l-6 6 6 6" />
+          </svg>
+          Cases
+        </Link>
+        <div className="ws-id">
+          <div className="ws-title">
+            <span className="ws-ref mono">{data.order_number}</span>
+            <StatusPill status={data.status} label={data.status_label} />
+            {data.priority === "EXPRESS" && (
+              <span className="tag-express">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+                </svg>
+                Express
+              </span>
+            )}
+          </div>
+          <h1>{data.patient_name || "Practice stock"}</h1>
+          <p className="ws-meta">
+            {data.kind === "ALIGNER" ? (
+              <>
+                <span>
+                  {data.category_label ? (
+                    <CategoryPill label={data.category_label} confirmed={data.category_confirmed} />
+                  ) : (
+                    "Not sized yet"
+                  )}
+                </span>
+                <span>{archLabel(data.arch)}</span>
+                {data.assigned_to_name && <span>Planned by {data.assigned_to_name}</span>}
+              </>
+            ) : (
+              <span>{data.product_label || "Accessories"}</span>
+            )}
+            {data.branch_label && <span title={data.branch_label}>{data.branch_label.split(" · ")[0]}</span>}
+            {data.submitted_at && <span>Sent {formatDate(data.submitted_at)}</span>}
+          </p>
+        </div>
+        {data.has_simulation && !data.plan_locked && (
+          <div className="ws-head-do">
+            <Link to={`/viewer/${data.id}`} className="ws-sim">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
+                <path d="M4 7.5 12 12l8-4.5M12 12v9" />
+              </svg>
+              Open the 3D simulation
+            </Link>
+          </div>
+        )}
+      </header>
+
+      <Journey order={data} viewing={viewing} onView={setViewing} />
+
+      {/* Looking back on a case with no payments leaves nothing for the side
+          column, so the record takes the whole width rather than two thirds. */}
+      <div className={lookingBack && data.payments.length === 0 ? "ws-top solo" : "ws-top"}>
+        {lookingBack ? (
+          /* A stage the case has left, read back: what happened in it and what
+             was collected. Nothing here can be acted on. */
+          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
+        ) : (
+          <section className={`ws-now tone-${tone}`} aria-label="What happens next">
+            <header className="ws-now-head">
+              <span className="ws-now-eyebrow">{eyebrow}</span>
+              {tone === "lab" && upNext && <span className="ws-now-next">Then: {upNext}</span>}
+              {tone !== "you" && tone !== "stop" && (
+                <span className="ws-now-next">Updated {since(data.updated_at)} ago</span>
+              )}
+            </header>
+
+            {/* A batch that does not fit is the most urgent thing on the page,
+                so it is offered before anything else the clinic might do. */}
+            {openIssue ? (
+              <FitIssueThread order={data} issue={openIssue} onDone={invalidate} />
+            ) : (
+              data.status === "DISPATCHING" &&
+              data.phases_divided && <PhaseFitIssuePanel order={data} onDone={invalidate} />
+            )}
+            <DoctorActions order={data} onDone={invalidate} onCancelled={() => navigate("/orders")} />
+            {data.awaiting_phase_decision && (
+              <PhaseDecisionPanel
+                order={data}
+                shipmentId={data.awaiting_phase_decision}
+                pending={decidePhase.isPending}
+                error={decidePhase.error}
+                onDone={invalidate}
+                onDecide={(decision, notes, addressId) =>
+                  decidePhase.mutate({
+                    id: data.awaiting_phase_decision!,
+                    decision,
+                    notes,
+                    addressId,
+                  })
+                }
+              />
+            )}
+
+            {/* Money owed is a second thing to do, not the first — said once,
+                briefly, with the way to it. */}
+            {alsoDue.length > 0 && (
+              <div className="ws-now-also">
+                <span>
+                  <b>{alsoDue[0].label}</b> — {formatMoney(alsoDue[0].total)} to pay
+                  {alsoDue.length > 1 ? `, and ${alsoDue.length - 1} more` : ""}
+                </span>
+                <button type="button" className="btn-link" onClick={() => showTab("payments", true)}>
+                  Pay now →
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        <aside className="ws-glance" aria-label="At a glance">
+          {data.payments.length > 0 && (
+            <Glance
+              label="Payments"
+              tone={money.dueTotal > 0 ? "warn" : money.checking.length > 0 ? undefined : "ok"}
+              value={
+                money.dueTotal > 0
+                  ? `${formatMoney(money.dueTotal)} due`
+                  : money.checking.length > 0
+                    ? "Receipt with 3D Align"
+                    : "All paid"
+              }
+              sub={money.paidTotal > 0 ? `${formatMoney(money.paidTotal)} paid so far` : "Nothing paid yet"}
+              onClick={lookingBack || tab !== "payments" ? () => showTab("payments", true) : undefined}
+            />
+          )}
+          {data.kind !== "ACCESSORY" && !lookingBack && (
+            <Glance
+              label="Records"
+              tone={missing > 0 ? "warn" : "ok"}
+              value={missing > 0 ? `${missing} view${missing === 1 ? "" : "s"} missing` : "Complete"}
+              sub={`${data.files.filter((f) => f.is_current).length} files on the case`}
+              onClick={() => showTab("records", true)}
+            />
+          )}
+          {!lookingBack && (
+            <Glance
+              label={data.kind === "ALIGNER" ? "Treatment" : "Ordered"}
+              value={
+                data.kind !== "ALIGNER"
+                  ? data.product_label || `${data.accessories.length} item${data.accessories.length === 1 ? "" : "s"}`
+                  : plan && plan.total_aligners > 0
+                    ? `${plan.total_aligners} aligners`
+                    : quote
+                      ? formatRange(quote.total, quote.total_max, quote.currency)
+                      : "Not sized yet"
+              }
+              sub={
+                data.kind !== "ALIGNER"
+                  ? data.kind === "PRODUCT"
+                    ? data.quantity_upper || data.quantity_lower
+                      ? [
+                          data.quantity_upper ? `${data.quantity_upper} upper` : "",
+                          data.quantity_lower ? `${data.quantity_lower} lower` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      : `${data.quantity} set${data.quantity === 1 ? "" : "s"}, upper and lower`
+                    : "Practice stock"
+                  : plan && plan.total_aligners > 0
+                    ? `${plan.aligners_upper} upper · ${plan.aligners_lower} lower`
+                    : quote
+                      ? quote.is_final
+                        ? "Final price"
+                        : "Expected price, set by the plan"
+                      : "Sized when the plan is made"
+              }
+              onClick={() => showTab("overview", true)}
+            />
+          )}
+          {!lookingBack && (data.shipments.length > 0 || data.phases_divided) && (
+            <Glance
+              label="Delivery"
+              value={
+                activePhase && data.phases_divided
+                  ? `Phase ${activePhase.phase} of ${data.phase_plan.length}`
+                  : inTransit > 0
+                    ? `${inTransit} on the way`
+                    : `${delivered} delivered`
+              }
+              sub={
+                inTransit > 0
+                  ? data.shipments.find((s) => s.status !== "DELIVERED")?.tracking_number
+                    ? `Tracking ${data.shipments.find((s) => s.status !== "DELIVERED")!.tracking_number}`
+                    : "Tracking to follow"
+                  : `${data.shipments.length} parcel${data.shipments.length === 1 ? "" : "s"} so far`
+              }
+              onClick={() => showTab("overview", true)}
+            />
+          )}
+        </aside>
+      </div>
+
+      <nav className="ws-tabs" id="ws-tabs" role="tablist" aria-label="Case file">
+        {allowed.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={tab === t.key ? "on" : ""}
+            onClick={() => showTab(t.key)}
+          >
+            {t.label}
+            {t.badge && <small className={t.warn ? "warn" : ""}>{t.badge}</small>}
+          </button>
+        ))}
+      </nav>
+
+      <div className="ws-panel" role="tabpanel" key={tab}>
+        {tab === "overview" && (
+          <Overview
             order={data}
-            open={isLive}
-            // The clinic receives the parcel, so it confirms arrival.
             onMarkDelivered={
               data.status === "COMPLETED" || data.status === "CANCELLED"
                 ? undefined
                 : (id) => confirmDelivery.mutate(id)
             }
-            deliverLabel="Mark received"
           />
-        );
-      case "invoice":
-        return <InvoiceCard key={key} order={data} />;
-      case "files":
-        // Nothing is made and nothing is fitted, so an accessory order has no
-        // records, no scan and no photographs. The whole card goes, not just
-        // its contents — an empty card is furniture.
-        if (data.kind === "ACCESSORY") return null;
-        return (
-          <div className="card" key={key}>
+        )}
+        {tab === "records" && (
+          <div className="ws-records">
             <FileExplorer order={data} onChanged={invalidate} />
           </div>
-        );
-    }
-  };
-
-  const openIssue = data.phase_issues.find((i) => i.status === "OPEN") ?? null;
-  // The rail reports which stage is open; anything other than the case's own
-  // means the page is being read rather than worked.
-  const liveStage = stageIndex(data.kind, data.status, data.intake);
-  const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
-
-  return (
-    <main className="page">
-      <OrderHeader order={data} />
-      <ProgressRail order={data} viewing={viewing} onView={setViewing} />
-
-      <div className="split">
-        <div className="stack">
-          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
-
-          {/* While a past stage is open the page offers nothing to do. An
-              action taken against a stage the case has already left is not a
-              thing that should be possible, so the panels stand down rather
-              than being disabled one by one. */}
-          {lookingBack ? null : (
-            <>
-          {/* A batch that does not fit is the most urgent thing on the page, so
-              it is offered before anything else the clinic might do. */}
-          {openIssue ? (
-            <FitIssueThread order={data} issue={openIssue} onDone={invalidate} />
-          ) : (
-            data.status === "DISPATCHING" &&
-            data.phases_divided && <PhaseFitIssuePanel order={data} onDone={invalidate} />
-          )}
-          <DoctorActions order={data} onDone={invalidate} onCancelled={() => navigate("/orders")} />
-          {data.awaiting_phase_decision && (
-            <PhaseDecisionPanel
-              order={data}
-              shipmentId={data.awaiting_phase_decision}
-              pending={decidePhase.isPending}
-              error={decidePhase.error}
-              onDecide={(decision, notes, addressId) =>
-                decidePhase.mutate({
-                  id: data.awaiting_phase_decision!,
-                  decision,
-                  notes,
-                  addressId,
-                })
-              }
-            />
-          )}
-            </>
-          )}
-          {/* The cabinet uploads and bins files, so it is an editing
-              surface too. What that stage collected is shown above,
-              read-only, by the browser itself. */}
-          {lookingBack ? null : sections.map((key, index) => render(key, index === 0))}
-        </div>
-        <div className="stack">
-          <PhaseTracker order={data} />
-          <PaymentPanel order={data} />
-          <SimulationCard order={data} />
-          <CaseSummary order={data} />
-          <Timeline order={data} />
-        </div>
+        )}
+        {tab === "payments" && (
+          <div className="ws-pay">
+            <PaymentPanel order={data} />
+            <InvoiceCard order={data} />
+          </div>
+        )}
+        {tab === "history" && (
+          <div className="ws-hist">
+            <Timeline order={data} />
+          </div>
+        )}
       </div>
     </main>
   );
+}
+
+/** Where the case has been and where it is, each stage dated by when it was
+    entered. A stage already passed can be opened and read back. */
+function Journey({
+  order,
+  viewing,
+  onView,
+}: {
+  order: Order;
+  viewing: number | null;
+  onView: (index: number | null) => void;
+}) {
+  const strip = useRef<HTMLOListElement | null>(null);
+  const done = order.status === "COMPLETED";
+  const stages = stagesFor(order.kind, order.intake);
+  const current = stageIndex(order.kind, order.status, order.intake);
+  const stuck = order.status === "RECORDS_REQUESTED" || order.status === "FIT_ISSUE";
+
+  /* On a phone the strip scrolls, and it opened on the first stage — the one
+     that matters was off the right edge. Centre the current stage instead. */
+  useEffect(() => {
+    const ol = strip.current;
+    const li = ol?.querySelector<HTMLElement>("li.current");
+    if (!ol || !li || ol.scrollWidth <= ol.clientWidth) return;
+    ol.scrollLeft = li.offsetLeft - (ol.clientWidth - li.offsetWidth) / 2;
+  }, [current]);
+
+  if (order.status === "CANCELLED") return null;
+
+  return (
+    <ol className="ws-journey" aria-label="Case progress" ref={strip}>
+      {stages.map((stage, i) => {
+        const isCurrent = !done && i === current;
+        const isDone = done || (current > -1 && i < current);
+        const entered = order.events.find((e) => stage.statuses.includes(e.to_status))?.created_at;
+        const reachable = current < 0 || i <= current;
+        const isViewed = viewing === i;
+        const state = isCurrent ? (stuck ? "current blocked" : "current") : isDone ? "done" : "ahead";
+        const inner = (
+          <>
+            <span className="jr-dot" aria-hidden="true">
+              {isDone ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 12 5 5 9-10" />
+                </svg>
+              ) : (
+                i + 1
+              )}
+            </span>
+            <span className="jr-say">
+              <b>{stage.label}</b>
+              <small>
+                {isCurrent ? order.status_label : entered ? shortDate(entered) : isDone ? "Done" : " "}
+              </small>
+            </span>
+          </>
+        );
+        return (
+          <li key={stage.key} className={`${state}${isViewed ? " viewing" : ""}`}>
+            {reachable ? (
+              <button
+                type="button"
+                className="jr-step"
+                aria-current={isCurrent ? "step" : undefined}
+                title={isCurrent ? "Back to now" : `Look back at ${stage.label}`}
+                onClick={() => onView(isCurrent || isViewed ? null : i)}
+              >
+                {inner}
+              </button>
+            ) : (
+              <span className="jr-step">{inner}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** One side question, answered in a figure, and the way to its detail. */
+function Glance({
+  label,
+  value,
+  sub,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  tone?: "warn" | "ok";
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
+      <small>{label}</small>
+      <b>{value}</b>
+      {sub && <span>{sub}</span>}
+      {onClick && (
+        <svg className="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      )}
+    </>
+  );
+  return onClick ? (
+    <button type="button" className={`ws-tile${tone ? ` ${tone}` : ""}`} onClick={onClick}>
+      {body}
+    </button>
+  ) : (
+    <div className={`ws-tile${tone ? ` ${tone}` : ""}`}>{body}</div>
+  );
+}
+
+/** The case at rest: what is being made and for how much on the left, the
+    clinical facts on the right. */
+function Overview({
+  order,
+  onMarkDelivered,
+}: {
+  order: Order;
+  onMarkDelivered?: (id: string) => void;
+}) {
+  const nothingYet =
+    !order.has_simulation &&
+    order.shipments.length === 0 &&
+    order.plans.length === 0 &&
+    order.quotes.length === 0 &&
+    order.accessories.length === 0 &&
+    !(order.phases_divided && order.phase_plan.length > 0);
+
+  return (
+    <div className="ws-overview">
+      <div className="ws-col">
+        {nothingYet && (
+          <p className="ws-empty">
+            The price, the treatment plan and the deliveries will appear here as the case moves.
+          </p>
+        )}
+        <SimulationCard order={order} />
+        <PhaseTracker order={order} />
+        <ShipmentsCard
+          order={order}
+          open
+          // The clinic receives the parcel, so it confirms arrival.
+          onMarkDelivered={onMarkDelivered}
+          deliverLabel="Mark received"
+        />
+        <PlanCard order={order} open />
+        <QuoteCard order={order} open={order.plans.length === 0} />
+        {order.accessories.length > 0 && (
+          <section className="card">
+            <h4 style={{ marginBottom: 10 }}>Items</h4>
+            <ul className="ws-items">
+              {order.accessories.map((line) => (
+                <li key={line.accessory_id}>
+                  <span>
+                    {line.name}
+                    {line.quantity > 1 && <span className="dim"> × {line.quantity}</span>}
+                  </span>
+                  <span className="num">{formatMoney(line.line_total)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+      <div className="ws-col">
+        <CaseSummary order={order} />
+      </div>
+    </div>
+  );
+}
+
+/** The upload slots a step is asking for, placed inside that step. Falls back
+    to a plain uploader where the case has no editable set for those files. */
+function Uploads({
+  order,
+  categories,
+  onDone,
+  fallback,
+}: {
+  order: Order;
+  categories: FileCategory[];
+  onDone: () => void;
+  fallback?: ReactNode;
+}) {
+  const editable = order.record_sets.some(
+    (s) => categories.includes(s.category as FileCategory) && s.editable,
+  );
+  if (!editable) return <>{fallback ?? null}</>;
+  return <FileExplorer order={order} onChanged={onDone} only={categories} embedded />;
 }
 
 function PhaseDecisionPanel({
@@ -179,12 +659,14 @@ function PhaseDecisionPanel({
   pending,
   error,
   onDecide,
+  onDone,
 }: {
   order: Order;
   shipmentId: string;
   pending: boolean;
   error: unknown;
   onDecide: (decision: "CONTINUE" | "REPEAT", notes: string, addressId: string | null) => void;
+  onDone: () => void;
 }) {
   const [deliverTo, setDeliverTo] = useState<string | null>(order.shipping_address?.id ?? null);
   const phase = order.shipments.find((s) => s.id === shipmentId);
@@ -211,19 +693,24 @@ function PhaseDecisionPanel({
       {!isFinal && (
         <>
           {/* The lab needs to see how the teeth actually moved before it makes
-              the next batch, so the photographs come before the handover. */}
+              the next batch, so the photographs come before the handover —
+              and they are taken here, not in a section further down. */}
           <Banner tone={ready ? "ok" : "warn"}>
             {ready ? (
               <span>All six progress photographs are in — the lab can review this phase.</span>
             ) : (
               <span>
-                Send progress photographs before the next phase: upper, lower and frontal,
-                each with the aligners in and out. Add them in the{" "}
-                <b>Progress photographs</b> section below. Still needed:{" "}
-                {order.progress_missing.join(", ")}.
+                Add the progress photographs: upper, lower and frontal, each with the aligners
+                in and out. Still needed: {order.progress_missing.join(", ")}.
               </span>
             )}
           </Banner>
+          <Uploads
+            order={order}
+            categories={["PROGRESS_PHOTO"]}
+            onDone={onDone}
+            fallback={<p className="dim">Add them under Records.</p>}
+          />
           <AddressChooser
             value={deliverTo}
             onChange={setDeliverTo}
@@ -277,6 +764,7 @@ function DoctorActions({
   const [courierTracking, setCourierTracking] = useState(order.scan_courier_tracking);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [accessNotes, setAccessNotes] = useState("");
+  const [changing, setChanging] = useState(false);
 
   const submit = useMutation({ mutationFn: () => api.submitOrder(order.id), onSuccess: onDone });
   const resubmit = useMutation({
@@ -353,7 +841,7 @@ function DoctorActions({
       return (
         <ActionPanel
           title="Finish and submit"
-          why="This case has not reached the lab yet."
+          why="This case has not reached the lab yet. Add what is missing, then send it."
         >
           {order.submit_blockers.length > 0 && (
             <Banner tone="warn">
@@ -367,7 +855,12 @@ function DoctorActions({
               </div>
             </Banner>
           )}
-          <p className="dim">Upload each view from the Records section below.</p>
+          <Uploads
+            order={order}
+            categories={order.intake === "SCAN_DIRECT" ? [...RECORD_CATEGORIES, "INTRAORAL_SCAN"] : RECORD_CATEGORIES}
+            onDone={onDone}
+            fallback={<p className="dim">Upload each view under Records.</p>}
+          />
           <ErrorText error={submit.error} />
           <div className="row">
             <button
@@ -390,20 +883,29 @@ function DoctorActions({
     case "RECORDS_REQUESTED":
       return (
         <ActionPanel title="More records needed" why={order.records_request_note}>
-          <FileUploader
-            orderId={order.id}
-            categories={["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"]}
-            onUploaded={onDone}
+          <Uploads
+            order={order}
+            categories={RECORD_CATEGORIES}
+            onDone={onDone}
+            fallback={
+              <FileUploader
+                orderId={order.id}
+                categories={RECORD_CATEGORIES}
+                onUploaded={onDone}
+              />
+            }
           />
           <ErrorText error={resubmit.error} />
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={resubmit.isPending}
-            onClick={() => resubmit.mutate()}
-          >
-            Send back to the lab
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={resubmit.isPending}
+              onClick={() => resubmit.mutate()}
+            >
+              Send back to the lab
+            </button>
+          </div>
         </ActionPanel>
       );
 
@@ -414,9 +916,7 @@ function DoctorActions({
           title="Quote ready"
           why="Production starts once you accept. Show the total to your patient first if you need to."
         >
-          <p style={{ fontSize: "1.35rem", fontWeight: 680 }} className="num">
-            {formatMoney(quote.total, quote.currency)}
-          </p>
+          <p className="ws-figure num">{formatRange(quote.total, quote.total_max, quote.currency)}</p>
           {/* A discount the clinic is not told about is a discount they cannot
               pass on to the patient, so it is named rather than folded in. */}
           {Number(quote.discount) > 0 && (
@@ -426,17 +926,20 @@ function DoctorActions({
             </p>
           )}
           <ErrorText error={acceptQuote.error} />
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={acceptQuote.isPending}
-            onClick={() => acceptQuote.mutate()}
-          >
-            {acceptQuote.isPending ? "Accepting…" : "Accept quote"}
-          </button>
-          <p className="dim">
-            To discuss the price, contact the lab and they will issue a revised quote.
-          </p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={acceptQuote.isPending}
+              onClick={() => acceptQuote.mutate()}
+            >
+              {acceptQuote.isPending ? "Accepting…" : "Accept quote"}
+            </button>
+            <span className="dim">
+              The breakdown is under Overview. To discuss the price, contact the lab for a
+              revised quote.
+            </span>
+          </div>
         </ActionPanel>
       );
     }
@@ -445,7 +948,7 @@ function DoctorActions({
       return (
         <ActionPanel
           title="Send the intraoral scan"
-          why="Choose how the scan reaches the lab. Treatment planning starts once it arrives."
+          why="Choose how the scan reaches the lab. Work starts once it arrives."
         >
           {order.records_request_note && (
             <Banner tone="warn">{order.records_request_note}</Banner>
@@ -479,13 +982,14 @@ function DoctorActions({
           )}
 
           {scanSources.data && scanSources.data.length > 0 && (
-            <div className="card stack-sm">
-              <h4 style={{ margin: 0 }}>Use a scan you have already sent</h4>
-              <p className="muted" style={{ margin: 0 }}>
-                We still hold this patient&rsquo;s arches from an earlier case. Reusing them
-                saves taking the impression again — 3D Align will check the scan is still
-                current before working from it.
-              </p>
+            <div className="ws-reuse">
+              <div>
+                <b>Use a scan you have already sent</b>
+                <p className="dim">
+                  We still hold this patient&rsquo;s arches from an earlier case. 3D Align will
+                  check the scan is still current before working from it.
+                </p>
+              </div>
               <ErrorText error={reuseScan.error} />
               {scanSources.data.map((source) => (
                 <div key={source.order_id} className="row-between">
@@ -508,20 +1012,43 @@ function DoctorActions({
             </div>
           )}
 
-          <Field label="How will you send it?">
-            <select value={scanRoute} onChange={(e) => setScanRoute(e.target.value as typeof scanRoute)}>
-              <option value="UPLOAD">Upload an STL from my scanner</option>
-              <option value="APPOINTMENT">Book a scan appointment</option>
-              <option value="COURIER">Courier a PVS impression</option>
-            </select>
-          </Field>
+          {/* Three ways, set side by side as a choice rather than hidden in a
+              menu — the one that fits the clinic's day is obvious at a glance. */}
+          <div className="ws-routes" role="radiogroup" aria-label="How will you send it?">
+            {(
+              [
+                ["UPLOAD", "Upload from my scanner", "STL files, straight into the slots"],
+                ["APPOINTMENT", "Book a scan visit", "A technician comes to the clinic"],
+                ["COURIER", "Courier an impression", "PVS impression, with tracking"],
+              ] as const
+            ).map(([value, title, sub]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={scanRoute === value}
+                className={scanRoute === value ? "on" : ""}
+                onClick={() => setScanRoute(value)}
+              >
+                <b>{title}</b>
+                <span>{sub}</span>
+              </button>
+            ))}
+          </div>
 
           {scanRoute === "UPLOAD" && (
-            <FileUploader
-              orderId={order.id}
+            <Uploads
+              order={order}
               categories={["INTRAORAL_SCAN"]}
-              onUploaded={onDone}
-              hint="STL files only."
+              onDone={onDone}
+              fallback={
+                <FileUploader
+                  orderId={order.id}
+                  categories={["INTRAORAL_SCAN"]}
+                  onUploaded={onDone}
+                  hint="STL files only."
+                />
+              }
             />
           )}
 
@@ -547,46 +1074,48 @@ function DoctorActions({
                     />
                   </Field>
                   <ErrorText error={book.error} />
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={book.isPending}
-                    onClick={() => book.mutate()}
-                  >
-                    {book.isPending
-                      ? "Booking…"
-                      : `Book ${new Date(slot.starts_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
-                  </button>
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={book.isPending}
+                      onClick={() => book.mutate()}
+                    >
+                      {book.isPending
+                        ? "Booking…"
+                        : `Book ${new Date(slot.starts_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                    </button>
+                  </div>
                 </>
               )}
             </div>
           )}
 
           {scanRoute === "COURIER" && (
-            <Field label="Your courier tracking number">
-              <input value={courierTracking} onChange={(e) => setCourierTracking(e.target.value)} />
-            </Field>
-          )}
-
-          <ErrorText error={saveScanRoute.error} />
-          {scanRoute === "COURIER" && (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={saveScanRoute.isPending || !courierTracking.trim()}
-              onClick={() => saveScanRoute.mutate()}
-            >
-              {saveScanRoute.isPending ? "Saving…" : "Save tracking number"}
-            </button>
+            <>
+              <Field label="Your courier tracking number">
+                <input value={courierTracking} onChange={(e) => setCourierTracking(e.target.value)} />
+              </Field>
+              <ErrorText error={saveScanRoute.error} />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={saveScanRoute.isPending || !courierTracking.trim()}
+                  onClick={() => saveScanRoute.mutate()}
+                >
+                  {saveScanRoute.isPending ? "Saving…" : "Save tracking number"}
+                </button>
+              </div>
+            </>
           )}
         </ActionPanel>
       );
 
     case "PLAN_SHARED": {
       // Until the plan fee is settled there is nothing to approve — the clinic
-      // has not seen the plan. Offering "Approve plan" and then refusing the
-      // click reads as a broken button, so the panel asks for the one thing
-      // that is actually possible.
+      // has not seen the plan. So the step asks for the one thing that is
+      // actually possible, and takes the payment right here.
       const planFee = order.payments.find((p) => p.kind === "TREATMENT_PLAN");
       if (order.plan_locked) {
         return (
@@ -595,31 +1124,20 @@ function DoctorActions({
             why={
               planFee?.status === "SUBMITTED"
                 ? "Your receipt is with 3D Align. The plan opens as soon as it is confirmed."
-                : "Your plan and 3D simulation are ready. They open once the plan fee is paid."
+                : "Your plan and 3D simulation are ready. They open once the plan fee is paid — charged once for the case; revisions, re-scans and refits are not charged again."
             }
           >
-            {planFee?.status === "REJECTED" && (
-              <Banner tone="danger">{planFee.rejected_reason}</Banner>
-            )}
             {planFee?.status === "SUBMITTED" ? (
               <Banner tone="warn">
                 Receipt sent{planFee.reference && ` · ${planFee.reference}`}. 3D Align is
                 checking it — nothing else is needed from you.
               </Banner>
+            ) : planFee ? (
+              <div className="ws-inline-pay">
+                <PaymentRow orderId={order.id} payment={planFee} />
+              </div>
             ) : (
-              <>
-                <p className="dim" style={{ marginBottom: 10 }}>
-                  This covers the treatment plan and the 3D simulation, and is charged
-                  once for the case. Revisions, re-scans and refits are not charged
-                  again. Pay it in <b>Payments</b> on the right, then come back here to
-                  approve the plan.
-                </p>
-                {planFee?.upi_link && (
-                  <a className="btn-primary pay-now" href={planFee.upi_link}>
-                    Pay {formatMoney(planFee.total)} now
-                  </a>
-                )}
-              </>
+              <p className="dim">The plan fee will appear under Payments.</p>
             )}
           </ActionPanel>
         );
@@ -627,7 +1145,7 @@ function DoctorActions({
       return (
         <ActionPanel
           title="Treatment plan ready"
-          why="Approve to start fabrication of the training aligner, or send it back with changes."
+          why="Approve to start the training aligner, or send it back with changes. The plan itself is under Overview."
         >
           <AddressChooser
             value={deliverTo}
@@ -644,22 +1162,39 @@ function DoctorActions({
             >
               Approve plan
             </button>
+            {!changing && (
+              <button type="button" className="btn-ghost" onClick={() => setChanging(true)}>
+                Request changes
+              </button>
+            )}
           </div>
-          <Field label="Or request changes">
-            <textarea
-              value={revisionNotes}
-              onChange={(e) => setRevisionNotes(e.target.value)}
-              placeholder="What should the lab change?"
-            />
-          </Field>
-          <button
-            type="button"
-            className="btn-ghost"
-            disabled={!revisionNotes.trim() || requestRevision.isPending}
-            onClick={() => requestRevision.mutate()}
-          >
-            Request revision
-          </button>
+          {/* The second answer stays folded until it is chosen, so the
+              approve button is the only thing competing for attention. */}
+          {changing && (
+            <div className="ws-alt">
+              <Field label="What should the lab change?">
+                <textarea
+                  value={revisionNotes}
+                  onChange={(e) => setRevisionNotes(e.target.value)}
+                  placeholder="Be as specific as you can — teeth, movements, staging."
+                  autoFocus
+                />
+              </Field>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-dark"
+                  disabled={!revisionNotes.trim() || requestRevision.isPending}
+                  onClick={() => requestRevision.mutate()}
+                >
+                  Send back for revision
+                </button>
+                <button type="button" className="btn-link" onClick={() => setChanging(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </ActionPanel>
       );
     }
@@ -695,15 +1230,26 @@ function DoctorActions({
             </Banner>
           ) : (
             <>
-              <Field label="How should the remaining aligners ship?">
-                <select
-                  value={dispatchMode}
-                  onChange={(e) => setDispatchMode(e.target.value as typeof dispatchMode)}
-                >
-                  <option value="PHASED">Phase-wise, in batches</option>
-                  <option value="FULL">Full case, all at once</option>
-                </select>
-              </Field>
+              <div className="ws-routes" role="radiogroup" aria-label="How should the remaining aligners ship?">
+                {(
+                  [
+                    ["PHASED", "Phase-wise", "In batches, reviewed between each"],
+                    ["FULL", "Full case", "Every aligner at once"],
+                  ] as const
+                ).map(([value, title, sub]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={dispatchMode === value}
+                    className={dispatchMode === value ? "on" : ""}
+                    onClick={() => setDispatchMode(value)}
+                  >
+                    <b>{title}</b>
+                    <span>{sub}</span>
+                  </button>
+                ))}
+              </div>
               {dispatchMode === "PHASED" && (
                 <PhaseChooser order={order} value={phaseCount} onChange={setPhaseCount} />
               )}
@@ -715,45 +1261,72 @@ function DoctorActions({
             title="Deliver the aligners to"
           />
           <ErrorText error={confirmFit.error ?? reportIssue.error} />
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={confirmFit.isPending}
-            onClick={() => confirmFit.mutate()}
-          >
-            It fits — start production
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={confirmFit.isPending}
+              onClick={() => confirmFit.mutate()}
+            >
+              It fits — start production
+            </button>
+            {!changing && (
+              <button type="button" className="btn-ghost" onClick={() => setChanging(true)}>
+                It does not fit
+              </button>
+            )}
+          </div>
 
-          <Field label="Or report a fit problem">
-            <textarea
-              value={issueNotes}
-              onChange={(e) => setIssueNotes(e.target.value)}
-              placeholder="Describe what is wrong with the fit."
-            />
-          </Field>
-          <FileUploader
-            orderId={order.id}
-            categories={["FIT_ISSUE_PHOTO"]}
-            onUploaded={onDone}
-            hint="Photographs help the lab diagnose it faster."
-          />
-          <button
-            type="button"
-            className="btn-danger"
-            disabled={!issueNotes.trim() || reportIssue.isPending}
-            onClick={() => reportIssue.mutate()}
-          >
-            Report fit issue
-          </button>
+          {changing && (
+            <div className="ws-alt">
+              <Field label="What is wrong with the fit?">
+                <textarea
+                  value={issueNotes}
+                  onChange={(e) => setIssueNotes(e.target.value)}
+                  placeholder="Describe what is wrong with the fit."
+                  autoFocus
+                />
+              </Field>
+              <Uploads
+                order={order}
+                categories={["FIT_ISSUE_PHOTO"]}
+                onDone={onDone}
+                fallback={
+                  <FileUploader
+                    orderId={order.id}
+                    categories={["FIT_ISSUE_PHOTO"]}
+                    onUploaded={onDone}
+                    hint="Photographs help the lab diagnose it faster."
+                  />
+                }
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={!issueNotes.trim() || reportIssue.isPending}
+                  onClick={() => reportIssue.mutate()}
+                >
+                  Report fit issue
+                </button>
+                <button type="button" className="btn-link" onClick={() => setChanging(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </ActionPanel>
+      );
+    }
+    case "CANCELLED":
+      return (
+        <ActionPanel title="This case was cancelled" why={order.cancel_reason || undefined}>
+          <span />
         </ActionPanel>
       );
 
-    }
-    case "CANCELLED":
-      return <Banner tone="danger">This case was cancelled. {order.cancel_reason}</Banner>;
-
     case "COMPLETED":
-      return <Banner tone="ok">{completedCopy(order.kind)}</Banner>;
+      return <Waiting>{completedCopy(order.kind)}</Waiting>;
 
     default:
       return <Waiting>{waitingCopyFor(order.kind, order.status) ?? waitingCopy(order.status)}</Waiting>;
@@ -779,7 +1352,9 @@ function waitingCopy(status: Order["status"]): string {
     case "ALIGNER_PRODUCTION":
       return "Your aligner series is in production.";
     case "DISPATCHING":
-      return "Aligners are shipping. Tracking appears above as each batch goes out.";
+      return "Aligners are shipping. Tracking is under Overview as each batch goes out.";
+    case "PHASE_REVIEW":
+      return "The lab is reviewing your progress photographs before making the next batch.";
     case "PRODUCT_FABRICATION":
       return "Your order is with the lab.";
     default:
@@ -892,16 +1467,12 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
       : [];
 
   if (!open) {
+    /* A quiet line under the main message, not a second card: most phases go
+       without one, and it should not compete with what the case is doing. */
     return (
-      <div className="card row-between">
-        <div>
-          <h4 style={{ marginBottom: 4 }}>Does an aligner not fit?</h4>
-          <p className="dim">
-            Report it against the aligner it happened on and 3D Align will answer before
-            the next batch is made.
-          </p>
-        </div>
-        <button type="button" className="btn-ghost" onClick={() => setOpen(true)}>
+      <div className="ws-aside-line">
+        <span>Does an aligner in phase {phase.phase} not fit?</span>
+        <button type="button" className="btn-link" onClick={() => setOpen(true)}>
           Report a fit issue
         </button>
       </div>
@@ -943,10 +1514,17 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
           placeholder="Rocks on the buccal, will not seat at the back, and so on."
         />
       </Field>
-      <Banner tone={order.progress_missing.length === 0 ? "ok" : "warn"}>
-        Add the six views in <b>Phase fit issue photographs</b> below — upper, lower and
-        frontal, with the aligners in and out.
-      </Banner>
+      <Uploads
+        order={order}
+        categories={["PHASE_FIT_PHOTO"]}
+        onDone={onDone}
+        fallback={
+          <Banner tone={order.progress_missing.length === 0 ? "ok" : "warn"}>
+            Add the six views under Records — upper, lower and frontal, with the aligners in
+            and out.
+          </Banner>
+        }
+      />
       <ErrorText error={report.error} />
       <div className="row">
         <button
