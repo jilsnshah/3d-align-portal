@@ -167,7 +167,8 @@ export default function Catalogue() {
   const [params, setParams] = useSearchParams();
   const [ordering, setOrdering] = useState<Product | null>(null);
   const [mediaAt, setMediaAt] = useState(0);
-  const [patientId, setPatientId] = useState("");
+  // ?patient=<id> from a patient's panel: the order sheet opens with them chosen.
+  const [patientId, setPatientId] = useState(() => params.get("patient") ?? "");
   // Two fields, as everywhere else.
   const [newFirst, setNewFirst] = useState("");
   const [newLast, setNewLast] = useState("");

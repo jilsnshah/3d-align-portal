@@ -6058,3 +6058,203 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
 }
 .ws-top.solo { grid-template-columns: 1fr; }
 .ws-top.solo > .ws-glance:empty { display: none; }
+
+/* --- Patients ---------------------------------------------------------------
+   The case list's masthead, filter strip and table, so the two pages read as
+   one system; what is particular to a patient is the face beside the name, the
+   case count, and the panel a row opens into. */
+
+.pt-table .col-who {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 220px;
+  background: var(--white);
+  box-shadow: 1px 0 0 var(--rule);
+}
+.pt-table th.col-who { z-index: 3; background: linear-gradient(180deg, #f6f3ed 0%, #f1eee7 100%); }
+.pt-table tbody tr.clickable:hover .col-who { background: var(--gold-wash); }
+.pt-table tr.wants .col-who { background: #fdfaf1; box-shadow: inset 3px 0 0 var(--gold), 1px 0 0 var(--rule); }
+
+.pt-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pt-who-say { display: flex; flex-direction: column; min-width: 0; }
+.pt-meta { font-size: var(--t-xs); white-space: nowrap; color: var(--ink-3); }
+.pt-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--av-ink);
+  background: var(--av-bg);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(11, 11, 12, 0.06);
+}
+.pt-avatar.lg { width: 58px; height: 58px; font-size: 1.15rem; box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.35); }
+.case-table tr.done .pt-avatar { opacity: 0.7; }
+
+.pt-count { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-xs); white-space: nowrap; color: var(--ink-3); }
+.pt-count b {
+  min-width: 26px;
+  padding: 2px 8px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--paper-2);
+  border-radius: 999px;
+}
+.pt-case { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.pt-case .mono { font-size: var(--t-xs); color: var(--ink-3); }
+.pt-treat { max-width: 220px; overflow: hidden; font-size: var(--t-sm); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); }
+
+.pt-more { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+/* the patient, opened */
+.pt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(11, 11, 12, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: modal-in 0.18s ease-out;
+}
+.pt-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  height: 100%;
+  background: var(--paper);
+  box-shadow: -24px 0 60px rgba(11, 11, 12, 0.22);
+  animation: sheet-in 0.4s var(--ease-out) both;
+}
+.pt-panel-head {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 26px 24px 22px 26px;
+  color: #f4efe2;
+  background:
+    radial-gradient(60% 120% at 0% 0%, rgba(212, 175, 55, 0.2) 0%, transparent 60%),
+    linear-gradient(160deg, #1a1a1d 0%, #0b0b0c 100%);
+}
+.pt-panel-title { min-width: 0; }
+.pt-eyebrow {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+}
+.pt-panel-head h2 {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 2.1rem;
+  line-height: 1.02;
+  letter-spacing: -0.012em;
+  color: var(--white);
+}
+.pt-panel-head p { margin: 6px 0 0; font-size: var(--t-xs); color: rgba(244, 239, 226, 0.6); }
+.pt-panel-head .sheet-close { color: var(--white); background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.2); }
+.pt-panel-head .sheet-close:hover { border-color: var(--gold-bright); }
+
+.pt-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.pt-stats div { display: flex; flex-direction: column; gap: 2px; padding: 14px 20px; background: var(--white); }
+.pt-stats b { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.pt-stats b.lit { color: var(--gold-deep); }
+.pt-stats span {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.pt-panel-body { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px 28px; overflow-y: auto; }
+.pt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pt-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  text-decoration: none;
+  border-radius: 999px;
+  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.pt-actions a svg { width: 15px; height: 15px; }
+.pt-actions a.primary {
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  box-shadow: 0 8px 20px rgba(212, 175, 55, 0.25);
+}
+.pt-actions a.ghost { color: var(--ink); background: var(--white); border: 1px solid var(--rule-strong); }
+.pt-actions a:hover { transform: translateY(-1px); }
+.pt-actions a.ghost:hover { border-color: var(--gold); }
+.pt-panel-body h3 {
+  margin: 8px 0 0;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pt-none { margin: 0; padding: 18px; font-size: var(--t-sm); text-align: center; color: var(--ink-3); border: 1px dashed var(--rule-strong); border-radius: 14px; }
+
+.pt-cases { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.pt-cases button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  width: 100%;
+  padding: 14px 16px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.pt-cases button:hover { border-color: var(--gold-line); box-shadow: var(--shadow); transform: translateX(2px); }
+.pt-cases li.wants button { background: linear-gradient(180deg, var(--gold-wash), var(--white)); border-color: var(--gold-line); box-shadow: inset 3px 0 0 var(--gold); }
+.pt-case-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pt-case-top .mono { flex: none; font-size: var(--t-xs); color: var(--ink-3); }
+.pt-case-top b { overflow: hidden; font-size: var(--t-sm); font-weight: 620; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.pt-case-when { font-size: var(--t-micro); white-space: nowrap; color: var(--ink-3); }
+.pt-case-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.pt-case-ask { grid-column: 1 / -1; font-size: var(--t-xs); font-weight: 600; color: var(--gold-deep); }
+
+@media (max-width: 720px) {
+  .pt-table .col-who { min-width: 180px; }
+  .pt-panel-head { grid-template-columns: 48px minmax(0, 1fr) auto; padding: 20px 16px 18px; }
+  .pt-avatar.lg { width: 48px; height: 48px; font-size: 1rem; }
+  .pt-panel-head h2 { font-size: 1.7rem; }
+  .pt-stats div { padding: 12px 14px; }
+  .pt-panel-body { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pt-panel,
+  .pt-backdrop { animation: none; }
+  .pt-cases button:hover,
+  .pt-actions a:hover { transform: none; }
+}

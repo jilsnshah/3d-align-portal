@@ -6,7 +6,8 @@ import { CaseSeries, PAGE_SIZE, api, formatDate, formatMoney, since } from "../.
 import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
-import { ASK_ONE, URGENCY, stageIndex, stagesFor } from "../../workflow";
+import { ASK_ONE, URGENCY } from "../../workflow";
+import StageTrack from "../../components/StageTrack";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
@@ -452,32 +453,6 @@ function TreatmentCell({ order }: { order: OrderSummary }) {
         </span>
       )}
       <span className="cell-arch">{archLabel(order.arch)}</span>
-    </span>
-  );
-}
-
-/** Where the case has got to, drawn as the journey rather than named. The pill
-    beside it says "In planning"; this says planning is the fourth of six with
-    two still to come — the distance travelled, which no other column shows. */
-function StageTrack({ order }: { order: OrderSummary }) {
-  const stages = stagesFor(order.kind, order.intake);
-  const at = stageIndex(order.kind, order.status, order.intake);
-  const done = order.status === "COMPLETED";
-  const phased = order.phases_total > 0 && order.phases_done < order.phases_total;
-  return (
-    <span className="track">
-      <span className="track-bars" aria-hidden="true">
-        {stages.map((stage, i) => (
-          <span key={stage.key} className={done || i < at ? "seg done" : i === at ? "seg on" : "seg"} />
-        ))}
-      </span>
-      <span className="track-say">
-        {phased
-          ? `Phase ${order.phases_done + 1}/${order.phases_total}`
-          : done
-            ? "Done"
-            : `${Math.max(at + 1, 1)}/${stages.length}`}
-      </span>
     </span>
   );
 }

@@ -16,7 +16,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../../api";
 import type { AlignerIntake, OrderDetail } from "../../api";
@@ -62,7 +62,10 @@ export default function NewOrder() {
   });
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
 
-  const [patientId, setPatientId] = useState("");
+  // Arriving from a patient's panel with ?patient=<id> starts the case
+  // for them rather than making the clinic find them again in the picker.
+  const [params] = useSearchParams();
+  const [patientId, setPatientId] = useState(() => params.get("patient") ?? "");
   const [newPatient, setNewPatient] = useState({
     first_name: "",
     last_name: "",
