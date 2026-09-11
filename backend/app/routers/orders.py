@@ -58,7 +58,7 @@ from ..models import (
 )
 from ..serializers import missing_categories, order_detail, order_summary
 from ..transitions import transition
-from ..services.numbering import next_enquiry_number
+from ..services.numbering import next_enquiry_number, next_patient_number
 from ..services import catalogue
 from ..services import scans as scan_service
 from ..services import shipments
@@ -131,6 +131,7 @@ def list_orders(
                 func.lower(Order.enquiry_number).like(needle),
                 func.lower(func.coalesce(Order.order_number, "")).like(needle),
                 func.lower(Patient.full_name).like(needle),
+                func.lower(func.coalesce(Patient.patient_number, "")).like(needle),
             )
         )
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
@@ -1190,7 +1191,7 @@ def _resolve_patient(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Patient not found.")
         return patient
     if payload.new_patient:
-        patient = Patient.from_input(doctor.id, payload.new_patient)
+        patient = Patient.from_input(doctor.id, payload.new_patient, next_patient_number(db))
         db.add(patient)
         db.flush()
         return patient

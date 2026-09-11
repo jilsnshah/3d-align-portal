@@ -235,6 +235,11 @@ export default function DoctorOrderDetail() {
           </div>
           <h1>{data.patient_name || "Practice stock"}</h1>
           <p className="ws-meta">
+            {data.patient_number && (
+              <span className="mono" title="Patient number">
+                {data.patient_number}
+              </span>
+            )}
             {data.kind === "ALIGNER" ? (
               <>
                 <span>

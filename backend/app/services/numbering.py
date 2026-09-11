@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models import Counter
@@ -83,3 +84,61 @@ def next_product_number(db: Session, code: str, size_label: str = "") -> str:
     the lab writes on the tray itself, and it has never carried one.
     """
     return product_number(code, size_label, _next(db, product_counter_key(code)))
+
+
+PATIENT_COUNTER = "patient"
+
+
+def patient_number(sequence: int) -> str:
+    """PT-00001. Five digits to start with; it simply grows past 99999."""
+    return f"PT-{sequence:05d}"
+
+
+def next_patient_number(db: Session) -> str:
+    """The next patient reference. Handed out once, when a patient is first
+    recorded, and never reused — two patients can share a name, never a number.
+    No year in it: a patient outlives the year they were registered in."""
+    return patient_number(_next(db, PATIENT_COUNTER))
+
+
+def _wind_patient_counter(db: Session) -> None:
+    """Make sure the counter stands at or past every number already issued.
+
+    A restored backup, or numbers written by hand, can leave the counter behind
+    the patients table; the next patient would then be handed a number someone
+    already has and the unique index would refuse the insert.
+    """
+    from ..models import Patient
+
+    issued = [
+        int(n[3:])
+        for (n,) in db.query(Patient.patient_number).filter(Patient.patient_number.like("PT-%"))
+        if n[3:].isdigit()
+    ]
+    if not issued:
+        return
+    counter = db.get(Counter, PATIENT_COUNTER)
+    if counter is None:
+        db.add(Counter(key=PATIENT_COUNTER, value=max(issued)))
+    elif counter.value < max(issued):
+        counter.value = max(issued)
+    db.flush()
+
+
+def backfill_patient_numbers(db: Session) -> int:
+    """Number every patient recorded before numbers existed, in the order they
+    were added, carrying on from the counter so nobody collides. Returns how
+    many were numbered; a no-op once everyone has one."""
+    from ..models import Patient
+
+    _wind_patient_counter(db)
+    blank = (
+        db.query(Patient)
+        .filter(or_(Patient.patient_number.is_(None), Patient.patient_number == ""))
+        .order_by(Patient.created_at, Patient.id)
+        .all()
+    )
+    for patient in blank:
+        patient.patient_number = next_patient_number(db)
+    db.flush()
+    return len(blank)

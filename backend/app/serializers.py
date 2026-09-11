@@ -313,6 +313,10 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
         patient_name=(
             order.patient.full_name if order.patient is not None else "Practice stock"
         ),
+        patient_id=order.patient_id or "",
+        patient_number=(
+            (order.patient.patient_number or "") if order.patient is not None else ""
+        ),
         doctor_name=order.doctor.full_name,
         clinic_name=order.doctor.clinic_name,
         branch_id=order.shipping_address_id or "",
@@ -582,7 +586,6 @@ def order_detail(order: Order, viewer_role=None) -> schemas.OrderDetail:
     ]
     return schemas.OrderDetail(
         **base,
-        patient_id=order.patient_id or "",
         has_simulation=any(
             f.category == FileCategory.SIMULATION_MODEL and not f.is_deleted
             for f in order.files

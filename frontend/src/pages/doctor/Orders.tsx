@@ -503,7 +503,7 @@ function CaseTable({
               >
                 <td className="col-case mono">{order.order_number}</td>
                 <td className="col-patient">
-                  <span className="cell-title">
+                  <span className="cell-title" title={order.patient_number || undefined}>
                     {order.patient_name}
                     {order.priority === "EXPRESS" && (
                       <span className="tag-express" title="Express">

@@ -33,6 +33,9 @@ ADDITIONS = [
     ("patients", [
         ("first_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
         ("last_name", "VARCHAR(120) NOT NULL DEFAULT ''"),
+        # Nullable: numbered below, and a unique index allows many NULLs but
+        # not many ''.
+        ("patient_number", "VARCHAR(20)"),
     ]),
     ("products", [
         ("image_url", "VARCHAR(500) NOT NULL DEFAULT ''"),
@@ -312,6 +315,32 @@ with engine.begin() as conn:
             db.commit()
             print(f"  ~ {len(stale)} product reference(s) renumbered")
             applied += 1
+
+# --------------------------------------------------------------------------
+# Patient numbers
+# --------------------------------------------------------------------------
+# Every patient carries a system reference, PT-00001, because a name is not
+# unique — a practice can have two patients called Isha Trivedi. Patients
+# recorded before the column existed are numbered in the order they were added,
+# the counter is wound on past them, and only then does the unique index go on:
+# it cannot be built while rows still share a value. Runs on every boot and is
+# a no-op once everyone is numbered.
+if "patients" in inspector.get_table_names():
+    with engine.begin() as conn:
+        from sqlalchemy.orm import Session
+
+        from app.services.numbering import backfill_patient_numbers
+
+        with Session(bind=conn) as db:
+            numbered = backfill_patient_numbers(db)
+            db.commit()
+        if numbered:
+            print(f"  + {numbered} patient number(s) assigned")
+            applied += 1
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_patients_patient_number"
+            " ON patients (patient_number)"
+        )
 
 # --------------------------------------------------------------------------
 # Column rebuilds — SQLite only

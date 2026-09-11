@@ -180,6 +180,14 @@ class Patient(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(200))
     date_of_birth: Mapped[str] = mapped_column(String(20), default="")
     sex: Mapped[str] = mapped_column(String(20), default="")
+    # PT-00001 — the patient's own reference, handed out by the system when
+    # they are first recorded and never reused. A name is not unique: a
+    # practice can have two patients called Isha Trivedi, and this is what
+    # tells them apart on every list, picker and label. Nullable only so that
+    # rows recorded before numbers existed can be numbered on the next boot.
+    patient_number: Mapped[Optional[str]] = mapped_column(
+        String(20), unique=True, index=True, nullable=True
+    )
 
     doctor: Mapped[Doctor] = relationship(back_populates="patients")
     orders: Mapped[list[Order]] = relationship(back_populates="patient")
@@ -191,12 +199,16 @@ class Patient(Base, TimestampMixin):
         return " ".join(p for p in ((first or "").strip(), (last or "").strip()) if p)
 
     @classmethod
-    def from_input(cls, doctor_id: str, payload) -> "Patient":
+    def from_input(cls, doctor_id: str, payload, number: str) -> "Patient":
         """Build a patient from what the clinic typed, with full_name derived.
 
         The one place the derivation lives. Two call sites build patients — the
         patient list and the order form — and having each join the names itself
         is how they end up joining them differently.
+
+        The number is required rather than defaulted, so neither call site
+        can forget it; it is drawn by the caller because drawing it needs the
+        session, which a model method does not have.
         """
         return cls(
             doctor_id=doctor_id,
@@ -205,6 +217,7 @@ class Patient(Base, TimestampMixin):
             full_name=cls.join_name(payload.first_name, payload.last_name),
             date_of_birth=payload.date_of_birth,
             sex=payload.sex,
+            patient_number=number,
         )
 
 

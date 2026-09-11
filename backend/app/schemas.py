@@ -211,6 +211,9 @@ class PatientIn(BaseModel):
 
 class PatientOut(ORMModel):
     id: str
+    # PT-00001: the system's own reference for the patient, unique where a
+    # name is not.
+    patient_number: str = ""
     first_name: str = ""
     last_name: str = ""
     # Derived from the two, and what every board and delivery label reads.
@@ -218,6 +221,13 @@ class PatientOut(ORMModel):
     date_of_birth: str = ""
     sex: str = ""
     created_at: datetime
+
+    @field_validator("patient_number", mode="before")
+    @classmethod
+    def _unnumbered(cls, value):
+        # A row recorded before numbers existed reads as blank until the next
+        # boot numbers it, rather than failing the whole list.
+        return value or ""
 
 
 # --------------------------------------------------------------------------
@@ -1215,6 +1225,10 @@ class OrderSummary(BaseModel):
     phases_done: int = 0
     phases_total: int = 0
     patient_name: str
+    # Which patient, by id and by their own reference, so a list can tell
+    # two patients of the same name apart and link a case back to them.
+    patient_id: str = ""
+    patient_number: str = ""
     doctor_name: str
     clinic_name: str
     # Which branch the case ships to. A practice with one clinic never sees

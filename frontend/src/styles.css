@@ -6258,3 +6258,29 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   .pt-cases button:hover,
   .pt-actions a:hover { transform: none; }
 }
+
+/* The patient's own number, beside their name wherever it is listed. Set in
+   the mono face and a tier quieter than the name, so it is there to be read
+   off when two names match and otherwise stays out of the way. */
+.pt-no {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.pt-dup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 12px;
+}
+.pt-dup b { color: var(--ink); }
+.pt-dup ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.pt-dup li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -14,6 +14,7 @@ from ..db import get_db
 from ..deps import current_doctor, verified_doctor
 from ..services.geo import locate_for
 from ..models import Address, Doctor, Order, Patient
+from ..services.numbering import next_patient_number
 
 router = APIRouter(tags=["directory"])
 
@@ -297,7 +298,15 @@ def list_patients(
 ):
     query = db.query(Patient).filter(Patient.doctor_id == doctor.id)
     if search and search.strip():
-        query = query.filter(func.lower(Patient.full_name).like(f"%{search.strip().lower()}%"))
+        needle = f"%{search.strip().lower()}%"
+        # By name or by the patient's own reference, so "PT-00042" read off a
+        # label finds the one patient it belongs to.
+        query = query.filter(
+            or_(
+                func.lower(Patient.full_name).like(needle),
+                func.lower(func.coalesce(Patient.patient_number, "")).like(needle),
+            )
+        )
     return (
         query.order_by(Patient.full_name).offset(offset).limit(limit).all()
     )
@@ -309,7 +318,7 @@ def create_patient(
     doctor: Doctor = Depends(verified_doctor),
     db: Session = Depends(get_db),
 ):
-    patient = Patient.from_input(doctor.id, payload)
+    patient = Patient.from_input(doctor.id, payload, next_patient_number(db))
     db.add(patient)
     db.commit()
     db.refresh(patient)

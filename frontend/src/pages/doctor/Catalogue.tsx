@@ -631,6 +631,7 @@ export default function Catalogue() {
                     {patients.data?.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.full_name}
+                        {p.patient_number ? ` · ${p.patient_number}` : ""}
                       </option>
                     ))}
                   </select>

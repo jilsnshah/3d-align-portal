@@ -240,6 +240,7 @@ export default function NewOrder() {
                 {patients.data.map((patient) => (
                   <option key={patient.id} value={patient.id}>
                     {patient.full_name}
+                    {patient.patient_number ? ` · ${patient.patient_number}` : ""}
                   </option>
                 ))}
               </select>
@@ -269,6 +270,36 @@ export default function NewOrder() {
                   />
                 </Field>
               </div>
+              {/* The same name already on file: offered back before a second
+                  record is made. Still allowed — two people can share a name,
+                  and each gets their own number. */}
+              {(() => {
+                const typed = [newPatient.first_name.trim(), newPatient.last_name.trim()]
+                  .filter(Boolean)
+                  .join(" ")
+                  .toLowerCase();
+                const same =
+                  typed.length > 1
+                    ? (patients.data ?? []).filter((p) => p.full_name.toLowerCase() === typed)
+                    : [];
+                if (same.length === 0) return null;
+                return (
+                  <Banner tone="warn">
+                    <div>
+                      <b>Already on file:</b>{" "}
+                      {same.map((p, i) => (
+                        <span key={p.id}>
+                          {i > 0 && ", "}
+                          <button type="button" className="btn-link" onClick={() => setPatientId(p.id)}>
+                            {p.full_name} · {p.patient_number || "no number yet"}
+                          </button>
+                        </span>
+                      ))}
+                      . Choose them to continue their record, or carry on if this is someone new.
+                    </div>
+                  </Banner>
+                );
+              })()}
               <div className="grid-2">
                 <Field label="Date of birth">
                   <input

@@ -172,6 +172,7 @@ def list_orders(
                     func.lower(Order.enquiry_number).like(needle),
                     func.lower(func.coalesce(Order.order_number, "")).like(needle),
                     func.lower(Patient.full_name).like(needle),
+                    func.lower(func.coalesce(Patient.patient_number, "")).like(needle),
                     func.lower(Doctor.full_name).like(needle),
                     func.lower(func.coalesce(Doctor.clinic_name, "")).like(needle),
                 )

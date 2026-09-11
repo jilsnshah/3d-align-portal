@@ -78,6 +78,8 @@ export type AlignerIntake = "QUOTE_FIRST" | "SCAN_DIRECT";
 
 export interface Patient {
   id: string;
+  /** PT-00001 — the system's own reference, unique where a name is not. */
+  patient_number: string;
   full_name: string;
   date_of_birth: string;
   sex: string;
@@ -390,6 +392,10 @@ export interface OrderSummary {
   phases_done: number;
   phases_total: number;
   patient_name: string;
+  /** Which patient, by id and by their own number, so two patients of the
+      same name are never confused. Empty on a practice-stock order. */
+  patient_id: string;
+  patient_number: string;
   doctor_name: string;
   clinic_name: string;
   /** Which branch this case ships to. Empty when the practice has one clinic. */

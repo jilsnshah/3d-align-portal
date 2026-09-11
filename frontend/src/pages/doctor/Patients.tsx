@@ -12,13 +12,12 @@
  * opens into a panel with every case they have had and the way to start the
  * next one.
  *
- * The case list names a case's patient but does not carry their id, so cases
- * are matched to patients by name — and where two patients share a name, by
- * asking the server for that patient's cases directly, since a name cannot
- * tell them apart.
+ * Every patient carries their own number, PT-00001, handed out by the system:
+ * a name is not unique, and two patients called Isha Trivedi are two people.
+ * Cases are matched to patients by id, never by name, for the same reason.
  */
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -200,33 +199,16 @@ export default function Patients() {
 
   const list = patients.data ?? [];
 
-  /* Two patients with the same name cannot be told apart by it, so their
-     cases are asked for by id instead. Everyone else is matched by name
-     against the one case list already loaded. */
-  const sharedIds = useMemo(() => {
-    const count = new Map<string, number>();
-    for (const p of list) count.set(p.full_name, (count.get(p.full_name) ?? 0) + 1);
-    return list.filter((p) => (count.get(p.full_name) ?? 0) > 1).map((p) => p.id);
-  }, [list]);
-  const own = useQueries({
-    queries: sharedIds.map((id) => ({
-      queryKey: ["patient-cases", id],
-      queryFn: () => api.orders(false, { limit: 50 }, { patientId: id }),
-    })),
-  });
-  const ownKey = own.map((q) => q.dataUpdatedAt).join(",");
-
+  /* Each case names its patient by id, so it lands on the right person even
+     when two patients share a name. */
   const rows = useMemo(() => {
-    const byName = new Map<string, OrderSummary[]>();
+    const byPatient = new Map<string, OrderSummary[]>();
     for (const o of cases.data ?? []) {
-      if (!o.patient_name) continue;
-      byName.set(o.patient_name, [...(byName.get(o.patient_name) ?? []), o]);
+      if (!o.patient_id) continue;
+      byPatient.set(o.patient_id, [...(byPatient.get(o.patient_id) ?? []), o]);
     }
-    const byId = new Map(sharedIds.map((id, i) => [id, own[i]?.data ?? []]));
-    return list.map((p) => build(p, byId.has(p.id) ? byId.get(p.id)! : byName.get(p.full_name) ?? []));
-    // `own` is a new array every render; its update stamps are what change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, cases.data, sharedIds, ownKey]);
+    return list.map((p) => build(p, byPatient.get(p.id) ?? []));
+  }, [list, cases.data]);
 
   // One clinic is not a choice worth putting on the page.
   const branches = addresses.data ?? [];
@@ -242,6 +224,7 @@ export default function Patients() {
         (r) =>
           (!q ||
             r.patient.full_name.toLowerCase().includes(q) ||
+            r.patient.patient_number.toLowerCase().includes(q) ||
             r.cases.some((o) => o.order_number.toLowerCase().includes(q))) &&
           (!kind || r.cases.some((o) => (kind === "ALIGNER" ? o.kind === "ALIGNER" : o.kind !== "ALIGNER"))) &&
           (!sex || (sex === "none" ? !r.patient.sex : r.patient.sex === sex)) &&
@@ -324,7 +307,7 @@ export default function Patients() {
               <path d="m20 20-3.5-3.5" strokeLinecap="round" />
             </svg>
             <input
-              placeholder="Name or case number"
+              placeholder="Name, patient or case number"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               aria-label="Search patients"
@@ -473,6 +456,11 @@ export default function Patients() {
       {openRow && <PatientPanel row={openRow} onClose={() => setOpenId(null)} />}
       {adding && (
         <AddPatient
+          existing={list}
+          onOpen={(id) => {
+            setAdding(false);
+            setOpenId(id);
+          }}
           onClose={() => setAdding(false)}
           onAdded={(p) => {
             setAdding(false);
@@ -498,7 +486,10 @@ function PatientRow({ row, loading, onOpen }: { row: Row; loading: boolean; onOp
         <span className="pt-who">
           <Avatar name={p.full_name} />
           <span className="pt-who-say">
-            <span className="cell-title">{p.full_name}</span>
+            <span className="cell-title">
+              {p.full_name}
+              {p.patient_number && <span className="pt-no">{p.patient_number}</span>}
+            </span>
             {/* What the patient is waiting on the clinic for, where they are;
                 otherwise what the clinic recorded about them. */}
             {row.state === "needs" && current ? (
@@ -575,7 +566,7 @@ function PatientPanel({ row, onClose }: { row: Row; onClose: () => void }) {
     };
   }, [onClose]);
 
-  const about = [facts(p), p.date_of_birth ? `Born ${p.date_of_birth}` : "", `Added ${formatDate(p.created_at)}`]
+  const about = [p.patient_number, facts(p), p.date_of_birth ? `Born ${p.date_of_birth}` : "", `Added ${formatDate(p.created_at)}`]
     .filter(Boolean)
     .join(" · ");
 
@@ -669,9 +660,24 @@ const BLANK = { first_name: "", last_name: "", date_of_birth: "", sex: "" };
 
 /** Adding a patient, in a dialog raised from the masthead rather than a form
     standing permanently beside the list. */
-function AddPatient({ onClose, onAdded }: { onClose: () => void; onAdded: (p: Patient) => void }) {
+function AddPatient({
+  existing,
+  onOpen,
+  onClose,
+  onAdded,
+}: {
+  existing: Patient[];
+  onOpen: (id: string) => void;
+  onClose: () => void;
+  onAdded: (p: Patient) => void;
+}) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(BLANK);
+  /* Someone of this name is already on file. Said before the second record is
+     made rather than discovered later as two half-histories — and still
+     allowed, because two people can share a name; each gets their own number. */
+  const typed = [form.first_name.trim(), form.last_name.trim()].filter(Boolean).join(" ").toLowerCase();
+  const same = typed.length > 1 ? existing.filter((p) => p.full_name.toLowerCase() === typed) : [];
   const create = useMutation({
     mutationFn: () => api.createPatient(form),
     onSuccess: (patient) => {
@@ -742,11 +748,34 @@ function AddPatient({ onClose, onAdded }: { onClose: () => void; onAdded: (p: Pa
             </select>
           </Field>
         </div>
+        {same.length > 0 && (
+          <div className="pt-dup" role="status">
+            <b>
+              {same.length === 1
+                ? "A patient with this name is already on file"
+                : `${same.length} patients with this name are already on file`}
+            </b>
+            <ul>
+              {same.map((p) => (
+                <li key={p.id}>
+                  <span>
+                    {p.full_name} <span className="pt-no">{p.patient_number}</span>
+                    {facts(p) && <span className="dim"> · {facts(p)}</span>}
+                  </span>
+                  <button type="button" className="btn-link" onClick={() => onOpen(p.id)}>
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <span className="dim">If this is someone new, add them — they get their own number.</span>
+          </div>
+        )}
         <ErrorText error={create.error} />
         <div className="row-between">
           <span className="dim">Patients are private to your clinic.</span>
           <button type="submit" className="btn-primary" disabled={create.isPending}>
-            {create.isPending ? "Adding…" : "Add patient"}
+            {create.isPending ? "Adding…" : same.length ? "Add as a new patient" : "Add patient"}
           </button>
         </div>
       </form>
