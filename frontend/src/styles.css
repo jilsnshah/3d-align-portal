@@ -6284,3 +6284,565 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
 .pt-dup b { color: var(--ink); }
 .pt-dup ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .pt-dup li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* --- Payments ---------------------------------------------------------------
+   The balance on the brand's black, the open charges as one list with the
+   ones that went wrong first, each opening into a panel that pays it, and the
+   paid history by month. */
+
+.py { display: flex; flex-direction: column; gap: var(--s-7); }
+.py > * { animation: store-in 0.6s var(--ease-out) both; }
+.py > *:nth-child(2) { animation-delay: 70ms; }
+.py > *:nth-child(3) { animation-delay: 140ms; }
+
+.py-eyebrow {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+}
+.py-kicker {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+
+/* --- the balance --- */
+.py-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-6);
+  padding: 38px 40px;
+  overflow: hidden;
+  color: #f4efe2;
+  background:
+    radial-gradient(45% 80% at 12% 0%, rgba(212, 175, 55, 0.2) 0%, transparent 62%),
+    radial-gradient(40% 70% at 95% 100%, rgba(212, 175, 55, 0.12) 0%, transparent 62%),
+    linear-gradient(155deg, #1a1a1d 0%, #0b0b0c 58%, #131315 100%);
+  border-radius: 28px;
+  box-shadow: var(--shadow-lg);
+}
+.py-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 48px;
+  opacity: 0.12;
+  -webkit-mask-image: radial-gradient(55% 90% at 0% 0%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(55% 90% at 0% 0%, #000 0%, transparent 72%);
+}
+.py-say { min-width: 0; }
+.py-say h1 {
+  margin: 12px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2.4rem, 4.4vw, 3.8rem);
+  line-height: 1.02;
+  letter-spacing: -0.022em;
+  color: var(--white);
+  text-wrap: balance;
+}
+.py-say h1 em { font-style: italic; font-variant-numeric: tabular-nums; color: var(--gold-lift); }
+.py-say h1::after { display: none; }
+.py-sub { max-width: 54ch; margin: 12px 0 0; font-size: var(--t-body); line-height: 1.6; color: rgba(244, 239, 226, 0.68); }
+
+.py-meter { margin-top: 26px; }
+.py-meter-bar {
+  display: flex;
+  gap: 3px;
+  height: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+.py-meter-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left;
+  animation: py-grow 1s var(--ease-out) 0.2s both;
+}
+.py-meter-bar .due { background: linear-gradient(90deg, var(--gold-bright), var(--gold-lift)); }
+.py-meter-bar .review { background: rgba(244, 239, 226, 0.55); }
+.py-meter-bar .paid { background: #6fae8b; }
+@keyframes py-grow {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+.py-meter-key { display: flex; flex-wrap: wrap; gap: 10px 30px; margin: 14px 0 0; padding: 0; list-style: none; }
+.py-meter-key li { position: relative; display: flex; flex-direction: column; gap: 2px; padding-left: 16px; }
+.py-meter-key li::before { content: ""; position: absolute; left: 0; top: 4px; width: 8px; height: 8px; border-radius: 999px; }
+.py-meter-key .due::before { background: var(--gold-bright); }
+.py-meter-key .review::before { background: rgba(244, 239, 226, 0.55); }
+.py-meter-key .paid::before { background: #6fae8b; }
+.py-meter-key span {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.55);
+}
+.py-meter-key b { font-size: 1.1rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--white); }
+
+/* who to pay, and how */
+.py-payto {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  border-radius: 20px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.py-payee { font-family: var(--display); font-weight: 400; font-size: 1.8rem; line-height: 1.05; color: var(--white); }
+.py-noupi { margin: 0; font-size: var(--t-sm); color: rgba(244, 239, 226, 0.7); }
+.py-vpa {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 7px 7px 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+.py-vpa .mono { min-width: 0; overflow: hidden; font-size: var(--t-sm); white-space: nowrap; text-overflow: ellipsis; color: var(--white); }
+.py-copy {
+  flex: none;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: var(--t-xs);
+  font-weight: 650;
+  color: var(--black);
+  background: var(--gold-lift);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform var(--fast) var(--ease);
+}
+.py-copy:hover { transform: translateY(-1px); }
+.py-steps { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 0; padding: 0; list-style: none; counter-reset: step; }
+.py-steps li { position: relative; display: flex; flex-direction: column; padding-left: 34px; }
+.py-steps li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  color: var(--black);
+  background: var(--gold-bright);
+  border-radius: 999px;
+}
+.py-steps b { font-size: var(--t-sm); font-weight: 620; color: var(--white); }
+.py-steps span { font-size: var(--t-xs); line-height: 1.45; color: rgba(244, 239, 226, 0.58); }
+
+/* --- sections --- */
+.py-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: var(--s-4);
+}
+.py-head h2 {
+  margin: 6px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2rem, 3.2vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.015em;
+}
+.py-head-sum { font-size: var(--t-sm); color: var(--ink-2); }
+.py-head-sum b { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); }
+.py-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.py-csv {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 620;
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease);
+}
+.py-csv svg { width: 15px; height: 15px; }
+.py-csv:hover:not(:disabled) { border-color: var(--gold); }
+.py-csv:disabled { opacity: 0.5; cursor: default; }
+
+/* the open charges */
+.py-group + .py-group { margin-top: var(--s-5); }
+.py-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px 4px; }
+.py-group-head b {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.py-group.bad .py-group-head b { color: var(--danger); }
+.py-group.wait .py-group-head b { color: var(--ink-3); }
+.py-group-head span { font-size: var(--t-xs); color: var(--ink-3); }
+.py-rows { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.py-row-hit {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 14px 16px 14px 14px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.py-row-hit:hover { border-color: var(--gold-line); box-shadow: var(--shadow); transform: translateY(-1px); }
+.py-row-hit:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--gold); }
+.py-row.due .py-row-hit { box-shadow: inset 3px 0 0 var(--gold), var(--shadow-xs); }
+.py-row.rejected .py-row-hit {
+  background: linear-gradient(180deg, #fffafa 0%, var(--white) 100%);
+  border-color: var(--danger-line);
+  box-shadow: inset 3px 0 0 var(--danger), var(--shadow-xs);
+}
+.py-row.submitted .py-row-hit { background: var(--paper); }
+.py-kind {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: var(--gold-lift);
+  background: var(--black-2);
+  border-radius: 14px;
+}
+.py-kind svg { width: 22px; height: 22px; }
+.py-row.submitted .py-kind { color: var(--ink-3); background: var(--paper-2); }
+.py-row.rejected .py-kind { color: var(--white); background: var(--danger); }
+.py-what { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.py-what b { font-size: var(--t-body); font-weight: 620; color: var(--ink); }
+.py-what > span { overflow: hidden; font-size: var(--t-xs); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-3); }
+.py-what .mono { color: var(--ink-2); }
+.py-what > .py-why { font-weight: 600; white-space: normal; color: var(--danger); }
+.py-amt { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.py-amt b { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.py-amt small { font-size: var(--t-micro); white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.py-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(212, 175, 55, 0.25);
+}
+.py-act svg { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.py-row-hit:hover .py-act svg { transform: translateX(2px); }
+.py-row.rejected .py-act { color: var(--white); background: var(--danger); box-shadow: none; }
+.py-row.submitted .py-act { color: var(--ink-2); background: var(--white); border: 1px solid var(--rule-strong); box-shadow: none; }
+
+/* paid by month */
+.py-chart {
+  margin: 0 0 var(--s-4);
+  padding: 18px 20px 14px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  box-shadow: var(--shadow-xs);
+}
+.py-chart figcaption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 12px; }
+.py-chart figcaption > span:first-child {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.py-chart-sum { font-size: var(--t-xs); color: var(--ink-3); }
+.py-chart-sum b { font-size: 1.2rem; font-weight: 650; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.py-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; height: 150px; }
+.py-bar { display: flex; flex-direction: column; align-items: center; min-width: 0; height: 100%; }
+.py-bar-val { height: 16px; overflow: visible; font-size: var(--t-micro); font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.py-bar-col { flex: 1; display: flex; align-items: flex-end; justify-content: center; width: 100%; border-bottom: 1px solid var(--rule); }
+.py-bar-col i { display: block; width: 100%; max-width: 34px; background: var(--gold-line); border-radius: 6px 6px 0 0; transition: background var(--fast) var(--ease); }
+.py-bar.now .py-bar-col i { background: linear-gradient(180deg, var(--gold-bright), var(--gold)); }
+.py-bar:hover .py-bar-col i { background: var(--gold); }
+.py-bar.ahead .py-bar-m { color: var(--rule-strong); }
+.py-bar-m { margin-top: 6px; font-size: var(--t-micro); color: var(--ink-3); }
+.py-bar.now .py-bar-m { font-weight: 700; color: var(--gold-deep); }
+
+/* the history, by month */
+.py-history { display: flex; flex-direction: column; gap: var(--s-4); }
+.py-month { overflow: hidden; background: var(--white); border: 1px solid var(--rule); border-radius: 18px; box-shadow: var(--shadow-xs); }
+.py-month header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: linear-gradient(180deg, #f7f4ee 0%, #f2eee6 100%);
+  border-bottom: 1px solid var(--rule);
+}
+.py-month header b { font-family: var(--display); font-weight: 400; font-size: 1.35rem; }
+.py-month header span { font-size: var(--t-xs); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.py-month ul { margin: 0; padding: 0; list-style: none; }
+.py-month li {
+  display: grid;
+  grid-template-columns: 48px 34px minmax(0, 1fr) minmax(0, 170px) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.py-month li:last-child { border-bottom: 0; }
+.py-h-date { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.py-h-date b { font-size: 1.15rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); }
+.py-h-date small { font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.py-kind.sm { width: 34px; height: 34px; color: var(--ok); background: var(--ok-soft); border-radius: 10px; }
+.py-kind.sm svg { width: 17px; height: 17px; }
+.py-h-ref { min-width: 0; overflow: hidden; font-size: var(--t-xs); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-3); }
+.py-h-ref a { color: var(--gold-deep); }
+.py-h-amt { font-size: var(--t-body); font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.py-empty {
+  margin: 0;
+  padding: 26px;
+  font-size: var(--t-sm);
+  text-align: center;
+  color: var(--ink-3);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 16px;
+}
+
+/* --- paying one charge --- */
+.py-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  height: 100%;
+  background: var(--paper);
+  box-shadow: -24px 0 60px rgba(11, 11, 12, 0.22);
+  animation: sheet-in 0.4s var(--ease-out) both;
+}
+.py-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 26px 24px 22px 28px;
+  color: #f4efe2;
+  background:
+    radial-gradient(60% 120% at 0% 0%, rgba(212, 175, 55, 0.22) 0%, transparent 60%),
+    linear-gradient(160deg, #1a1a1d 0%, #0b0b0c 100%);
+}
+.py-sheet-amt {
+  display: block;
+  margin-top: 8px;
+  font-size: 2.7rem;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--white);
+}
+.py-sheet-head p { margin: 10px 0 0; font-size: var(--t-sm); color: rgba(244, 239, 226, 0.68); }
+.py-sheet-head p a { color: var(--gold-lift); }
+.py-sheet-head .sheet-close { color: var(--white); background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.2); }
+.py-sheet-head .sheet-close:hover { border-color: var(--gold-bright); }
+.py-sheet-body { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 22px 24px 30px; overflow-y: auto; }
+.py-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  box-shadow: var(--shadow-xs);
+}
+.py-step-n {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+.py-step h3 { margin: -6px 0 0; font-family: var(--display); font-weight: 400; font-size: 1.65rem; line-height: 1.05; }
+.py-upi { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 18px; }
+.py-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.py-qr { display: block; width: 176px; height: 176px; }
+.py-qr-wrap span { font-size: var(--t-micro); color: var(--ink-3); }
+.py-upi-say { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.py-break { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: var(--t-sm); }
+.py-break div { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.py-break dt,
+.py-break dd { margin: 0; }
+.py-break .total { padding-top: 6px; font-weight: 650; color: var(--ink); border-top: 1px solid var(--rule); }
+.py-sheet .py-vpa { background: var(--paper); border-color: var(--rule); }
+.py-sheet .py-vpa .mono { color: var(--ink); }
+.py-upi-do { display: flex; flex-wrap: wrap; gap: 8px; }
+.py-upi-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  color: var(--black);
+  text-decoration: none;
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(212, 175, 55, 0.25);
+}
+.py-upi-open svg { width: 14px; height: 14px; }
+.py-copy.ghost { padding: 9px 14px; color: var(--ink); background: var(--white); border: 1px solid var(--rule-strong); }
+.py-hint { margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-3); }
+.py-drop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.py-drop:hover,
+.py-drop.on { background: var(--gold-wash); border-color: var(--gold); }
+.py-drop.has { background: var(--white); border-style: solid; border-color: var(--gold-line); }
+.py-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.py-drop img { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: 10px; }
+.py-drop svg.up { flex: none; width: 56px; height: 56px; padding: 15px; color: var(--gold-deep); background: var(--gold-wash); border-radius: 12px; }
+.py-drop b { display: block; font-size: var(--t-sm); overflow-wrap: anywhere; color: var(--ink); }
+.py-drop small { font-size: var(--t-xs); color: var(--ink-3); }
+.py-ref { display: flex; flex-direction: column; gap: 6px; }
+.py-ref span {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.py-send {
+  align-self: flex-start;
+  padding: 12px 22px;
+  font: inherit;
+  font-size: var(--t-body);
+  font-weight: 650;
+  color: var(--white);
+  background: var(--black-2);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.py-send:hover:not(:disabled) { transform: translateY(-1px); }
+.py-send:disabled { opacity: 0.45; cursor: default; }
+.py-rejected {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: 12px;
+}
+.py-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 22px;
+  text-align: center;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+}
+.py-done i { display: grid; place-items: center; width: 56px; height: 56px; color: var(--white); background: var(--ok); border-radius: 999px; }
+.py-done.wait i { color: var(--gold-deep); background: var(--gold-wash); box-shadow: inset 0 0 0 1px var(--gold-line); }
+.py-done i svg { width: 26px; height: 26px; }
+.py-done b { font-family: var(--display); font-weight: 400; font-size: 1.9rem; }
+.py-done p { max-width: 42ch; margin: 0; font-size: var(--t-sm); line-height: 1.55; color: var(--ink-2); }
+.py-done .py-send { align-self: center; }
+
+@media (max-width: 900px) {
+  .py-hero { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .py { gap: var(--s-6); }
+  .py-hero { padding: 24px 18px; border-radius: 22px; }
+  .py-say h1 { font-size: 2.3rem; }
+  .py-meter-key { gap: 10px 20px; }
+  .py-row-hit { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; padding: 12px; }
+  .py-kind { width: 40px; height: 40px; }
+  .py-act { grid-column: 1 / -1; justify-content: center; }
+  .py-month li { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; padding: 12px 14px; }
+  .py-month li .py-kind.sm,
+  .py-month li .py-h-ref { display: none; }
+  .py-bars { gap: 4px; height: 120px; }
+  .py-bar-val { visibility: hidden; }
+  .py-bar.now .py-bar-val { visibility: visible; }
+  .py-tools,
+  .py-tools .search { width: 100%; }
+  .py-tools .search { flex: 1; }
+  .py-sheet { width: 100%; }
+  .py-sheet-head { padding: 20px 16px 18px 18px; }
+  .py-sheet-body { padding: 16px; }
+  /* A phone cannot scan its own screen: the app button leads there. */
+  .py-qr-wrap { display: none; }
+  .py-upi { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .py > *,
+  .py-meter-bar i,
+  .py-sheet { animation: none; }
+  .py-row-hit:hover,
+  .py-send:hover:not(:disabled),
+  .py-copy:hover { transform: none; }
+}
