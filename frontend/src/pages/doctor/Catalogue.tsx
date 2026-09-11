@@ -1,20 +1,29 @@
-/* The 3D Align store.
+/* The 3D Align shop.
  *
- * What the lab makes besides aligners, and the stock a practice keeps on the
- * shelf. It used to be laid out like a marketplace listing — a grid of white
- * boxes, each with a price table and a buy button — which is the wrong model
- * for ten appliances a doctor already half-knows. This is a store front: the
- * lab's own catalogue cards carry the page, the words under them are few, and
- * ordering happens in a sheet that opens beside the product rather than in a
- * form bolted under a grid.
+ * A doctor comes here to buy the things that finish a case — a retainer, a
+ * guard, a splint — and the page's job is to make that feel like choosing from
+ * a range rather than reading a price list. The catalogue PDF was the only
+ * imagery, and printing its pages whole made the shop a wall of flyers. Inside
+ * those pages are the real assets: the lab's own boxed product shots on clear
+ * backgrounds, photographs of the appliances in use, and before-and-after
+ * cases. The page is built from those.
  *
- * The rules underneath are unchanged — how an appliance is counted, what a
- * paired appliance asks, the extra bite scan, the payment hold, the delivery
- * charge, accessories as practice stock with no patient.
+ * It reads top to bottom as a store does:
+ *   a spotlight that turns through the range, one product at a time;
+ *   shop by need, as four photographs;
+ *   the range itself, each appliance lit on its own stage;
+ *   why clinics order here;
+ *   the shelf — stock that travels in the same box;
+ *   and what happens after the button.
+ *
+ * Ordering happens in a sheet beside the product, with a gallery of it. The
+ * rules underneath are unchanged — how an appliance is counted, the paired
+ * appliances, the extra bite scan, the payment hold, the delivery charge, and
+ * accessories as practice stock with no patient.
  */
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -38,11 +47,63 @@ function from(product: Product): number {
   return Math.min(...product.sizes.map((s) => Number(s.price)));
 }
 
+function variesInPrice(product: Product): boolean {
+  return new Set(product.sizes.map((s) => Number(s.price))).size > 1;
+}
+
 /** "₹700" when every thickness costs the same; "from ₹500" only when they do not. */
 function priced(product: Product): string {
-  const prices = new Set(product.sizes.map((s) => Number(s.price)));
-  return prices.size > 1 ? `from ${rupees(from(product))}` : rupees(from(product));
+  return variesInPrice(product) ? `from ${rupees(from(product))}` : rupees(from(product));
 }
+
+function scrollToId(id: string, smooth = true) {
+  document.getElementById(id)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+}
+
+/* --- the lab's own imagery, lifted out of its catalogue --------------------
+   Keyed by product code. The boxed shots are on clear backgrounds, so they sit
+   on whatever stage the page gives them; the photographs are used whole. */
+
+const SHOT: Record<string, string> = {
+  ER: "/products/shots/ER.webp",
+  GER: "/products/shots/GER.webp",
+  PR: "/products/shots/PR.webp",
+  NG: "/products/shots/NG.webp",
+  TMJ: "/products/shots/TMJ.webp",
+  LEACH: "/products/shots/LEACH.webp",
+  JA: "/products/shots/JA.webp",
+};
+
+const LIFE: Record<string, string> = {
+  ER: "/products/life/ER.webp",
+  NG: "/products/life/NG.webp",
+  TMJ: "/products/life/TMJ.webp",
+  LEACH: "/products/life/LEACH.webp",
+  SG: "/products/life/SG.webp",
+};
+
+/** Cases from the catalogue, before and after. Shown as the lab printed them. */
+const RESULTS: Record<string, [string, string]> = {
+  PR: ["/products/ba/PR-before.webp", "/products/ba/PR-after.webp"],
+  GER: ["/products/ba/GER-before.webp", "/products/ba/GER-after.webp"],
+  JA: ["/products/ba/JA-before.webp", "/products/ba/JA-after.webp"],
+};
+
+/** The order the spotlight turns in: what a clinic buys most first. */
+const FEATURED = ["ER", "NG", "TMJ", "LEACH", "GER", "PR", "JA"];
+
+/** What each appliance does for the patient, in a line the doctor could say
+    to them. The spotlight leads with this, and names the product under it. */
+const TAGLINE: Record<string, string> = {
+  ER: "Hold the result you worked for.",
+  GER: "Retention that keeps the gap.",
+  PR: "Small smiles, kept in place.",
+  NG: "Nights without the grind.",
+  TMJ: "Relief, built to prescription.",
+  LEACH: "Whiter, at home.",
+  SG: "Play hard. Keep the smile.",
+  JA: "Bring the jaw forward.",
+};
 
 /** A line of plain English about what the thing is for. The lab's own shorthand
     is not something a doctor should have to decode from a product code. */
@@ -56,7 +117,7 @@ const BLURB: Record<string, string> = {
   SG: "Mouthguard for contact sport. Thicker for higher impact.",
   ABP: "Anterior bite plate for deprogramming.",
   PBP: "Posterior bite plate for posterior disclusion.",
-  JA: "Appliance for mandibular advancement.",
+  JA: "Twin-block appliance for mandibular advancement.",
 };
 
 /* What a doctor is reaching for, rather than what the lab calls it. A clinic
@@ -64,19 +125,17 @@ const BLURB: Record<string, string> = {
    Grouping by need lets ten products be browsed as four questions. */
 type Need = "retention" | "protection" | "joint" | "whitening";
 
-const NEEDS: { key: Need; label: string; codes: string[] }[] = [
-  { key: "retention", label: "Retention", codes: ["ER", "GER", "PR"] },
-  { key: "protection", label: "Protection", codes: ["NG", "SG"] },
-  { key: "joint", label: "Joint & bite", codes: ["TMJ", "JA", "ABP", "PBP"] },
-  { key: "whitening", label: "Whitening", codes: ["LEACH"] },
+const NEEDS: { key: Need; label: string; codes: string[]; photo: string }[] = [
+  { key: "retention", label: "Retention", codes: ["ER", "GER", "PR"], photo: "/products/life/ER.webp" },
+  { key: "protection", label: "Protection", codes: ["NG", "SG"], photo: "/products/life/NG.webp" },
+  { key: "joint", label: "Joint & bite", codes: ["TMJ", "JA", "ABP", "PBP"], photo: "/products/life/TMJ.webp" },
+  { key: "whitening", label: "Whitening", codes: ["LEACH"], photo: "/products/life/LEACH.webp" },
 ];
 
 function needOf(code: string) {
   return NEEDS.find((n) => n.codes.includes(code));
 }
 
-/* Small line icons for the promises in the hero. Drawn inline: four paths do
-   not justify an icon library. */
 const ICON: Record<string, ReactNode> = {
   scan: (
     <>
@@ -99,27 +158,25 @@ const ICON: Record<string, ReactNode> = {
       <circle cx="17" cy="17.5" r="1.8" />
     </>
   ),
-  box: (
+  lab: (
     <>
-      <path d="M4 7.5 12 4l8 3.5v9L12 20l-8-3.5z" />
-      <path d="M4 7.5 12 11l8-3.5M12 11v9" />
+      <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6A2 2 0 0 0 19 18l-5-9V3" />
+      <path d="M7.5 14h9" />
     </>
   ),
-  clinic: (
-    <>
-      <path d="M4 20V9l8-5 8 5v11" />
-      <path d="M10 20v-5h4v5M12 8v4M10 10h4" />
-    </>
-  ),
+  arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
+  down: <path d="M12 5v14M6 13l6 6 6-6" />,
 };
 
 function Icon({ name }: { name: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {ICON[name]}
     </svg>
   );
 }
+
+type Hold = { reference: string; reason: string };
 
 export default function Catalogue() {
   const navigate = useNavigate();
@@ -134,14 +191,12 @@ export default function Catalogue() {
   const delivery = useQuery({ queryKey: ["delivery-charge"], queryFn: api.deliveryCharge });
   const shelf = useQuery({ queryKey: ["accessories"], queryFn: api.accessories });
   /* An appliance ships before it is paid for, so an unsettled one holds the
-     next. Told here rather than only when the button is pressed — a form that
-     fills in and then refuses has wasted the clinic's time. Accessories are
-     never held: they are paid before they leave the building. */
+     next. Accessories are never held: they are paid before they leave. */
   const hold = useQuery({ queryKey: ["ordering-hold"], queryFn: api.orderingHold });
-  const heldBy = hold.data && !hold.data.can_order_products ? hold.data : null;
+  const heldBy: Hold | null = hold.data && !hold.data.can_order_products ? hold.data : null;
 
   /* Accessories are counted, not chosen once: a clinic restocking asks for two
-     strips, a cleanser and five cases in one breath. Held as code -> count so
+     strips, a cleanser and five cases in one breath. Held as id -> count so
      the same basket serves the shelf and the add-on step in the order sheet. */
   const [basket, setBasket] = useState<Record<string, number>>({});
   const [orderingAccessories, setOrderingAccessories] = useState(false);
@@ -169,19 +224,10 @@ export default function Catalogue() {
   }));
 
   const [params, setParams] = useSearchParams();
-  /* Two rooms, and the accessory one is addressable — so Home can point
-     straight at it rather than at the top of a page they then have to scroll. */
-  const tab = params.get("tab") === "accessories" ? "accessories" : "appliances";
-  function showTab(next: string) {
-    const query = new URLSearchParams(params);
-    if (next === "accessories") query.set("tab", "accessories");
-    else query.delete("tab");
-    setParams(query, { replace: true });
-  }
   const [ordering, setOrdering] = useState<Product | null>(null);
+  const [mediaAt, setMediaAt] = useState(0);
   const [patientId, setPatientId] = useState("");
-  // Two fields, as everywhere else. This form was still sending one after the
-  // split and every order for a new patient was refused.
+  // Two fields, as everywhere else.
   const [newFirst, setNewFirst] = useState("");
   const [newLast, setNewLast] = useState("");
   const newPatient = { first_name: newFirst.trim(), last_name: newLast.trim() };
@@ -196,6 +242,7 @@ export default function Catalogue() {
 
   function open(product: Product) {
     setOrdering(product);
+    setMediaAt(0);
     // A product with one form is settled the moment it is chosen.
     setSizeId(product.has_choice_of_size ? "" : product.sizes[0]?.id ?? "");
     setQuantity(1);
@@ -231,14 +278,12 @@ export default function Catalogue() {
         extra_teeth: extraTeeth,
         accessories: asPayload,
       }),
-    // Straight into the case, which is where the records and the scan are asked
-    // for — the same path every other order takes.
+    // Straight into the case, which is where the scan is asked for.
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
   /* Shelf items name nobody. Restocking IPR strips is the practice buying
-     supplies, not clinical work on a person — asking which patient a box of
-     retainer cases is for made the clinic invent one. */
+     supplies, not clinical work on a person. */
   const createAccessoryOrder = useMutation({
     mutationFn: () =>
       api.createOrder({
@@ -247,7 +292,6 @@ export default function Catalogue() {
     onSuccess: (order) => navigate(`/orders/${order.id}`),
   });
 
-  /* Restocking is the practice buying supplies. Nothing else is asked. */
   const accessoryBlocker = asPayload.length === 0 ? "Add something first." : "";
 
   const blocker = heldBy
@@ -267,10 +311,20 @@ export default function Catalogue() {
     if (!wanted || ordering || !products.data || heldBy) return;
     const match = products.data.find((p) => p.id === wanted);
     if (match) open(match);
-    // The query is consumed: a refresh should not reopen a sheet the clinic
-    // has already closed.
     setParams({}, { replace: true });
   }, [wanted, ordering, products.data, setParams]);
+
+  // ?tab=accessories used to open a second tab; the shelf is on this page now,
+  // so the same link lands on it.
+  const wantsShelf = params.get("tab") === "accessories";
+  useEffect(() => {
+    if (!wantsShelf || !shelf.data) return;
+    // Landing, not browsing: jump there rather than glide past the range.
+    requestAnimationFrame(() => scrollToId("shelf", false));
+    const query = new URLSearchParams(params);
+    query.delete("tab");
+    setParams(query, { replace: true });
+  }, [wantsShelf, shelf.data]);
 
   // Escape closes it, and the page behind must not scroll while it is open.
   useEffect(() => {
@@ -289,6 +343,15 @@ export default function Catalogue() {
     };
   }, [ordering, orderingAccessories]);
 
+  const range = products.data ?? [];
+  const featured = useMemo(
+    () =>
+      FEATURED.map((code) => range.find((p) => p.code === code)).filter(
+        (p): p is Product => Boolean(p),
+      ),
+    [range],
+  );
+
   if (products.isLoading) {
     return (
       <main className="page page-wide stack">
@@ -297,102 +360,75 @@ export default function Catalogue() {
     );
   }
 
-  const range = products.data ?? [];
-  // Only the needs something in the range answers, so no chip leads nowhere.
+  // Only the needs something in the range answers, so no tile leads nowhere.
   const needs = NEEDS.filter((n) => range.some((p) => n.codes.includes(p.code)));
   const shown = need === "all" ? range : range.filter((p) => needOf(p.code)?.key === need);
+  const activeNeed = NEEDS.find((n) => n.key === need);
 
-  const deliveryPromise =
+  const deliveryFact =
     delivery.data && delivery.data.amount !== "0.00"
       ? {
           b: `${rupees(delivery.data.amount)} delivery`,
-          s: `Courier to ${
+          s: `Couriered to ${
             delivery.data.is_city_rate && delivery.data.city ? delivery.data.city : "your clinic"
-          }, per order`,
+          }, once per order`,
         }
-      : delivery.data
-        ? { b: "No delivery charge", s: "To your clinic's address" }
-        : { b: "Couriered", s: "To your clinic" };
+      : { b: "Couriered to you", s: "Straight to your clinic's address" };
 
-  const promises =
-    tab === "appliances"
-      ? [
-          { icon: "scan", b: "Scan only", s: "No planning or simulation stage" },
-          { icon: "reuse", b: "Reuse a scan", s: "If we already hold one for the patient" },
-          { icon: "truck", ...deliveryPromise },
-        ]
-      : [
-          { icon: "box", b: "Nothing made", s: "No scan, no photographs" },
-          { icon: "truck", b: "Packed and sent", s: "As soon as it is ordered" },
-          { icon: "clinic", b: "Practice stock", s: "No patient to name" },
-        ];
-
+  const media = ordering ? galleryFor(ordering) : [];
+  const shownMedia = media[Math.min(mediaAt, media.length - 1)];
   const orderingNeed = ordering ? needOf(ordering.code) : undefined;
 
   return (
-    <main className="page page-wide store">
-      {/* The door. Compact on purpose — the products are the show, and a hero
-          that pushes them below the fold is a hero in the way. */}
-      <header className="store-hero">
-        <div className="store-hero-say">
-          <span className="store-eyebrow">3D Align · The range</span>
-          {tab === "appliances" ? (
-            <h1>
-              Made from <em>one scan.</em>
-            </h1>
-          ) : (
-            <h1>
-              The practice <em>shelf.</em>
-            </h1>
-          )}
-          <p>
-            {tab === "appliances"
-              ? "Retainers, splints, guards and trays, built from an intraoral scan. No treatment plan and no simulation, so they are quick."
-              : "Stock for the clinic. Order it on its own, or add it to an appliance and it travels in the same box."}
-          </p>
-        </div>
-        <ul className="store-promise">
-          {promises.map((p) => (
-            <li key={p.b}>
-              <Icon name={p.icon} />
-              <b>{p.b}</b>
-              <span>{p.s}</span>
-            </li>
-          ))}
-        </ul>
-      </header>
+    <main className="page page-wide shop">
+      {featured.length > 0 && (
+        <Spotlight
+          items={featured}
+          held={heldBy}
+          onOpen={open}
+          onBrowse={() => scrollToId("range")}
+        />
+      )}
 
-      <nav className="store-bar" aria-label="Browse">
-        <div className="store-switch" role="tablist" aria-label="What to order">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "appliances"}
-            className={tab === "appliances" ? "on" : ""}
-            onClick={() => showTab("appliances")}
-          >
-            Appliances <small>{range.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "accessories"}
-            className={tab === "accessories" ? "on" : ""}
-            onClick={() => showTab("accessories")}
-          >
-            Accessories
-            {basketLines.length > 0 ? (
-              <small className="lit" title="In your basket">{basketLines.length}</small>
-            ) : (
-              <small>{shelf.data?.length ?? 0}</small>
-            )}
-          </button>
-        </div>
+      {/* Shop by need: four photographs, each a question a clinic arrives
+          with. Choosing one narrows the range below and takes you to it. */}
+      {needs.length > 1 && (
+        <section className="shop-needs" aria-label="Shop by need">
+          {needs.map((n) => {
+            const names = range.filter((p) => n.codes.includes(p.code)).map((p) => p.name);
+            return (
+              <button
+                key={n.key}
+                type="button"
+                className={need === n.key ? "need-tile on" : "need-tile"}
+                aria-pressed={need === n.key}
+                onClick={() => {
+                  setNeed(need === n.key ? "all" : n.key);
+                  scrollToId("range");
+                }}
+              >
+                <img src={n.photo} alt="" loading="lazy" />
+                <span className="need-go">
+                  {names.length} {names.length === 1 ? "appliance" : "appliances"}
+                </span>
+                <b>{n.label}</b>
+                <small>{names.join(" · ")}</small>
+              </button>
+            );
+          })}
+        </section>
+      )}
 
-        {tab === "appliances" && needs.length > 1 && (
-          <div className="store-needs" role="group" aria-label="Shop by need">
+      <section id="range" className="shop-section" aria-labelledby="range-title">
+        <header className="shop-head">
+          <div>
+            <span className="shop-eyebrow">The range</span>
+            <h2 id="range-title">{activeNeed ? activeNeed.label : "Every appliance"}</h2>
+            <p>Made in our lab from an intraoral scan. No planning stage, so they are quick.</p>
+          </div>
+          <div className="shop-chips" role="group" aria-label="Filter by need">
             <button type="button" className={need === "all" ? "on" : ""} aria-pressed={need === "all"} onClick={() => setNeed("all")}>
-              Everything
+              Everything <small>{range.length}</small>
             </button>
             {needs.map((n) => (
               <button
@@ -402,70 +438,71 @@ export default function Catalogue() {
                 aria-pressed={need === n.key}
                 onClick={() => setNeed(n.key)}
               >
-                {n.label}
+                {n.label} <small>{range.filter((p) => n.codes.includes(p.code)).length}</small>
               </button>
             ))}
           </div>
-        )}
-      </nav>
+        </header>
 
-      {tab === "appliances" && heldBy && (
-        <Banner tone="warn">
-          <div>
-            <b>{heldBy.reference} has been delivered</b> and {heldBy.reason}. Appliances are
-            made and shipped before they are paid for, so we ask that one is settled before
-            the next is started.{" "}
-            <Link to={`/orders?series=product`}>See that order</Link>. Accessories can
-            still be ordered.
-          </div>
-        </Banner>
-      )}
+        <div className="shop-grid">
+          {shown.map((product, i) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              index={i}
+              held={Boolean(heldBy)}
+              onOpen={() => open(product)}
+            />
+          ))}
+        </div>
+      </section>
 
-      {tab === "appliances" && (
-        <>
-          <div className="store-grid">
-            {shown.map((product, i) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                index={i}
-                held={Boolean(heldBy)}
-                onOpen={() => open(product)}
-              />
-            ))}
-          </div>
+      <section className="shop-band" aria-labelledby="band-title">
+        <figure className="band-photo">
+          <img src="/products/life/ER.webp" alt="An Essix retainer being seated" loading="lazy" />
+        </figure>
+        <div className="band-say">
+          <span className="shop-eyebrow">Why clinics order here</span>
+          <h2 id="band-title">
+            One scan. <em>Everything after it.</em>
+          </h2>
+          <ul className="band-facts">
+            <li>
+              <Icon name="scan" />
+              <b>Made from your scan</b>
+              <span>Three intraoral scans, and a bite scan where the appliance needs one.</span>
+            </li>
+            <li>
+              <Icon name="reuse" />
+              <b>Reuse a scan we hold</b>
+              <span>If the patient was scanned for an earlier case, there is nothing to send.</span>
+            </li>
+            <li>
+              <Icon name="lab" />
+              <b>No planning stage</b>
+              <span>No treatment plan and no simulation — straight into fabrication.</span>
+            </li>
+            <li>
+              <Icon name="truck" />
+              <b>{deliveryFact.b}</b>
+              <span>{deliveryFact.s}.</span>
+            </li>
+          </ul>
+        </div>
+      </section>
 
-          {/* The whole journey in three lines, because the first question a
-              doctor has about a product order is what happens after the button.
-              Numbered because it is a sequence. */}
-          <section className="store-how" aria-labelledby="store-how-title">
-            <h2 id="store-how-title">From scan to your clinic</h2>
-            <ol>
-              <li>
-                <span className="store-how-n">Step 1</span>
-                <h3>Order here</h3>
-                <p>Choose the appliance, the patient and how many. One charge, with delivery.</p>
-              </li>
-              <li>
-                <span className="store-how-n">Step 2</span>
-                <h3>Send the scan</h3>
-                <p>
-                  Three intraoral scans — or none, if we already hold one. A TMJ splint or
-                  jaw-correction appliance also needs its bite scan.
-                </p>
-              </li>
-              <li>
-                <span className="store-how-n">Step 3</span>
-                <h3>Made and sent</h3>
-                <p>No planning stage. We make it from the scan and courier it to you.</p>
-              </li>
-            </ol>
-          </section>
-        </>
-      )}
-
-      {tab === "accessories" && (shelf.data?.length ?? 0) > 0 && (
-        <section className="stack-sm">
+      {(shelf.data?.length ?? 0) > 0 && (
+        <section id="shelf" className="shop-section" aria-labelledby="shelf-title">
+          <header className="shop-head">
+            <div>
+              <span className="shop-eyebrow">Practice stock</span>
+              <h2 id="shelf-title">Add to the box</h2>
+              <p>
+                Nothing to make and nothing to scan. Order on their own, or with an appliance and
+                they travel together for one delivery charge.
+              </p>
+            </div>
+          </header>
           <div className="shelf">
             {shelf.data?.map((item, i) => (
               <ShelfItem
@@ -511,17 +548,40 @@ export default function Catalogue() {
         </section>
       )}
 
+      {/* What happens after the button — the first question a doctor has
+          about a product order. Numbered because it is a sequence. */}
+      <section className="store-how" aria-labelledby="store-how-title">
+        <h2 id="store-how-title">From scan to your clinic</h2>
+        <ol>
+          <li>
+            <span className="store-how-n">Step 1</span>
+            <h3>Order here</h3>
+            <p>Choose the appliance, the patient and how many. One charge, with delivery.</p>
+          </li>
+          <li>
+            <span className="store-how-n">Step 2</span>
+            <h3>Send the scan</h3>
+            <p>
+              Three intraoral scans — or none, if we already hold one. A TMJ splint or
+              jaw-correction appliance also needs its bite scan.
+            </p>
+          </li>
+          <li>
+            <span className="store-how-n">Step 3</span>
+            <h3>Made and sent</h3>
+            <p>No planning stage. We make it from the scan and courier it to you.</p>
+          </li>
+        </ol>
+      </section>
+
       {ordering && createPortal(
         /* Into the body, not into the page. `.page` carries an entrance
-           animation on transform with fill-mode "both", which keeps it filling
-           for good — and an element with a filling transform animation becomes
-           the containing block for position:fixed inside it. */
+           animation on transform with fill-mode "both", which makes it the
+           containing block for position:fixed inside it. */
         <div
           className="sheet-backdrop"
           role="presentation"
           onClick={(e) => {
-            // Only a click on the backdrop itself, not one that bubbled up
-            // out of the sheet.
             if (e.target === e.currentTarget) setOrdering(null);
           }}
         >
@@ -531,30 +591,44 @@ export default function Catalogue() {
             aria-modal="true"
             aria-label={`Order ${article(ordering.name)} ${ordering.name}`}
           >
-            {/* The card, large, beside the form — the thing being ordered stays
-                in view the whole time it is being configured. */}
+            {/* A gallery of the thing being ordered, kept in view the whole time
+                it is configured: the boxed shot, the appliance in use, a case
+                it was used on, and the lab's catalogue card. */}
             <div className="sheet-media">
-              <ProductImage
-                src={ordering.image_url}
-                code={ordering.code}
-                name={ordering.name}
-                ratio="1 / 1.414"
-              />
+              <div className="g-main" key={shownMedia?.key}>
+                {shownMedia?.node}
+              </div>
+              {media.length > 1 && (
+                <div className="g-thumbs" role="tablist" aria-label="Pictures">
+                  {media.map((m, i) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={i === mediaAt}
+                      className={i === mediaAt ? "on" : ""}
+                      onClick={() => setMediaAt(i)}
+                    >
+                      <img src={m.thumb} alt="" />
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="sheet-body">
               <div className="sheet-scroll">
                 <header className="sheet-head">
                   <span className="sheet-thumb">
-                    <ProductImage
-                      src={ordering.image_url}
-                      code={ordering.code}
-                      name={ordering.name}
-                      ratio="1 / 1.414"
-                    />
+                    {SHOT[ordering.code] ? (
+                      <img src={SHOT[ordering.code]} alt="" />
+                    ) : (
+                      <ProductImage src={ordering.image_url} code={ordering.code} name={ordering.name} ratio="1 / 1.414" />
+                    )}
                   </span>
                   <div className="sheet-title">
-                    {orderingNeed && <span className="store-need">{orderingNeed.label}</span>}
+                    {orderingNeed && <span className="shop-eyebrow">{orderingNeed.label}</span>}
                     <h2>{ordering.name}</h2>
                     <p>{BLURB[ordering.code] ?? ordering.description}</p>
                   </div>
@@ -570,9 +644,19 @@ export default function Catalogue() {
                   </button>
                 </header>
 
+                {heldBy && (
+                  <p className="sheet-held">
+                    <i aria-hidden="true" />
+                    <span>
+                      New appliance orders wait until <b>{heldBy.reference}</b> is settled —{" "}
+                      {heldBy.reason}. <Link to="/orders?series=product">View it</Link>
+                    </span>
+                  </p>
+                )}
+
                 {ordering.has_choice_of_size && (
                   /* Chips rather than a menu: three thicknesses are a choice to
-                     see all at once, with what each costs, not to open and read. */
+                     see all at once, with what each costs. */
                   <fieldset className="opt">
                     <legend>Thickness</legend>
                     <div className="opt-chips" role="radiogroup" aria-label="Thickness">
@@ -624,8 +708,7 @@ export default function Catalogue() {
                   <legend>How many</legend>
                   {paired ? (
                     /* Only ever made as an upper-and-lower pair, so there is no
-                       arch to choose — saying so is more use than a control that
-                       offers a choice the appliance does not have. */
+                       arch to choose. */
                     <Count
                       label="Sets"
                       hint="Made as an upper and lower pair"
@@ -661,13 +744,12 @@ export default function Catalogue() {
 
                 {ordering.extra_scan_label && (
                   /* Said before the order is placed, not discovered at the scan
-                     stage: this appliance is built to a jaw position, and the lab
-                     cannot make it from the ordinary three scans. */
+                     stage: this appliance is built to a jaw position. */
                   <p className="sheet-alert">
                     <Icon name="scan" />
                     <span>
-                      {article(ordering.name) === "an" ? "An" : "A"} {ordering.name} also
-                      needs {/^[aeiou]/i.test(ordering.extra_scan_label) ? "an" : "a"}{" "}
+                      {article(ordering.name) === "an" ? "An" : "A"} {ordering.name} also needs{" "}
+                      {/^[aeiou]/i.test(ordering.extra_scan_label) ? "an" : "a"}{" "}
                       <b>{ordering.extra_scan_label.toLowerCase()}</b> scan — a second bite taken
                       where the appliance will hold the jaw. You will be asked for it with the
                       other three.
@@ -675,10 +757,9 @@ export default function Catalogue() {
                   </p>
                 )}
 
-                {/* Asked here rather than left to be discovered on the shelf:
-                    the moment a clinic is ordering a retainer is the moment it
-                    remembers it is low on cases and cleanser, and a second order
-                    means a second delivery charge. */}
+                {/* The moment a clinic is ordering a retainer is the moment it
+                    remembers it is low on cases and cleanser, and a second
+                    order means a second delivery charge. */}
                 {(shelf.data?.length ?? 0) > 0 && (
                   <details className="addons" open={basketLines.length > 0}>
                     <summary>
@@ -703,8 +784,7 @@ export default function Catalogue() {
                 )}
               </div>
 
-              {/* The bill and the button never scroll away: whatever is being
-                  changed above, the total it comes to is always in sight. */}
+              {/* The bill and the button never scroll away. */}
               <footer className="sheet-foot">
                 {goods > 0 && (
                   <div className="sheet-lines">
@@ -836,8 +916,193 @@ export default function Catalogue() {
   );
 }
 
-/** One product in the window: the catalogue card, then a name, a line and a
-    price. The whole card is the button — there is one thing to do with it. */
+/** The pictures the order sheet can show for a product, in the order a buyer
+    wants them: the thing, the thing in use, what it did, the lab's card. */
+function galleryFor(p: Product): { key: string; label: string; thumb: string; node: ReactNode }[] {
+  const out: { key: string; label: string; thumb: string; node: ReactNode }[] = [];
+  if (SHOT[p.code]) {
+    out.push({
+      key: "shot",
+      label: "The appliance",
+      thumb: SHOT[p.code],
+      node: <img className="g-shot" src={SHOT[p.code]} alt={p.name} />,
+    });
+  }
+  if (LIFE[p.code]) {
+    out.push({
+      key: "life",
+      label: "In use",
+      thumb: LIFE[p.code],
+      node: <img className="g-photo" src={LIFE[p.code]} alt={`${p.name} in use`} />,
+    });
+  }
+  if (RESULTS[p.code]) {
+    const [before, after] = RESULTS[p.code];
+    out.push({
+      key: "results",
+      label: "Before and after",
+      thumb: after,
+      node: (
+        <div className="g-ba">
+          <figure>
+            <img src={before} alt="Before" />
+            <figcaption>Before</figcaption>
+          </figure>
+          <figure>
+            <img src={after} alt="After" />
+            <figcaption>After</figcaption>
+          </figure>
+        </div>
+      ),
+    });
+  }
+  if (p.code === "NG") {
+    out.push({
+      key: "wear",
+      label: "What it prevents",
+      thumb: "/products/ba/NG-worn.webp",
+      node: <img className="g-photo" src="/products/ba/NG-worn.webp" alt="Teeth worn flat by grinding" />,
+    });
+  }
+  if (p.image_url) {
+    out.push({
+      key: "card",
+      label: "Catalogue card",
+      thumb: p.image_url,
+      node: <img className="g-card" src={p.image_url} alt={`${p.name} catalogue card`} />,
+    });
+  }
+  if (out.length === 0) {
+    out.push({
+      key: "mark",
+      label: p.name,
+      thumb: "",
+      node: <ProductImage src="" code={p.code} name={p.name} ratio="4 / 5" />,
+    });
+  }
+  return out;
+}
+
+/** The door: the range turning one appliance at a time, each lit on its own
+    stage with the line a doctor could say to the patient about it. */
+function Spotlight({
+  items,
+  held,
+  onOpen,
+  onBrowse,
+}: {
+  items: Product[];
+  held: Hold | null;
+  onOpen: (p: Product) => void;
+  onBrowse: () => void;
+}) {
+  const [at, setAt] = useState(0);
+  const [paused, setPaused] = useState(false);
+  // No turning for anyone who has asked the system for less motion.
+  const still = useMemo(
+    () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
+
+  useEffect(() => {
+    if (paused || still || items.length < 2) return;
+    const timer = window.setTimeout(() => setAt((i) => (i + 1) % items.length), 6500);
+    return () => window.clearTimeout(timer);
+  }, [at, paused, still, items.length]);
+
+  const p = items[at % items.length];
+  const need = needOf(p.code);
+
+  return (
+    <section
+      className={paused ? "spot paused" : "spot"}
+      aria-roledescription="carousel"
+      aria-label="Featured appliances"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+    >
+      {held && (
+        /* Said once, quietly, where the buying starts — not as a banner across
+           the whole shop. The sheet repeats it where it matters. */
+        <p className="spot-hold">
+          <i aria-hidden="true" />
+          <span>
+            <b>New appliance orders are paused</b> until {held.reference} is settled.
+          </span>
+          <Link to="/orders?series=product">View it</Link>
+        </p>
+      )}
+
+      <div className="spot-say" key={`say-${p.id}`}>
+        <span className="spot-kicker">
+          {need ? need.label : "3D Align"} · {p.name}
+        </span>
+        <h1>{TAGLINE[p.code] ?? p.name}</h1>
+        <p className="spot-blurb">{BLURB[p.code] ?? p.description}</p>
+        <div className="spot-buy">
+          <span className="spot-price">
+            <small>{variesInPrice(p) ? "From" : "Price"}</small>
+            <b>{rupees(from(p))}</b>
+          </span>
+          <button type="button" className="spot-cta" onClick={() => onOpen(p)}>
+            {held ? "See details" : "Order now"}
+            <Icon name="arrow" />
+          </button>
+          <button type="button" className="spot-more" onClick={onBrowse}>
+            See the whole range
+          </button>
+        </div>
+      </div>
+
+      <div className="spot-stage" key={`stage-${p.id}`} aria-hidden="true">
+        <span className="spot-glow" />
+        <span className="spot-ring" />
+        <img className="spot-shot" src={SHOT[p.code]} alt="" />
+        {LIFE[p.code] && (
+          <figure className="spot-life">
+            <img src={LIFE[p.code]} alt="" />
+            <figcaption>In use</figcaption>
+          </figure>
+        )}
+        {(p.both_arches || p.extra_scan_label || p.has_choice_of_size) && (
+          <span className="spot-tags">
+            {p.has_choice_of_size && (
+              <span className="spot-tag">{p.sizes.map((s) => s.label).join(" · ")}</span>
+            )}
+            {p.both_arches && <span className="spot-tag">Upper + lower pair</span>}
+            {p.extra_scan_label && (
+              <span className="spot-tag">+ {p.extra_scan_label.toLowerCase()} scan</span>
+            )}
+          </span>
+        )}
+      </div>
+
+      <div className="spot-rail" role="tablist" aria-label="Choose an appliance">
+        {items.map((q, i) => (
+          <button
+            key={q.id}
+            type="button"
+            role="tab"
+            aria-selected={i === at}
+            className={i === at ? "on" : ""}
+            onClick={() => setAt(i)}
+          >
+            <img src={SHOT[q.code]} alt="" />
+            <span>{q.name}</span>
+            <i className="spot-bar" aria-hidden="true">
+              {i === at && <i key={at} />}
+            </i>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** One appliance in the range, lit on its own stage. The whole card is the
+    button — there is one thing to do with it. */
 function ProductCard({
   product,
   index,
@@ -850,35 +1115,35 @@ function ProductCard({
   onOpen: () => void;
 }) {
   const need = needOf(product.code);
+  const shot = SHOT[product.code];
+  const photo = !shot ? LIFE[product.code] : undefined;
   return (
-    <article className="store-card" style={{ "--i": index } as CSSProperties}>
-      <button type="button" className="store-card-hit" onClick={onOpen}>
-        <span className="store-media">
-          <ProductImage src={product.image_url} code={product.code} name={product.name} ratio="1 / 1.414" />
-          {(product.both_arches || product.extra_scan_label) && (
-            /* The two things that make an appliance order differently, said on
-               the card rather than met halfway through the form. */
-            <span className="store-flags">
-              {product.both_arches && <span className="store-flag">Upper + lower pair</span>}
-              {product.extra_scan_label && (
-                <span className="store-flag">+ {product.extra_scan_label.toLowerCase()} scan</span>
-              )}
-            </span>
+    <article className="pc" style={{ "--i": index } as CSSProperties}>
+      <button type="button" className="pc-hit" onClick={onOpen}>
+        <span className={`pc-stage${photo ? " photo" : ""}${!shot && !photo ? " bare" : ""}`}>
+          {shot ? (
+            <img className="pc-shot" src={shot} alt="" loading="lazy" />
+          ) : photo ? (
+            <img className="pc-photo" src={photo} alt="" loading="lazy" />
+          ) : (
+            <ProductImage src="" code={product.code} name={product.name} ratio="4 / 5" />
           )}
-          <span className="store-quick" aria-hidden="true">
-            {held ? "See details" : "Order this"}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
+          <span className="pc-flags">
+            {need && <span className="pc-flag need">{need.label}</span>}
+            {product.both_arches && <span className="pc-flag">Pair</span>}
+            {product.extra_scan_label && <span className="pc-flag">+ bite scan</span>}
+          </span>
+          <span className="pc-quick" aria-hidden="true">
+            {held ? "See details" : "Order"}
+            <Icon name="arrow" />
           </span>
         </span>
-        <span className="store-info">
-          {need && <span className="store-need">{need.label}</span>}
-          <span className="store-name">{product.name}</span>
-          <span className="store-blurb">{BLURB[product.code] ?? product.description}</span>
-          <span className="store-foot">
-            <span className="store-price">{priced(product)}</span>
-            <span className="store-sizes">
+        <span className="pc-info">
+          <span className="pc-name">{product.name}</span>
+          <span className="pc-blurb">{BLURB[product.code] ?? product.description}</span>
+          <span className="pc-foot">
+            <span className="pc-price">{priced(product)}</span>
+            <span className="pc-sizes">
               {product.has_choice_of_size ? product.sizes.map((s) => s.label).join(" · ") : "One size"}
             </span>
           </span>
@@ -888,8 +1153,7 @@ function ProductCard({
   );
 }
 
-/** A shelf item: mark, name, price, and the control that orders it. Nothing
-    opens — a clinic ordering five cases should not have to open anything. */
+/** A shelf item: mark, name, price, and the control that orders it. */
 function ShelfItem({
   item,
   index,
@@ -922,8 +1186,7 @@ function ShelfItem({
   );
 }
 
-/** One shelf item as a compact row, for the add-on step inside the sheet where
-    there is no room for pictures. */
+/** One shelf item as a compact row, for the add-on step inside the sheet. */
 function AccessoryRow({
   item,
   count,
@@ -983,9 +1246,8 @@ function Stepper({
   );
 }
 
-/** A labelled counter for the order sheet — how many of an arch, how many
-    sets, how many extra teeth. Clamped at both ends so a typed value cannot
-    leave the range the server accepts. */
+/** A labelled counter for the order sheet, clamped at both ends so a typed
+    value cannot leave the range the server accepts. */
 function Count({
   label,
   hint,
