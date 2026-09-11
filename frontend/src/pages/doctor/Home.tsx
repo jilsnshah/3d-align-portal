@@ -1,26 +1,31 @@
 /* The clinic's front door.
  *
- * Answers four questions and stops: what needs me, what has happened, where do
- * I go, and what can I order. It is deliberately not a view of the data — the
- * page used to print twelve case rows, which is the Cases page rendered twice
- * and read once.
+ * Answers four questions and stops: what needs me, how is the practice doing,
+ * what can I order, and what has happened. It is deliberately not a view of the
+ * data — the cases themselves live one click away where they belong.
  *
- * The change that matters is how work is counted. A doctor does not think
- * "Isha Shah, EN-2026-0064"; they think "I owe them three scans". So what needs
- * them is grouped by the thing being asked rather than by the case asking, and
- * the cases themselves live one click away where they belong.
+ * It opens as a welcome rather than a dashboard: the doctor's name set large,
+ * the practice summed up in one sentence, the three things they come here to
+ * do, and — beside it, on a photograph of the work — the single most pressing
+ * thing waiting on them. The range follows, shown as the lab's own product
+ * shots rather than its flyers, and the desk underneath holds what needs them
+ * and what has moved.
+ *
+ * What needs them is counted by the thing being asked, not by the case asking:
+ * a doctor thinks "I owe them three scans", not "EN-2026-0064".
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api, since } from "../../api";
 import { ASK, URGENCY } from "../../workflow";
-import type { Notification, OrderStatus, OrderSummary, Product } from "../../api";
+import type { Notification, OrderStatus, OrderSummary, Product, StatsBucket } from "../../api";
 import { useAuth } from "../../auth";
 import { Skeleton } from "../../components/ui";
-
+import { FEATURED, LIFE, SHOT, TAGLINE } from "../../productArt";
 
 function rupees(value: number | string): string {
   return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -40,85 +45,98 @@ function firstName(full: string): string {
   return parts[0] ?? full;
 }
 
-function cheapest(product: Product): number {
-  return Math.min(...product.sizes.map((s) => Number(s.price)));
+/** "₹700" when every thickness costs the same; "from ₹500" only when not. */
+function priced(product: Product): string {
+  const prices = product.sizes.map((s) => Number(s.price));
+  const low = Math.min(...prices);
+  return new Set(prices).size > 1 ? `from ${rupees(low)}` : rupees(low);
 }
 
-/** The decoration behind the hero.
- *
- *  Drawn rather than dropped in: a honeycomb of fine gold hexagons, which is the
- *  texture 3D Align prints on its own catalogue cards, a soft light off the top
- *  left, and the curve of an upper arch with its contact points set large and
- *  faint beneath. The motif belongs to this trade and to no other, which is the
- *  point of drawing it instead of reaching for a gradient.
- */
-function HeroArt() {
+const Arrow = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+const Chevron = ({ className = "go" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+
+function Glyph({ children }: { children: ReactNode }) {
   return (
-    <svg className="hero-art" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <defs>
-        <pattern id="comb" width="28" height="48" patternUnits="userSpaceOnUse">
-          {/* Three hexagons per tile — one whole, two half-dropped — which is
-              what makes the grid continue across the seam. */}
-          <g fill="none" stroke="#d4af37" strokeWidth="0.9">
-            <path d="M14 0 L28 8 L28 24 L14 32 L0 24 L0 8 Z" />
-            <path d="M28 24 L42 32 L42 48 L28 56 L14 48 L14 32 Z" />
-            <path d="M0 24 L14 32 L14 48 L0 56 L-14 48 L-14 32 Z" />
-          </g>
-        </pattern>
-
-        <radialGradient id="lamp" cx="10%" cy="0%" r="62%">
-          <stop offset="0%" stopColor="#d4af37" stopOpacity="0.28" />
-          <stop offset="55%" stopColor="#d4af37" stopOpacity="0.06" />
-          <stop offset="100%" stopColor="#d4af37" stopOpacity="0" />
-        </radialGradient>
-
-        {/* The comb is strongest where the light falls and gone by the right
-            edge, so the texture reads as lit rather than as wallpaper. */}
-        <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0.6">
-          <stop offset="0%" stopColor="#fff" stopOpacity="0.28" />
-          <stop offset="45%" stopColor="#fff" stopOpacity="0.09" />
-          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-        <mask id="combMask">
-          <rect width="1200" height="300" fill="url(#fade)" />
-        </mask>
-
-        <linearGradient id="archInk" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#d4af37" stopOpacity="0" />
-          <stop offset="40%" stopColor="#d4af37" stopOpacity="0.42" />
-          <stop offset="75%" stopColor="#d4af37" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="#d4af37" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      <rect width="1200" height="300" fill="url(#comb)" mask="url(#combMask)" />
-      <rect width="1200" height="300" fill="url(#lamp)" />
-
-      {/* An upper arch seen from below: the outline, then the contact points
-          between the teeth stepping round it. */}
-      <g fill="none" stroke="url(#archInk)" transform="translate(430 -30)">
-        <path d="M120 392 C 150 250, 250 168, 420 168 C 590 168, 690 250, 720 392" strokeWidth="1.5" />
-        <path d="M168 396 C 194 282, 282 212, 420 212 C 558 212, 646 282, 672 396" strokeWidth="1" />
-        <g strokeWidth="1" opacity="0.7">
-          <path d="M133 330 L181 342" /><path d="M152 282 L197 300" />
-          <path d="M182 240 L221 265" /><path d="M223 206 L253 239" />
-          <path d="M274 184 L293 224" /><path d="M330 172 L340 215" />
-          <path d="M390 168 L392 212" /><path d="M450 168 L448 212" />
-          <path d="M510 172 L500 215" /><path d="M566 184 L547 224" />
-          <path d="M617 206 L587 239" /><path d="M658 240 L619 265" />
-          <path d="M688 282 L643 300" /><path d="M707 330 L659 342" />
-        </g>
-      </g>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
     </svg>
   );
 }
 
-/** What the clinic owes the lab, counted by the thing being asked.
- *
- *  This was six case rows — the Cases page, printed a second time. A doctor
- *  reads "send three intraoral scans" and knows their afternoon; they do not
- *  read six reference numbers and add them up.
- */
+/** One mark per kind of ask, so a list of them can be read by shape. */
+const ASK_ICON: Partial<Record<OrderStatus, ReactNode>> = {
+  DRAFT: (
+    <Glyph>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
+    </Glyph>
+  ),
+  RECORDS_REQUESTED: (
+    <Glyph>
+      <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </Glyph>
+  ),
+  QUOTED: (
+    <Glyph>
+      <path d="M20 12 12 20l-8-8V4h8z" />
+      <circle cx="8.5" cy="8.5" r="1.4" />
+    </Glyph>
+  ),
+  AWAITING_SCAN: (
+    <Glyph>
+      <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
+      <path d="M7 12h10" />
+    </Glyph>
+  ),
+  PLAN_SHARED: (
+    <Glyph>
+      <path d="M12 3 21 8l-9 5-9-5z" />
+      <path d="m3 13 9 5 9-5" />
+    </Glyph>
+  ),
+  FIT_REVIEW: (
+    <Glyph>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+    </Glyph>
+  ),
+};
+
+const KPI_ICON = {
+  lab: (
+    <Glyph>
+      <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6A2 2 0 0 0 19 18l-5-9V3" />
+      <path d="M7.5 14h9" />
+    </Glyph>
+  ),
+  you: (
+    <Glyph>
+      <circle cx="12" cy="8.5" r="3.6" />
+      <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
+    </Glyph>
+  ),
+  money: (
+    <Glyph>
+      <path d="M6 5h12M6 9.5h12M9.5 5v3a4 4 0 0 1-4 4h-.5l7 7" />
+    </Glyph>
+  ),
+  chart: (
+    <Glyph>
+      <path d="M4 20V10M10 20V5M16 20v-7M22 20H2" />
+    </Glyph>
+  ),
+};
+
 type Group = { status: OrderStatus; cases: OrderSummary[] };
 
 /** What the clinic owes, gathered by the thing being asked and ordered by what
@@ -144,68 +162,241 @@ function say(g: Group): { label: string; to: string; oldest: OrderSummary } {
   };
 }
 
-/** The single most pressing thing, in the band itself.
- *
- *  The hero was a name and some buttons with a wide dark field beside them, and
- *  the one thing a clinic most needs to do sat below the fold. This is that one
- *  thing — not a second copy of the list underneath, which stays grouped and
- *  complete; just the top of it, where it can be acted on without scrolling. */
+/** The single most pressing thing, set on the photograph beside the greeting
+    so it can be acted on without scrolling. The full list is on the desk. */
 function NextUp({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
   const navigate = useNavigate();
   const top = group(orders)[0];
 
-  if (loading) return <div className="nextup nextup-wait" aria-hidden="true" />;
+  if (loading) return <div className="hm-next wait" aria-hidden="true" />;
 
   if (!top) {
     return (
-      <div className="nextup clearish">
-        <span className="nextup-eyebrow">All clear</span>
-        <p className="nextup-say">Nothing is waiting on you.</p>
-        <p className="nextup-note">
-          Everything you have sent is with 3D Align. We will tell you the moment
-          something moves.
-        </p>
+      <div className="hm-next clear">
+        <span className="hm-next-eyebrow">All clear</span>
+        <p className="hm-next-say">Nothing is waiting on you.</p>
+        <p className="hm-next-note">We will tell you the moment something moves.</p>
       </div>
     );
   }
 
   const { label, to, oldest } = say(top);
   return (
-    <div className="nextup">
-      <span className="nextup-eyebrow">Next up</span>
-      <p className="nextup-say">{label}</p>
-      <p className="nextup-note">
+    <div className="hm-next">
+      <span className="hm-next-eyebrow">Next up</span>
+      <p className="hm-next-say">{label}</p>
+      <p className="hm-next-note">
         {top.cases.length === 1 ? oldest.patient_name : `${top.cases.length} cases`} · waiting{" "}
         {since(oldest.updated_at)}
       </p>
-      <button type="button" className="nextup-go" onClick={() => navigate(to)}>
+      <button type="button" className="hm-next-go" onClick={() => navigate(to)}>
         {top.cases.length === 1 ? "Open this case" : "Work through them"}
-        <span className="go"> →</span>
+        <Arrow />
       </button>
     </div>
   );
 }
 
-function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
+/** One figure about the practice, and the way to its detail. */
+function Kpi({
+  to,
+  label,
+  value,
+  note,
+  lit,
+  icon,
+  children,
+}: {
+  to: string;
+  label: string;
+  value: string;
+  note: string;
+  lit?: boolean;
+  icon: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <Link to={to} className={`hm-kpi${lit ? " lit" : ""}`}>
+      <span className="hm-kpi-top">
+        <span className="hm-kpi-icon">{icon}</span>
+        <span className="hm-kpi-label">{label}</span>
+      </span>
+      <b className="hm-kpi-value">{value}</b>
+      <span className="hm-kpi-note">{note}</span>
+      {children}
+      <Chevron />
+    </Link>
+  );
+}
+
+/** Orders placed each day this month, as a strip of bars. A single series, so
+    it needs no legend — the tile's label names it, and each bar says its own
+    day and count on hover. Days still to come are drawn flat and faint. */
+function MonthBars({ series }: { series: StatsBucket[] }) {
+  if (series.length === 0) return null;
+  const counts = series.map((b) => b.aligners + b.products + b.accessories);
+  const max = Math.max(1, ...counts);
+  const today = new Date().getDate();
+  return (
+    <span className="hm-bars" aria-hidden="true">
+      {series.map((b, i) => {
+        const ahead = i + 1 > today;
+        return (
+          <i
+            key={b.key}
+            title={`${b.label}: ${counts[i]} order${counts[i] === 1 ? "" : "s"}`}
+            className={i + 1 === today ? "now" : ahead ? "ahead" : ""}
+            style={{ height: ahead ? "8%" : `${Math.max(10, (counts[i] / max) * 100)}%` }}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
+/** The range, as the lab's own product shots on lit stages — a shelf you can
+    push along. Native scroll with snap points, so a phone flicks through it
+    the way a phone expects to and the arrows are an addition. */
+function Range({
+  products,
+  held,
+}: {
+  products: Product[];
+  held: { reference: string; reason: string } | null;
+}) {
   const navigate = useNavigate();
+  const track = useRef<HTMLDivElement | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [at, setAt] = useState(0);
+  const stilled = useRef(false);
 
-  const groups = useMemo(() => group(orders), [orders]);
+  // Only what has a picture worth showing, in the order a clinic buys them.
+  const shown = useMemo(
+    () =>
+      FEATURED.map((code) => products.find((p) => p.code === code)).filter(
+        (p): p is Product => Boolean(p) && Boolean(SHOT[p!.code] || LIFE[p!.code]),
+      ),
+    [products],
+  );
 
-  if (loading) {
-    return (
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Needs you</h2>
-        </div>
-        <Skeleton rows={3} />
-      </section>
-    );
-  }
+  useEffect(() => {
+    stilled.current =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  const step = (dir: number) => {
+    const el = track.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(".hm-pc");
+    const by = card ? card.offsetWidth + 16 : el.clientWidth;
+    // Wrap rather than stop dead at either end — a shelf that will not come
+    // back round reads as broken.
+    const max = el.scrollWidth - el.clientWidth;
+    let to = el.scrollLeft + by * dir;
+    if (to > max + 4) to = 0;
+    if (to < -4) to = max;
+    el.scrollTo({ left: to, behavior: stilled.current ? "auto" : "smooth" });
+  };
+
+  useEffect(() => {
+    if (paused || stilled.current || shown.length < 2) return;
+    const timer = window.setInterval(() => step(1), 5000);
+    return () => window.clearInterval(timer);
+  }, [paused, shown.length]);
+
+  const onScroll = () => {
+    const el = track.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(".hm-pc");
+    const by = card ? card.offsetWidth + 16 : 1;
+    setAt(Math.round(el.scrollLeft / by));
+  };
+
+  if (shown.length === 0) return null;
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Needs you</h2>
+    <section
+      className="hm-range"
+      aria-labelledby="hm-range-title"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={() => setPaused(false)}
+    >
+      <header className="hm-range-head">
+        <div>
+          <span className="hm-eyebrow">From the 3D Align lab</span>
+          <h2 id="hm-range-title">
+            Finish every case <em>with us.</em>
+          </h2>
+          <p>Retainers, guards, splints and trays — made from one scan, priced before you order.</p>
+        </div>
+        <div className="hm-range-nav">
+          <button type="button" onClick={() => step(-1)} aria-label="Previous products">
+            <Chevron className="back" />
+          </button>
+          <button type="button" onClick={() => step(1)} aria-label="Next products">
+            <Chevron className="fwd" />
+          </button>
+          <Link to="/catalogue" className="hm-range-all">
+            Visit the shop
+            <Arrow />
+          </Link>
+        </div>
+      </header>
+
+      {held && (
+        /* One quiet line where the buying is, not a banner across the page. */
+        <p className="hm-hold">
+          <i aria-hidden="true" />
+          <span>
+            <b>New appliance orders are paused</b> until {held.reference} is settled.
+          </span>
+          <Link to="/payments">Go to payments</Link>
+        </p>
+      )}
+
+      <div className="hm-track" ref={track} onScroll={onScroll}>
+        {shown.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className="hm-pc"
+            onClick={() => navigate(`/catalogue?order=${p.id}`)}
+          >
+            <span className={SHOT[p.code] ? "hm-pc-stage" : "hm-pc-stage photo"}>
+              {SHOT[p.code] ? (
+                <img className="hm-pc-shot" src={SHOT[p.code]} alt="" loading="lazy" />
+              ) : (
+                <img className="hm-pc-photo" src={LIFE[p.code]} alt="" loading="lazy" />
+              )}
+            </span>
+            <span className="hm-pc-name">{p.name}</span>
+            <span className="hm-pc-line">{TAGLINE[p.code]}</span>
+            <span className="hm-pc-price">{priced(p)}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="hm-dots" aria-hidden="true">
+        {shown.map((p, i) => (
+          <span key={p.id} className={i === at ? "on" : ""} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** What the clinic owes the lab, counted by the thing being asked. */
+function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boolean }) {
+  const navigate = useNavigate();
+  const groups = useMemo(() => group(orders), [orders]);
+
+  return (
+    <section className="hm-panel" aria-labelledby="hm-needs-title">
+      <div className="hm-panel-head">
+        <h2 id="hm-needs-title">Needs you</h2>
         {orders.length > 0 && (
           <Link to="/orders" className="btn-link">
             All cases
@@ -213,9 +404,11 @@ function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boole
         )}
       </div>
 
-      {groups.length === 0 ? (
-        <div className="clear">
-          <span className="clear-tick" aria-hidden="true">
+      {loading ? (
+        <Skeleton rows={3} />
+      ) : groups.length === 0 ? (
+        <div className="hm-clear">
+          <span className="hm-clear-tick" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
               <path d="M5 13l4.5 4.5L19 7" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -226,25 +419,23 @@ function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boole
           </div>
         </div>
       ) : (
-        <ul className="asks">
+        <ul className="hm-asks">
           {groups.map((g) => {
-            const { status, cases } = g;
             const { label, to, oldest } = say(g);
             return (
-              <li key={status}>
+              <li key={g.status}>
                 <button type="button" onClick={() => navigate(to)}>
-                  <span className="ask-n">{cases.length}</span>
-                  <span className="ask-say">
+                  <span className="hm-ask-icon">{ASK_ICON[g.status]}</span>
+                  <span className="hm-ask-say">
                     <b>{label}</b>
                     <span>
-                      {cases.length === 1
-                        ? `${cases[0].patient_name} · ${since(oldest.updated_at)}`
-                        : `Oldest ${since(oldest.updated_at)}`}
+                      {g.cases.length === 1
+                        ? `${g.cases[0].patient_name} · waiting ${since(oldest.updated_at)}`
+                        : `Oldest waiting ${since(oldest.updated_at)}`}
                     </span>
                   </span>
-                  <span className="ask-go" aria-hidden="true">
-                    →
-                  </span>
+                  <span className="hm-ask-n">{g.cases.length}</span>
+                  <Chevron className="hm-ask-go" />
                 </button>
               </li>
             );
@@ -255,10 +446,7 @@ function Attention({ orders, loading }: { orders: OrderSummary[]; loading: boole
   );
 }
 
-/** What has happened since the clinic last looked.
- *
- *  The portal keeps sixty of these and showed them only in a drawer behind a
- *  bell, so a plan shared this morning was news they had to go looking for. */
+/** What has happened since the clinic last looked. */
 function Activity() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -277,9 +465,9 @@ function Activity() {
   const items = (notes.data ?? []).slice(0, 6);
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Recent activity</h2>
+    <section className="hm-panel" aria-labelledby="hm-activity-title">
+      <div className="hm-panel-head">
+        <h2 id="hm-activity-title">Recent activity</h2>
         {count > 0 ? (
           <button
             type="button"
@@ -299,190 +487,29 @@ function Activity() {
       ) : items.length === 0 ? (
         <p className="dim">Nothing has happened yet.</p>
       ) : (
-        <ul className="feed">
-          {items.map((n: Notification) => (
-            <li key={n.id} className={n.read_at ? "feed-item" : "feed-item new"}>
-              {n.order_id ? (
-                <button type="button" onClick={() => navigate(`/orders/${n.order_id}`)}>
-                  <b>{n.title}</b>
-                  <span className="feed-body">{n.body}</span>
-                  <span className="feed-when">{since(n.created_at)}</span>
-                </button>
-              ) : (
-                <div>
-                  <b>{n.title}</b>
-                  <span className="feed-body">{n.body}</span>
-                  <span className="feed-when">{since(n.created_at)}</span>
-                </div>
-              )}
-            </li>
-          ))}
+        <ul className="hm-feed">
+          {items.map((n: Notification) => {
+            const body = (
+              <>
+                <b>{n.title}</b>
+                <span className="hm-feed-when">{since(n.created_at)}</span>
+                <span className="hm-feed-body">{n.body}</span>
+              </>
+            );
+            return (
+              <li key={n.id} className={n.read_at ? "" : "new"}>
+                {n.order_id ? (
+                  <button type="button" onClick={() => navigate(`/orders/${n.order_id}`)}>
+                    {body}
+                  </button>
+                ) : (
+                  <div>{body}</div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
-    </section>
-  );
-}
-
-/** Where to go, and the one number that says whether to go there.
- *
- *  A tile that only navigates makes the reader open it to find out whether it
- *  was worth opening. These carry their own headline, so the row is both the
- *  way through the portal and the state of the practice.
- */
-function Jump({
-  to,
-  label,
-  value,
-  note,
-  lit,
-  icon,
-}: {
-  to: string;
-  label: string;
-  value: string;
-  note: string;
-  lit?: boolean;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Link to={to} className={`jump${lit ? " lit" : ""}`}>
-      <span className="jump-icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span className="jump-value">{value}</span>
-      <span className="jump-label">{label}</span>
-      <span className="jump-note">{note}</span>
-    </Link>
-  );
-}
-
-const ICON = {
-  cases: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
-      <path d="M8 3v4M16 3v4M3.5 10h17" strokeLinecap="round" />
-    </svg>
-  ),
-  money: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M6 5h12M6 9.5h12M9.5 5v3a4 4 0 0 1-4 4h-.5l7 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  patients: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="12" cy="8.5" r="3.6" />
-      <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" strokeLinecap="round" />
-    </svg>
-  ),
-  chart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M4 20V10M10 20V5M16 20v-7M22 20H2" strokeLinecap="round" />
-    </svg>
-  ),
-};
-
-/** The range, as a shelf you can push along.
- *
- *  Native scroll with snap points, so a phone flicks through it the way a phone
- *  expects to and the arrows are an addition rather than the only way through.
- */
-function Range({ products }: { products: Product[] }) {
-  const navigate = useNavigate();
-  const track = useRef<HTMLDivElement | null>(null);
-  const [held, setHeld] = useState(false);
-  const [at, setAt] = useState(0);
-  const stilled = useRef(false);
-
-  // Only what has a card. The lettered placeholder is the right answer on a
-  // shelf and the wrong one in a shop window.
-  const shown = useMemo(() => products.filter((p) => p.image_url), [products]);
-
-  useEffect(() => {
-    stilled.current =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  }, []);
-
-  const step = (dir: number) => {
-    const el = track.current;
-    if (!el) return;
-    const card = el.querySelector<HTMLElement>(".range-card");
-    const by = card ? card.offsetWidth + 14 : el.clientWidth;
-    // Wrap rather than stop dead at either end — a shelf that will not come
-    // back round reads as broken.
-    const max = el.scrollWidth - el.clientWidth;
-    let to = el.scrollLeft + by * dir;
-    if (to > max + 4) to = 0;
-    if (to < -4) to = max;
-    el.scrollTo({ left: to, behavior: stilled.current ? "auto" : "smooth" });
-  };
-
-  useEffect(() => {
-    if (held || stilled.current || shown.length < 2) return;
-    const t = window.setInterval(() => step(1), 5000);
-    return () => window.clearInterval(t);
-  }, [held, shown.length]);
-
-  const onScroll = () => {
-    const el = track.current;
-    if (!el) return;
-    const card = el.querySelector<HTMLElement>(".range-card");
-    const by = card ? card.offsetWidth + 14 : 1;
-    setAt(Math.round(el.scrollLeft / by));
-  };
-
-  if (shown.length === 0) return null;
-
-  return (
-    <section
-      className="range"
-      onMouseEnter={() => setHeld(true)}
-      onMouseLeave={() => setHeld(false)}
-      onFocusCapture={() => setHeld(true)}
-      onBlurCapture={() => setHeld(false)}
-    >
-      <div className="range-head">
-        <div>
-          <h2>The range</h2>
-          <p>Everything 3D Align makes, built from a scan and priced before you order.</p>
-        </div>
-        <div className="range-nav">
-          <button type="button" onClick={() => step(-1)} aria-label="Previous products">
-            ‹
-          </button>
-          <button type="button" onClick={() => step(1)} aria-label="Next products">
-            ›
-          </button>
-          <Link to="/catalogue" className="btn-link">
-            All products
-          </Link>
-        </div>
-      </div>
-
-      <div className="range-wrap">
-        <div className="range-track" ref={track} onScroll={onScroll}>
-          {shown.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="range-card"
-              onClick={() => navigate(`/catalogue?order=${p.id}`)}
-            >
-              <span className="range-shot">
-                <img src={p.image_url} alt="" loading="lazy" />
-              </span>
-              <span className="range-name">{p.name}</span>
-              <span className="range-price">from {rupees(cheapest(p))}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="range-dots" aria-hidden="true">
-        {shown.map((p, i) => (
-          <span key={p.id} className={i === at ? "on" : ""} />
-        ))}
-      </div>
     </section>
   );
 }
@@ -507,8 +534,8 @@ export default function DoctorHome() {
     queryFn: () =>
       api.practiceStats({ view: "month", year: now.getFullYear(), month: now.getMonth() + 1 }),
   });
-  // Whether an unsettled appliance is holding the next one. Said here rather
-  // than discovered at the end of an order form already filled in.
+  // Whether an unsettled appliance is holding the next one. Said where the
+  // range is, rather than discovered at the end of an order form.
   const hold = useQuery({ queryKey: ["ordering-hold"], queryFn: api.orderingHold });
 
   const withLab =
@@ -523,87 +550,127 @@ export default function DoctorHome() {
 
   const due = ledger.data ? Number(ledger.data.outstanding) : null;
   const needing = waiting.data?.length ?? 0;
-  const blocked = hold.data && !hold.data.can_order_products;
+  const oldestWaiting = (waiting.data ?? []).reduce<OrderSummary | null>(
+    (a, b) => (!a || b.updated_at < a.updated_at ? b : a),
+    null,
+  );
+  const held = hold.data && !hold.data.can_order_products ? hold.data : null;
   const t = stats.data?.totals;
+  const loaded = !waiting.isLoading && openCases.data !== undefined;
 
   return (
-    <main className="page home">
-      <section className="hero">
-        <HeroArt />
-        <div className="hero-say">
-          <span className="hero-greet">{greeting()}</span>
+    <main className="page hm">
+      <section className="hm-hero">
+        <div className="hm-say">
+          <span className="hm-greet">
+            {greeting()}
+            {me?.doctor?.clinic_name ? ` · ${me.doctor.clinic_name}` : ""}
+          </span>
           <h1>{firstName(me?.doctor?.full_name ?? "Doctor")}</h1>
-          <p className="hero-clinic">{me?.doctor?.clinic_name}</p>
+
+          {/* The practice in one sentence, so the figures below confirm what
+              has already been read rather than having to be added up. */}
+          <p className="hm-sum">
+            {!loaded ? (
+              "Getting your practice ready…"
+            ) : needing === 0 && (due ?? 0) === 0 ? (
+              <>
+                Everything is with 3D Align — <b>{withLab}</b> case{withLab === 1 ? "" : "s"} in
+                progress and nothing waiting on you.
+              </>
+            ) : (
+              <>
+                {needing > 0 && (
+                  <>
+                    <b className="lit">{needing}</b> {needing === 1 ? "case needs" : "cases need"} you
+                  </>
+                )}
+                {needing > 0 && " · "}
+                <b>{withLab}</b> with 3D Align
+                {(due ?? 0) > 0 && (
+                  <>
+                    {" · "}
+                    <b>{rupees(due!)}</b> to pay
+                  </>
+                )}
+              </>
+            )}
+          </p>
 
           {/* The one action a clinic takes more than any other, at the size
               that says so — then the two next most, at the size they are. */}
-          <div className="hero-do">
-            <button type="button" className="btn-hero" onClick={() => navigate("/orders/new")}>
+          <div className="hm-do">
+            <button type="button" className="hm-cta" onClick={() => navigate("/orders/new")}>
               Start a new aligner case
-              <span className="go"> →</span>
+              <Arrow />
             </button>
-            <button type="button" className="btn-hero ghost" onClick={() => navigate("/catalogue")}>
+            <button type="button" className="hm-ghost" onClick={() => navigate("/catalogue")}>
               Order an appliance
             </button>
-            <button type="button" className="btn-hero ghost" onClick={() => navigate("/orders")}>
+            <button type="button" className="hm-ghost" onClick={() => navigate("/orders")}>
               View cases
             </button>
           </div>
         </div>
 
-        <NextUp orders={waiting.data ?? []} loading={waiting.isLoading} />
-
-        {/* The state of the practice, in the band rather than in a row of tiles
-            below it — the hero was a name and two buttons on a wide dark field,
-            and these are the figures a clinic opens the portal to read. */}
-        <div className="hero-stats">
-          <Jump
-            to="/orders"
-            label="Cases"
-            value={withLab === null ? "—" : String(withLab)}
-            note={needing > 0 ? `${needing} waiting on you` : "All with 3D Align"}
-            lit={needing > 0}
-            icon={ICON.cases}
-          />
-          <Jump
-            to="/payments"
-            label="Payments"
-            value={due === null ? "—" : rupees(due)}
-            note={due === 0 ? "Nothing outstanding" : "Due to pay"}
-            lit={(due ?? 0) > 0}
-            icon={ICON.money}
-          />
-          <Jump
-            to="/patients"
-            label="Patients"
-            value={t ? String(t.patients) : "—"}
-            note="Seen this month"
-            icon={ICON.patients}
-          />
-          <Jump
-            to="/stats"
-            label="Insights"
-            value={t ? rupees(t.paid) : "—"}
-            note="Paid this month"
-            icon={ICON.chart}
-          />
+        {/* The work itself, in an arch-shaped frame — a clear retainer being
+            seated, from the lab's own catalogue — with the box it comes in and
+            the one thing waiting on the clinic set over it. */}
+        <div className="hm-art">
+          <span className="hm-arcs" aria-hidden="true" />
+          <figure className="hm-arch" aria-hidden="true">
+            <img src={LIFE.ER} alt="" />
+          </figure>
+          <img className="hm-box" src={SHOT.ER} alt="" aria-hidden="true" />
+          <NextUp orders={waiting.data ?? []} loading={waiting.isLoading} />
         </div>
       </section>
 
-      {blocked && (
-        <p className="hold-note">
-          <b>{hold.data?.reference}</b> — {hold.data?.reason}. Settle it before starting
-          another appliance. <Link to="/payments">Go to payments →</Link>
-        </p>
-      )}
+      <section className="hm-kpis" aria-label="Your practice">
+        <Kpi
+          to="/orders"
+          label="With 3D Align"
+          value={withLab === null ? "—" : String(withLab)}
+          note="Cases in progress"
+          icon={KPI_ICON.lab}
+        />
+        <Kpi
+          to="/orders"
+          label="Waiting on you"
+          value={waiting.isLoading ? "—" : String(needing)}
+          note={
+            needing > 0 && oldestWaiting
+              ? `Oldest waiting ${since(oldestWaiting.updated_at)}`
+              : "Nothing to do"
+          }
+          lit={needing > 0}
+          icon={KPI_ICON.you}
+        />
+        <Kpi
+          to="/payments"
+          label="To pay"
+          value={due === null ? "—" : rupees(due)}
+          note={due === 0 ? "Nothing outstanding" : "Across your cases"}
+          lit={(due ?? 0) > 0}
+          icon={KPI_ICON.money}
+        />
+        <Kpi
+          to="/stats"
+          label={stats.data?.period_label ?? "This month"}
+          value={t ? String(t.orders) : "—"}
+          note={t ? `Orders · ${rupees(t.paid)} paid` : "Orders placed"}
+          icon={KPI_ICON.chart}
+        >
+          <MonthBars series={stats.data?.series ?? []} />
+        </Kpi>
+      </section>
 
-      {!products.isLoading && <Range products={products.data ?? []} />}
+      {!products.isLoading && <Range products={products.data ?? []} held={held} />}
 
-      <div className="split">
+      <div className="hm-desk">
         <Attention orders={waiting.data ?? []} loading={waiting.isLoading} />
         <Activity />
       </div>
-
     </main>
   );
 }

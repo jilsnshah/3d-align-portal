@@ -32,6 +32,7 @@ import { api } from "../../api";
 import type { Accessory as AccessoryType, Product } from "../../api";
 import { Banner, ErrorText, Field, Skeleton } from "../../components/ui";
 import ProductImage from "../../components/ProductImage";
+import { BLURB, FEATURED, LIFE, RESULTS, SHOT, TAGLINE } from "../../productArt";
 
 /** "an Essix Retainer", not "a Essix Retainer". */
 function article(name: string): string {
@@ -59,66 +60,6 @@ function priced(product: Product): string {
 function scrollToId(id: string, smooth = true) {
   document.getElementById(id)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
 }
-
-/* --- the lab's own imagery, lifted out of its catalogue --------------------
-   Keyed by product code. The boxed shots are on clear backgrounds, so they sit
-   on whatever stage the page gives them; the photographs are used whole. */
-
-const SHOT: Record<string, string> = {
-  ER: "/products/shots/ER.webp",
-  GER: "/products/shots/GER.webp",
-  PR: "/products/shots/PR.webp",
-  NG: "/products/shots/NG.webp",
-  TMJ: "/products/shots/TMJ.webp",
-  LEACH: "/products/shots/LEACH.webp",
-  JA: "/products/shots/JA.webp",
-};
-
-const LIFE: Record<string, string> = {
-  ER: "/products/life/ER.webp",
-  NG: "/products/life/NG.webp",
-  TMJ: "/products/life/TMJ.webp",
-  LEACH: "/products/life/LEACH.webp",
-  SG: "/products/life/SG.webp",
-};
-
-/** Cases from the catalogue, before and after. Shown as the lab printed them. */
-const RESULTS: Record<string, [string, string]> = {
-  PR: ["/products/ba/PR-before.webp", "/products/ba/PR-after.webp"],
-  GER: ["/products/ba/GER-before.webp", "/products/ba/GER-after.webp"],
-  JA: ["/products/ba/JA-before.webp", "/products/ba/JA-after.webp"],
-};
-
-/** The order the spotlight turns in: what a clinic buys most first. */
-const FEATURED = ["ER", "NG", "TMJ", "LEACH", "GER", "PR", "JA"];
-
-/** What each appliance does for the patient, in a line the doctor could say
-    to them. The spotlight leads with this, and names the product under it. */
-const TAGLINE: Record<string, string> = {
-  ER: "Hold the result you worked for.",
-  GER: "Retention that keeps the gap.",
-  PR: "Small smiles, kept in place.",
-  NG: "Nights without the grind.",
-  TMJ: "Relief, built to prescription.",
-  LEACH: "Whiter, at home.",
-  SG: "Play hard. Keep the smile.",
-  JA: "Bring the jaw forward.",
-};
-
-/** A line of plain English about what the thing is for. The lab's own shorthand
-    is not something a doctor should have to decode from a product code. */
-const BLURB: Record<string, string> = {
-  ER: "Clear retention after treatment. Two thicknesses — 0.8 mm holds harder and lasts longer.",
-  GER: "Retention with a pontic built in, for a space you want held open.",
-  PR: "Retention sized for a child, with a pontic included.",
-  NG: "Night guard for grinding. Thicker for heavier wear.",
-  TMJ: "Occlusal splint for joint pain, built to a prescribed thickness.",
-  LEACH: "Trays for home bleaching, reservoirs included.",
-  SG: "Mouthguard for contact sport. Thicker for higher impact.",
-  ABP: "Anterior bite plate for deprogramming.",
-  PBP: "Posterior bite plate for posterior disclusion.",
-  JA: "Twin-block appliance for mandibular advancement.",
-};
 
 /* What a doctor is reaching for, rather than what the lab calls it. A clinic
    finishing a case wants retention; one with a grinding patient wants a guard.
@@ -346,9 +287,9 @@ export default function Catalogue() {
   const range = products.data ?? [];
   const featured = useMemo(
     () =>
-      FEATURED.map((code) => range.find((p) => p.code === code)).filter(
-        (p): p is Product => Boolean(p),
-      ),
+      FEATURED.filter((code) => SHOT[code])
+        .map((code) => range.find((p) => p.code === code))
+        .filter((p): p is Product => Boolean(p)),
     [range],
   );
 

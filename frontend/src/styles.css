@@ -2260,281 +2260,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   .modal-backdrop { animation: none; }
 }
 
-/* --- The clinic's home ---------------------------------------------------
-   A case table is the right screen for auditing forty cases and the wrong one
-   to land on. This page leads with what a doctor came to do. */
-
-/* The home page is a stack of sections; without a gap they read as one long
-   undifferentiated column. */
-.home {
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
-}
-
-.home h2 {
-  margin: 0;
-  font-size: 1.12rem;
-}
-
-/* ---------------- the hero ----------------
-   One band doing three jobs: whose practice this is, the action they take most,
-   and the three figures that describe the book of work. It was two bands and a
-   line of marketing copy, which cost 466px before a single case appeared.
-   Sized to what it holds — a hero that fills the viewport pushes the page out
-   of its own first frame. */
-
-.hero {
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 316px;
-  grid-template-areas:
-    "say   next"
-    "stats stats";
-  align-items: start;
-  gap: var(--s-6) var(--s-7);
-  padding: var(--s-6);
-  border-radius: var(--r-lg);
-  color: var(--white);
-  background:
-    radial-gradient(120% 90% at 82% 8%, rgba(212, 175, 55, 0.10) 0%, transparent 55%),
-    linear-gradient(126deg, #050506 0%, #131318 48%, #1f1f27 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 2px 6px rgba(11, 11, 12, 0.14),
-    0 24px 60px rgba(11, 11, 12, 0.22);
-}
-
-/* The drawn layer sits under everything and catches nothing. */
-.hero-art {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.hero-say {
-  grid-area: say;
-  position: relative;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-}
-
-/* --- the one thing to do next ---
-   A pane of the band's own dark, lifted a little and edged in gold. The whole
-   upper right of the hero was honeycomb and nothing, while the single most
-   pressing thing a clinic had to do sat below the fold. */
-.nextup {
-  grid-area: next;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: var(--s-4) var(--s-5) var(--s-5);
-  border-radius: var(--r);
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  /* A hairline of gold along the top edge, so it reads as lit from the same
-     direction as the rest of the band. */
-  box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.35);
-  backdrop-filter: blur(2px);
-}
-
-.nextup-eyebrow {
-  font-size: var(--t-micro);
-  font-weight: 700;
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--gold-lift);
-}
-.nextup.clearish .nextup-eyebrow { color: #7fbf9b; }
-
-/* Inter, not the display face, and deliberately: this sentence carries a count,
-   and Instrument Serif draws a 1 close enough to a lowercase l that "Confirm 1
-   training aligner fit" could be read as "Confirm l". The serif is for names
-   and headings, which have no digits in them. */
-.nextup-say {
-  margin: 7px 0 0;
-  font-size: var(--t-h3);
-  font-weight: 620;
-  line-height: 1.35;
-  letter-spacing: -0.008em;
-  color: var(--white);
-}
-.nextup-note {
-  margin: 2px 0 0;
-  font-size: var(--t-xs);
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.46);
-}
-
-.nextup-go {
-  margin-top: var(--s-4);
-  padding: 8px 15px;
-  font: inherit;
-  font-size: var(--t-sm);
-  font-weight: 600;
-  color: var(--black);
-  background: var(--gold-lift);
-  border: 0;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
-}
-.nextup-go:hover { background: var(--gold-bright); transform: translateY(-1px); }
-.nextup-go .go { color: var(--black); }
-
-.nextup-wait {
-  min-height: 148px;
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.07);
-  box-shadow: none;
-}
-
-/* --- the practice, inside the band ---
-   The hero was a name and two buttons on a wide dark field. These are the
-   figures a clinic opens the portal to read, so they belong in it. */
-.hero-stats {
-  grid-area: stats;
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-top: var(--s-5);
-  padding-top: var(--s-5);
-  border-top: 1px solid rgba(255, 255, 255, 0.13);
-}
-
-/* The tile turns dark in here: no card of its own, a hairline between each, and
-   the gold reserved for whichever one is asking for something. */
-.hero-stats .jump {
-  gap: 1px;
-  padding: 2px var(--s-5);
-  background: none;
-  border: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 0;
-  box-shadow: none;
-}
-.hero-stats .jump:first-child { border-left: 0; padding-left: 0; }
-.hero-stats .jump:hover { transform: none; box-shadow: none; border-color: rgba(255, 255, 255, 0.11); }
-.hero-stats .jump::after { display: none; }
-
-.hero-stats .jump-icon {
-  width: 28px;
-  height: 28px;
-  margin-bottom: var(--s-3);
-  background: rgba(255, 255, 255, 0.07);
-  border-radius: var(--r-sm);
-  color: rgba(255, 255, 255, 0.62);
-}
-.hero-stats .jump-icon svg { width: 15px; height: 15px; }
-.hero-stats .jump:hover .jump-icon { background: rgba(212, 175, 55, 0.18); color: var(--gold-lift); }
-
-.hero-stats .jump-value { font-size: 1.45rem; color: rgba(255, 255, 255, 0.95); }
-.hero-stats .jump.lit .jump-value { color: var(--gold-lift); }
-.hero-stats .jump.lit .jump-icon { background: rgba(212, 175, 55, 0.18); color: var(--gold-lift); }
-.hero-stats .jump-label { color: rgba(255, 255, 255, 0.55); }
-.hero-stats .jump-note { color: rgba(255, 255, 255, 0.38); }
-
-.hero-greet {
-  display: block;
-  font-size: var(--t-micro);
-  font-weight: 600;
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--gold-lift);
-}
-
-/* The one place the display face is set large. A clinic's own name is the
-   signature on the page and the only thing on it that should read as set
-   rather than as rendered. */
-.hero h1 {
-  margin: 8px 0 0;
-  font-family: var(--display);
-  font-weight: 400;
-  font-size: clamp(2.3rem, 4vw, 3.15rem);
-  line-height: 1;
-  letter-spacing: -0.012em;
-  color: var(--white);
-}
-
-.hero-clinic {
-  margin: 4px 0 0;
-  font-size: var(--t-sm);
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.hero-do { display: flex; flex-wrap: wrap; gap: var(--s-3); }
-
-/* The one action a clinic takes more than any other, at the size that says so. */
-.btn-hero {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 12px 21px;
-  font: inherit;
-  font-size: var(--t-body);
-  font-weight: 650;
-  letter-spacing: -0.006em;
-  color: var(--black);
-  background: linear-gradient(160deg, var(--gold-lift) 0%, var(--gold) 62%, var(--gold-deep) 100%);
-  border: 0;
-  border-radius: 999px;
-  cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 8px 22px rgba(184, 145, 47, 0.28);
-  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
-}
-.btn-hero:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 12px 30px rgba(184, 145, 47, 0.38);
-}
-.btn-hero .go { color: var(--black); }
-
-.btn-hero.ghost {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: none;
-}
-.btn-hero.ghost:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--gold);
-  box-shadow: none;
-}
-
-/* ---------------- the page's own rhythm ----------------
-   Sections are held apart by space and a heading, not by a border each. A
-   border, a fill, a radius and a shadow all say "separate object"; stamped on
-   every block they say it so often that nothing stands out, which is the whole
-   look of an admin panel. They are spent here on the two surfaces that carry
-   work, and withheld everywhere else. */
-
-.home { display: flex; flex-direction: column; gap: var(--s-7); }
-
-/* Each band settles a beat after the one above it. Six frames of movement, no
-   more: the page should look composed on arrival, not performed. */
-.home > * {
-  animation: settle 520ms var(--ease-out) both;
-}
-.home > *:nth-child(1) { animation-delay: 0ms; }
-.home > *:nth-child(2) { animation-delay: 60ms; }
-.home > *:nth-child(3) { animation-delay: 120ms; }
-.home > *:nth-child(4) { animation-delay: 180ms; }
-.home > *:nth-child(5) { animation-delay: 240ms; }
-
-@keyframes settle {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-
-/* Asymmetric on purpose. Two equal columns read as a comparison; what needs the
-   clinic and what has merely happened are not equals. */
+/* Kept from the old home block: other pages lay out with .split. */
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
@@ -2542,536 +2268,674 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   align-items: start;
 }
 
-/* Lit from above rather than filled flat: a hairline of white along the top
-   edge and the faintest warm fall to the foot. It is the difference between a
-   surface and a rectangle, and it costs nothing to read. */
-.panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: var(--s-5);
-  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 1px 2px rgba(11, 11, 12, 0.04),
-    0 12px 32px rgba(11, 11, 12, 0.05);
-}
-
-.panel-head {
-  position: relative;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-3);
-  padding-bottom: var(--s-4);
-  margin-bottom: var(--s-2);
-  border-bottom: 1px solid var(--rule);
-}
-/* A short gold length riding on the rule under the heading — the same accent
-   the rest of the portal uses to mark a title, at panel scale. */
-.panel-head::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  width: 46px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--gold-bright), transparent);
-}
-.panel-head h2 {
-  margin: 0;
-  font-family: var(--display);
-  font-weight: 400;
-  font-size: 1.42rem;
-  line-height: 1.15;
-  letter-spacing: -0.008em;
-}
-.panel-head .btn-link,
-.panel-head .dim { font-size: var(--t-xs); }
-
-/* ---------------- what needs them ----------------
-   Counted by the thing being asked rather than by the case asking. A clinic
-   reads "send three intraoral scans" and knows their afternoon; six reference
-   numbers make them do the addition themselves. */
-
-.asks { list-style: none; margin: 0; padding: 0; }
-
-.asks li + li { border-top: 1px solid var(--rule); }
-
-.asks button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--s-4);
-  width: 100%;
-  padding: var(--s-4) var(--s-2);
-  text-align: left;
-  font: inherit;
-  white-space: normal;
-  background: none;
-  border: 0;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background var(--fast) var(--ease);
-}
-.asks button:hover { background: var(--gold-wash); }
-
-/* The count set large in the brand's own gold: the one number on the row that
-   decides whether it is a minute's work or an afternoon's. */
-.ask-n {
-  display: grid;
-  place-items: center;
-  min-width: 44px;
-  height: 44px;
-  padding: 0 10px;
-  border-radius: var(--r);
-  background: linear-gradient(160deg, var(--gold-soft), var(--gold-wash));
-  border: 1px solid var(--gold-line);
-  color: var(--gold-deep);
-  font-size: 1.22rem;
-  font-weight: 680;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-
-.ask-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ask-say b {
-  font-size: var(--t-body);
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.006em;
-}
-.ask-say span { font-size: var(--t-xs); color: var(--ink-3); }
-
-/* The arrow steps forward under the cursor — the only motion on the row, so it
-   reads as an invitation rather than as decoration. */
-.ask-go {
-  color: var(--gold-deep);
-  font-size: 1.05rem;
-  opacity: 0.45;
-  transition: transform var(--mid) var(--ease-out), opacity var(--fast) var(--ease);
-}
-.asks button:hover .ask-go { opacity: 1; transform: translateX(3px); }
-
-/* Nothing waiting is good news and should look like it, not like an error
-   state apologising for having nothing to show. */
-.clear {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-4);
-  padding: var(--s-5) var(--s-2) var(--s-4);
-}
-.clear-tick {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 999px;
-  background: var(--ok-soft);
-  border: 1px solid var(--ok-line);
-  color: var(--ok);
-}
-.clear-tick svg { width: 20px; height: 20px; }
-.clear strong { font-size: var(--t-h3); }
-.clear p { margin: 3px 0 0; font-size: var(--t-sm); color: var(--ink-2); max-width: 42ch; }
-
-/* ---------------- what has happened ----------------
-   Drawn as a timeline rather than as a list: a hairline rail with a node per
-   entry says these things happened in an order, which a stack of rows does not. */
-
-.feed { list-style: none; margin: 0; padding: 0; position: relative; }
-
-/* The rail, stopping at the first and last node rather than running past them
-   into nothing. */
-.feed::before {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 22px;
-  bottom: 22px;
-  width: 1px;
-  background: var(--rule);
-}
-
-.feed-item > button,
-.feed-item > div {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0 var(--s-2);
-  width: 100%;
-  padding: var(--s-3) var(--s-2) var(--s-3) var(--s-5);
-  text-align: left;
-  font: inherit;
-  background: none;
-  border: 0;
-  border-radius: var(--r-sm);
-  white-space: normal;
-}
-
-/* The node. Hollow for what has been read, filled gold for what has not. */
-.feed-item > button::before,
-.feed-item > div::before {
-  content: "";
-  position: absolute;
-  left: 1px;
-  top: 19px;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: var(--white);
-  border: 1.5px solid var(--rule-strong);
-}
-.feed-item.new > button::before,
-.feed-item.new > div::before {
-  background: var(--gold);
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px var(--gold-wash);
-}
-
-.feed-item > button { cursor: pointer; transition: background var(--fast) var(--ease); }
-.feed-item > button:hover { background: var(--paper-2); }
-
-.feed-item b {
-  grid-column: 1;
-  font-size: var(--t-sm);
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--ink);
-}
-.feed-item:not(.new) b { color: var(--ink-2); font-weight: 560; }
-
-.feed-body {
-  grid-column: 1 / -1;
-  margin-top: 1px;
-  font-size: var(--t-xs);
-  color: var(--ink-3);
-  line-height: 1.45;
-  /* A note can name a case and a reason; two lines is enough of it here. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.feed-when {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------------- where to go ----------------
-   A tile that only navigates makes the reader open it to find out whether it
-   was worth opening. Each carries the one number that answers that, so the row
-   is both the way through the portal and the state of the practice. */
-
-.jumps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--s-4);
-}
-
-.jump {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--s-5) var(--s-5) var(--s-4);
-  text-decoration: none;
-  color: inherit;
-  background: linear-gradient(180deg, #ffffff 0%, #fdfcfa 100%);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--shadow-xs);
-  transition:
-    transform var(--mid) var(--ease-out),
-    box-shadow var(--mid) var(--ease),
-    border-color var(--fast) var(--ease);
-}
-.jump:hover {
-  transform: translateY(-2px);
-  border-color: var(--gold-line);
-  box-shadow: var(--shadow);
-}
-
-/* A gold wash that rises from the foot on hover — the tile lights up rather
-   than merely moving. */
-.jump::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 100%;
-  background: linear-gradient(0deg, var(--gold-wash), transparent 62%);
-  opacity: 0;
-  transition: opacity var(--mid) var(--ease);
-  pointer-events: none;
-}
-.jump:hover::after { opacity: 1; }
-
-.jump > * { position: relative; }
-
-.jump-icon {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-bottom: var(--s-3);
-  border-radius: var(--r-sm);
-  background: var(--paper-2);
-  color: var(--ink-2);
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
-}
-.jump-icon svg { width: 18px; height: 18px; }
-.jump:hover .jump-icon { background: var(--gold-soft); color: var(--gold-deep); }
-
-.jump-value {
-  font-size: 1.62rem;
-  font-weight: 660;
-  line-height: 1.05;
-  letter-spacing: -0.024em;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-}
-/* Gold on the tile that is asking for something. A count of nought and a
-   balance of nothing are good news and stay in ink. */
-.jump.lit .jump-value { color: var(--gold-deep); }
-.jump.lit .jump-icon { background: var(--gold-soft); color: var(--gold-deep); }
-
-.jump-label {
-  margin-top: 3px;
-  font-size: var(--t-micro);
-  font-weight: 700;
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-.jump-note { font-size: var(--t-xs); color: var(--ink-3); }
-
 @media (max-width: 940px) {
   .split { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 860px) {
-  /* Four across becomes two, which keeps each figure wide enough to read
-     rather than shrinking all of them to fit one line. */
-  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4) 0; }
-  .hero-stats .jump:nth-child(odd) { border-left: 0; padding-left: 0; }
+/* --- The clinic's home ----------------------------------------------------
+   A welcome, not a dashboard. A light editorial band with the doctor's name
+   set large and a photograph of the work in an arch-shaped frame; the practice
+   in four figures; the range on a dark lab band built from the lab's own
+   product shots; and the desk — what needs them, what has moved. */
+
+.hm { display: flex; flex-direction: column; gap: var(--s-7); }
+.hm > * { animation: store-in 0.7s var(--ease-out) both; }
+.hm > *:nth-child(2) { animation-delay: 70ms; }
+.hm > *:nth-child(3) { animation-delay: 140ms; }
+.hm > *:nth-child(4) { animation-delay: 210ms; }
+
+.hm-eyebrow {
+  display: block;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
 }
 
-@media (max-width: 620px) {
-  /* Stacked on a phone, the pane is a second copy of the first row of the
-     panel further down, costing a screen of height to say it twice. The wide
-     layout is the only one where it earns its place — filling a column that
-     would otherwise be empty. */
-  .nextup { display: none; }
-
-  .panel { padding: var(--s-4); }
-  .hero-stats { margin-top: var(--s-4); padding-top: var(--s-4); }
-  .hero-stats .jump { padding: 2px var(--s-3); }
-  .hero-stats .jump-value { font-size: 1.2rem; }
-  .hero-stats .jump-icon { margin-bottom: var(--s-2); }
-  .asks button { gap: var(--s-3); padding: var(--s-3) 0; }
-  .ask-n { min-width: 38px; height: 38px; font-size: 1.05rem; }
-  .jumps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
-  .jump { padding: var(--s-4); }
-  .jump-value { font-size: 1.35rem; }
+/* --- the welcome --- */
+.hm-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.9fr);
+  align-items: center;
+  gap: var(--s-5);
+  padding: 40px 44px;
+  overflow: hidden;
+  background:
+    radial-gradient(55% 90% at 82% 42%, rgba(212, 175, 55, 0.2) 0%, rgba(212, 175, 55, 0) 62%),
+    radial-gradient(60% 80% at 0% 0%, #ffffff 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(135deg, #fcfaf5 0%, #f2ecdf 100%);
+  border: 1px solid #ece3cd;
+  border-radius: 28px;
+  box-shadow: var(--shadow-md);
+}
+.hm-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23b8912f' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 48px;
+  opacity: 0.1;
+  -webkit-mask-image: radial-gradient(55% 80% at 100% 100%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(55% 80% at 100% 100%, #000 0%, transparent 72%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .jump:hover { transform: none; }
-  .asks button:hover .ask-go { transform: none; }
+.hm-say { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.hm-greet {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-deep);
 }
-
-/* ---------------- the range ----------------
-   A shelf of 3D Align's own catalogue cards, pushed along. It sat inside the
-   hero one card at a time, which cramped both — the practice's numbers sharing
-   a band with a shop window, and a range of eight standing on one poster. It
-   comes after the work: a clinic that arrived to act sees what needs them
-   first, and one that arrived to browse scrolls. */
-
-.range { display: flex; flex-direction: column; gap: var(--s-4); }
-
-.range-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--s-4);
-  flex-wrap: wrap;
-  padding-bottom: var(--s-3);
-  border-bottom: 1px solid var(--rule);
-}
-.range-head h2 {
+.hm-say h1 {
   margin: 0;
   font-family: var(--display);
   font-weight: 400;
-  font-size: 1.55rem;
-  line-height: 1.1;
-  letter-spacing: -0.008em;
+  font-size: clamp(3rem, 6.2vw, 5.2rem);
+  line-height: 0.94;
+  letter-spacing: -0.026em;
+  color: var(--ink);
 }
-.range-head p {
-  margin: 4px 0 0;
-  font-size: var(--t-sm);
-  color: var(--ink-2);
-  max-width: 60ch;
-}
-
-.range-nav { display: flex; align-items: center; gap: var(--s-2); flex: none; }
-.range-nav button {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  font-size: 1.1rem;
-  line-height: 1;
-  color: var(--ink-2);
-  background: var(--white);
-  border: 1px solid var(--rule);
+.hm-say h1::after { display: none; }
+.hm-sum { max-width: 44ch; margin: 0; font-size: 1.04rem; line-height: 1.6; color: var(--ink-2); }
+.hm-sum b { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hm-sum b.lit { color: var(--gold-deep); }
+.hm-do { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.hm-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 24px;
+  font: inherit;
+  font-size: var(--t-body);
+  font-weight: 650;
+  color: var(--white);
+  background: var(--black-2);
+  border: 0;
   border-radius: 999px;
   cursor: pointer;
-  transition:
-    border-color var(--fast) var(--ease),
-    color var(--fast) var(--ease),
-    background var(--fast) var(--ease);
+  box-shadow: 0 12px 28px rgba(11, 11, 12, 0.22);
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
-.range-nav button:hover {
+.hm-cta svg { width: 16px; height: 16px; color: var(--gold-lift); transition: transform var(--fast) var(--ease); }
+.hm-cta:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(11, 11, 12, 0.28); }
+.hm-cta:hover svg { transform: translateX(3px); }
+.hm-ghost {
+  padding: 14px 18px;
+  font: inherit;
+  font-size: var(--t-body);
+  font-weight: 600;
   color: var(--ink);
-  border-color: var(--gold);
-  background: var(--gold-wash);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.range-nav .btn-link { margin-left: var(--s-2); }
+.hm-ghost:hover { background: var(--white); border-color: var(--gold); }
 
-/* Native scroll with snap points: a phone flicks through it the way a phone
-   expects to, and the arrows are an addition rather than the only way. */
-.range-track {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  padding-bottom: 4px;
-  /* The last card can reach the left edge, so the track ends on a card rather
-     than on a gap. */
-  scroll-padding-left: 0;
+/* The photograph in the shape of an arch — the one outline every doctor here
+   works inside all day. */
+.hm-art { position: relative; display: grid; place-items: center; min-height: 380px; }
+.hm-arcs {
+  position: absolute;
+  width: min(440px, 94%);
+  aspect-ratio: 1 / 1.06;
+  border: 1px solid rgba(184, 145, 47, 0.34);
+  border-radius: 999px 999px 40px 40px;
+  transform: translate(18px, -8px);
 }
-.range-track::-webkit-scrollbar { display: none; }
-
-/* The shelf runs past the page edge, which is how it says there is more. A
-   hard cut through a card reads as a clipping fault; a fade reads as depth. */
-.range-wrap {
+.hm-arcs::after {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  border: 1px dashed rgba(184, 145, 47, 0.2);
+  border-radius: inherit;
+}
+.hm-arch {
   position: relative;
-  /* The mask is on a wrapper, not the scroller: masking the scroller itself
-     makes it a containing block and the snap points drift. */
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
+  width: min(390px, 84%);
+  aspect-ratio: 1 / 1.06;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 999px 999px 32px 32px;
+  box-shadow: 0 30px 60px rgba(11, 11, 12, 0.18);
+}
+.hm-arch img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 42% 50%; }
+.hm-arch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.1) 0%, transparent 42%, rgba(11, 11, 12, 0.22) 100%);
+}
+.hm-box {
+  position: absolute;
+  right: 0;
+  bottom: 2%;
+  width: min(176px, 32%);
+  filter: drop-shadow(0 24px 30px rgba(11, 11, 12, 0.35));
+  animation: spot-float 7s ease-in-out infinite;
 }
 
-.range-card {
-  flex: 0 0 auto;
-  width: 176px;
-  scroll-snap-align: start;
+/* the one thing waiting, on the photograph */
+.hm-next {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: 5%;
+  width: min(290px, 66%);
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 18px;
+  box-shadow: 0 20px 44px rgba(11, 11, 12, 0.2);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.hm-next.wait { height: 128px; }
+.hm-next-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+.hm-next-eyebrow::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gold);
+  animation: ws-pulse 2.4s var(--ease) infinite;
+}
+.hm-next.clear .hm-next-eyebrow { color: var(--ok); }
+.hm-next.clear .hm-next-eyebrow::before { background: var(--ok); animation: none; }
+.hm-next-say { margin: 8px 0 2px; font-size: 1.04rem; font-weight: 650; line-height: 1.3; color: var(--ink); }
+.hm-next-note { margin: 0; font-size: var(--t-xs); color: var(--ink-3); }
+.hm-next-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform var(--fast) var(--ease);
+}
+.hm-next-go svg { width: 14px; height: 14px; }
+.hm-next-go:hover { transform: translateY(-1px); }
+
+/* --- the practice, in four figures --- */
+.hm-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin-top: calc(-1 * var(--s-4));
+}
+.hm-kpi {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: 4px;
+  min-height: 136px;
+  padding: 16px 18px;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.hm-kpi:hover { border-color: var(--gold-line); box-shadow: var(--shadow); transform: translateY(-2px); }
+.hm-kpi-top { display: flex; align-items: center; gap: 10px; }
+.hm-kpi-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border-radius: 10px;
+}
+.hm-kpi-icon svg { width: 16px; height: 16px; }
+.hm-kpi-label {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.hm-kpi-value {
+  margin-top: 10px;
+  font-size: 2rem;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.hm-kpi-note { font-size: var(--t-xs); color: var(--ink-3); }
+.hm-kpi.lit { background: linear-gradient(180deg, var(--gold-wash), var(--white)); border-color: var(--gold-line); }
+.hm-kpi.lit .hm-kpi-icon { color: var(--gold-deep); background: var(--gold-soft); }
+.hm-kpi.lit .hm-kpi-value { color: var(--gold-deep); }
+.hm-kpi .go {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  transition: transform var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.hm-kpi:hover .go { color: var(--gold-deep); transform: translateX(2px); }
+.hm-bars {
+  position: absolute;
+  right: 18px;
+  top: 58px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 44%;
+  height: 40px;
+}
+.hm-bars i { flex: 1; min-width: 2px; background: var(--gold-line); border-radius: 2px 2px 0 0; }
+.hm-bars i.now { background: var(--gold); }
+.hm-bars i.ahead { background: var(--rule); }
+
+/* --- the range, on a dark lab band --- */
+.hm-range {
+  position: relative;
+  isolation: isolate;
+  padding: 34px 0 24px;
+  overflow: hidden;
+  color: #f4efe2;
+  background:
+    radial-gradient(55% 80% at 82% 0%, rgba(212, 175, 55, 0.2) 0%, transparent 62%),
+    linear-gradient(160deg, #17171a 0%, #0b0b0c 60%, #121214 100%);
+  border-radius: 28px;
+  box-shadow: var(--shadow-lg);
+}
+.hm-range::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 48px;
+  opacity: 0.12;
+  -webkit-mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 70%);
+}
+.hm-range-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 0 36px;
+}
+.hm-range-head h2 {
+  margin: 8px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2.1rem, 3.6vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.016em;
+  color: var(--white);
+}
+.hm-range-head h2 em { color: var(--gold-lift); }
+.hm-range-head p { max-width: 52ch; margin: 10px 0 0; font-size: var(--t-sm); line-height: 1.6; color: rgba(244, 239, 226, 0.62); }
+.hm-range-nav { display: flex; align-items: center; gap: 8px; }
+.hm-range-nav button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  text-align: left;
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.hm-range-nav button svg { width: 16px; height: 16px; }
+.hm-range-nav button svg.back { transform: rotate(180deg); }
+.hm-range-nav button:hover { background: rgba(212, 175, 55, 0.14); border-color: var(--gold-bright); }
+.hm-range-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding: 10px 16px;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  color: var(--black);
+  text-decoration: none;
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(212, 175, 55, 0.25);
+}
+.hm-range-all svg { width: 14px; height: 14px; }
+
+.hm-hold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  width: fit-content;
+  max-width: calc(100% - 72px);
+  margin: 18px 36px 0;
+  padding: 7px 8px 7px 13px;
+  font-size: var(--t-xs);
+  color: rgba(244, 239, 226, 0.78);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 999px;
+}
+.hm-hold i { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--gold-bright); box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.16); }
+.hm-hold b { font-weight: 620; color: var(--white); }
+.hm-hold a {
+  padding: 3px 10px;
+  font-weight: 650;
+  color: var(--black);
+  text-decoration: none;
+  white-space: nowrap;
+  background: var(--gold-lift);
+  border-radius: 999px;
+}
+
+.hm-track {
+  display: flex;
+  gap: 16px;
+  margin-top: 22px;
+  padding: 6px 36px 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 36px;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+}
+.hm-track::-webkit-scrollbar { display: none; }
+.hm-pc {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 224px;
+  padding: 0;
   font: inherit;
-  white-space: normal;
+  text-align: left;
+  color: inherit;
   background: none;
   border: 0;
   cursor: pointer;
+  scroll-snap-align: start;
 }
-
-/* The card's own black is the frame — a border around it would be a second
-   edge drawn on top of one the artwork already has. */
-.range-shot {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1 / 1.414;
-  border-radius: var(--r);
+.hm-pc:focus-visible { outline: none; }
+.hm-pc-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1.08;
+  margin-bottom: 10px;
   overflow: hidden;
-  background: #0b0b0c;
-  box-shadow: 0 1px 2px rgba(11, 11, 12, 0.16), 0 10px 26px rgba(11, 11, 12, 0.14);
-  transition: transform var(--mid) var(--ease-out), box-shadow var(--mid) var(--ease);
+  background:
+    radial-gradient(65% 55% at 50% 46%, rgba(246, 230, 180, 0.24) 0%, rgba(212, 175, 55, 0.06) 55%, transparent 100%),
+    #141416;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  transition: border-color var(--mid) var(--ease), transform var(--mid) var(--ease-out);
 }
-.range-card:hover .range-shot {
-  transform: translateY(-4px);
-  box-shadow: 0 2px 4px rgba(11, 11, 12, 0.2), 0 18px 40px rgba(11, 11, 12, 0.22);
+.hm-pc-stage::before {
+  content: "";
+  position: absolute;
+  width: 74%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 50%;
 }
-.range-shot img { width: 100%; height: 100%; object-fit: contain; display: block; }
-
-.range-name {
-  font-size: var(--t-sm);
-  font-weight: 620;
-  line-height: 1.3;
+.hm-pc-shot {
+  position: relative;
+  z-index: 1;
+  width: 68%;
+  max-height: 72%;
+  object-fit: contain;
+  filter: drop-shadow(0 20px 22px rgba(0, 0, 0, 0.5));
+  transition: transform 0.7s var(--ease-out);
 }
-.range-price {
-  margin-top: -4px;
-  font-size: var(--t-xs);
-  color: var(--gold-deep);
-  font-variant-numeric: tabular-nums;
-}
-
-.range-dots {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-}
-.range-dots span {
-  width: 5px;
-  height: 5px;
+.hm-pc-stage.photo::before { display: none; }
+.hm-pc-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 1s var(--ease-out); }
+.hm-pc:hover .hm-pc-stage,
+.hm-pc:focus-visible .hm-pc-stage { transform: translateY(-4px); border-color: rgba(212, 175, 55, 0.5); }
+.hm-pc:hover .hm-pc-shot { transform: translateY(-8px) scale(1.05) rotate(-1.5deg); }
+.hm-pc:hover .hm-pc-photo { transform: scale(1.05); }
+.hm-pc-name { font-family: var(--display); font-size: 1.4rem; line-height: 1.08; color: var(--white); }
+.hm-pc-line { font-size: var(--t-xs); color: rgba(244, 239, 226, 0.6); }
+.hm-pc-price { margin-top: 4px; font-size: var(--t-sm); font-weight: 650; font-variant-numeric: tabular-nums; color: var(--gold-lift); }
+.hm-dots { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
+.hm-dots span {
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
-  background: var(--rule-strong);
-  transition: width var(--fast) var(--ease), background var(--fast) var(--ease);
+  transition: width var(--mid) var(--ease), background var(--mid) var(--ease);
 }
-.range-dots span.on { width: 16px; background: var(--gold); }
+.hm-dots span.on { width: 18px; background: var(--gold-bright); }
 
-@media (max-width: 620px) {
-  .range-card { width: 142px; }
-  .range-head { align-items: flex-start; }
+/* --- the desk --- */
+.hm-desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-4);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .range-card:hover .range-shot { transform: none; }
+.hm-panel {
+  padding: 22px 24px 24px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 22px;
+  box-shadow: var(--shadow-xs);
 }
-
-/* An appliance already delivered and unpaid holds the next one. Said before the
-   clinic fills in an order form, not after. */
-.hold-note {
+.hm-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.hm-panel-head h2 {
   margin: 0;
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--gold-line);
-  border-left: 3px solid var(--gold);
-  border-radius: var(--r-sm);
-  background: var(--gold-wash);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.012em;
+}
+
+.hm-asks { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.hm-asks button {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px 12px 12px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.hm-asks button:hover { background: var(--white); border-color: var(--gold-line); box-shadow: var(--shadow); transform: translateX(2px); }
+.hm-ask-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--gold-lift);
+  background: var(--black-2);
+  border-radius: 13px;
+}
+.hm-ask-icon svg { width: 20px; height: 20px; }
+.hm-ask-say { min-width: 0; }
+.hm-ask-say b { display: block; font-size: var(--t-body); font-weight: 620; color: var(--ink); }
+.hm-ask-say span { font-size: var(--t-xs); color: var(--ink-3); }
+.hm-ask-n {
+  min-width: 32px;
+  padding: 3px 10px;
   font-size: var(--t-sm);
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-deep);
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 999px;
+}
+.hm-ask-go { width: 16px; height: 16px; color: var(--ink-3); transition: transform var(--fast) var(--ease), color var(--fast) var(--ease); }
+.hm-asks button:hover .hm-ask-go { color: var(--gold-deep); transform: translateX(2px); }
+
+.hm-clear {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
+  border-radius: 16px;
+}
+.hm-clear-tick { flex: none; display: grid; place-items: center; width: 40px; height: 40px; color: var(--white); background: var(--ok); border-radius: 999px; }
+.hm-clear-tick svg { width: 20px; height: 20px; }
+.hm-clear strong { display: block; color: var(--ink); }
+.hm-clear p { margin: 2px 0 0; font-size: var(--t-xs); color: var(--ink-2); }
+
+.hm-feed { position: relative; margin: 0; padding: 0; list-style: none; }
+.hm-feed::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--rule);
+}
+.hm-feed li > button,
+.hm-feed li > div {
+  position: relative;
+  white-space: normal;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 10px 10px 10px 26px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 12px;
+}
+.hm-feed li > button { cursor: pointer; transition: background var(--fast) var(--ease); }
+.hm-feed li > button:hover { background: var(--paper); }
+.hm-feed li > *::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 15px;
+  width: 9px;
+  height: 9px;
+  background: var(--white);
+  border: 2px solid var(--rule-strong);
+  border-radius: 999px;
+}
+.hm-feed li.new > *::before { background: var(--gold); border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-wash); }
+.hm-feed b { font-size: var(--t-sm); font-weight: 620; color: var(--ink); }
+.hm-feed li:not(.new) b { font-weight: 560; color: var(--ink-2); }
+.hm-feed-when { font-size: var(--t-micro); white-space: nowrap; color: var(--ink-3); }
+.hm-feed-body {
+  grid-column: 1 / -1;
+  white-space: normal;
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--t-xs);
+  line-height: 1.45;
+  color: var(--ink-3);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* --- narrower screens --- */
+@media (max-width: 1100px) {
+  .hm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
-  /* Below this the pane would be narrower than its own sentence, so it drops
-     under the buttons and runs the width instead. */
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "say" "next" "stats";
-    gap: var(--s-5);
-    padding: var(--s-5);
-  }
-  .nextup { align-items: flex-start; }
+  .hm-hero { grid-template-columns: 1fr; padding: 30px 26px; }
+  .hm-art { min-height: 360px; }
+  .hm-desk { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 620px) {
-  .hero-do { flex-direction: column; align-items: stretch; }
-  .btn-hero { justify-content: center; }
+@media (max-width: 720px) {
+  .hm { gap: var(--s-6); }
+  .hm-hero { padding: 24px 18px 20px; border-radius: 22px; }
+  .hm-say h1 { font-size: 3rem; }
+  .hm-sum { font-size: var(--t-body); }
+  .hm-do { width: 100%; }
+  .hm-cta { flex: 1 1 100%; justify-content: center; }
+  .hm-ghost { flex: 1; padding: 12px 14px; font-size: var(--t-sm); }
+  /* On a phone the waiting card sits under the photograph rather than over
+     it, so neither is hidden by the other. */
+  .hm-art { display: flex; flex-direction: column; align-items: center; min-height: 0; }
+  .hm-arcs { display: none; }
+  .hm-arch { width: 78%; }
+  .hm-box { top: 44%; bottom: auto; width: 30%; }
+  .hm-next { position: relative; left: auto; bottom: auto; width: 100%; margin-top: -36px; }
+  .hm-kpis { gap: var(--s-2); margin-top: 0; }
+  .hm-kpi { min-height: 118px; padding: 14px; }
+  .hm-kpi-value { font-size: 1.5rem; }
+  .hm-kpi .go { display: none; }
+  .hm-bars { right: 14px; top: 52px; width: 38%; height: 26px; }
+  .hm-range { padding: 26px 0 20px; border-radius: 22px; }
+  .hm-range-head { padding: 0 20px; }
+  .hm-range-nav button { display: none; }
+  .hm-range-all { margin-left: 0; }
+  .hm-hold { max-width: calc(100% - 40px); margin: 16px 20px 0; border-radius: 14px; }
+  .hm-track { gap: 12px; padding: 6px 20px 10px; scroll-padding: 0 20px; }
+  .hm-pc { width: 168px; }
+  .hm-pc-name { font-size: 1.2rem; }
+  .hm-panel { padding: 18px 16px 20px; border-radius: 18px; }
+  .hm-panel-head h2 { font-size: 1.7rem; }
+  .hm-asks button { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; }
+  .hm-ask-icon { width: 40px; height: 40px; }
+  .hm-ask-go { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn-hero:hover, .nextup-go:hover { transform: none; }
-  .home > * { animation: none; }
+  .hm > *,
+  .hm-box,
+  .hm-next-eyebrow::before { animation: none; }
+  .hm-cta:hover,
+  .hm-kpi:hover,
+  .hm-asks button:hover,
+  .hm-pc:hover .hm-pc-stage,
+  .hm-pc:hover .hm-pc-shot,
+  .hm-pc:hover .hm-pc-photo { transform: none; }
 }
 
 /* --- Loading placeholders -------------------------------------------------
