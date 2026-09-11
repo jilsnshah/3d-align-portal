@@ -2273,10 +2273,10 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 
 /* --- The clinic's home ----------------------------------------------------
-   A welcome, not a dashboard. A light editorial band with the doctor's name
-   set large and a photograph of the work in an arch-shaped frame; the practice
-   in four figures; the range on a dark lab band built from the lab's own
-   product shots; and the desk — what needs them, what has moved. */
+   A welcome, not a dashboard. A black band with the doctor's name set large
+   and a photograph of the work in an arch-shaped frame; the practice in four
+   figures; the range on an ivory band built from the lab's own product shots;
+   and the desk — what needs them, what has moved. */
 
 .hm { display: flex; flex-direction: column; gap: var(--s-7); }
 .hm > * { animation: store-in 0.7s var(--ease-out) both; }
@@ -2293,7 +2293,9 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   color: var(--gold-bright);
 }
 
-/* --- the welcome --- */
+/* --- the welcome ---
+   Set on the brand's own black and lit from behind the photograph, so it
+   stands apart from the ivory page instead of dissolving into it. */
 .hm-hero {
   position: relative;
   isolation: isolate;
@@ -2303,24 +2305,24 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   gap: var(--s-5);
   padding: 40px 44px;
   overflow: hidden;
+  color: #f4efe2;
   background:
-    radial-gradient(55% 90% at 82% 42%, rgba(212, 175, 55, 0.2) 0%, rgba(212, 175, 55, 0) 62%),
-    radial-gradient(60% 80% at 0% 0%, #ffffff 0%, rgba(255, 255, 255, 0) 62%),
-    linear-gradient(135deg, #fcfaf5 0%, #f2ecdf 100%);
-  border: 1px solid #ece3cd;
+    radial-gradient(48% 85% at 80% 46%, rgba(212, 175, 55, 0.28) 0%, rgba(212, 175, 55, 0) 62%),
+    radial-gradient(45% 70% at 0% 0%, rgba(212, 175, 55, 0.12) 0%, transparent 60%),
+    linear-gradient(155deg, #1a1a1d 0%, #0b0b0c 58%, #131315 100%);
   border-radius: 28px;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
 }
 .hm-hero::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23b8912f' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 28px 48px;
-  opacity: 0.1;
-  -webkit-mask-image: radial-gradient(55% 80% at 100% 100%, #000 0%, transparent 72%);
-  mask-image: radial-gradient(55% 80% at 100% 100%, #000 0%, transparent 72%);
+  opacity: 0.13;
+  -webkit-mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 72%);
 }
 
 .hm-say { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
@@ -2329,7 +2331,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--gold-deep);
+  color: var(--gold-bright);
 }
 .hm-say h1 {
   margin: 0;
@@ -2338,12 +2340,12 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: clamp(3rem, 6.2vw, 5.2rem);
   line-height: 0.94;
   letter-spacing: -0.026em;
-  color: var(--ink);
+  color: var(--white);
 }
 .hm-say h1::after { display: none; }
-.hm-sum { max-width: 44ch; margin: 0; font-size: 1.04rem; line-height: 1.6; color: var(--ink-2); }
-.hm-sum b { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); }
-.hm-sum b.lit { color: var(--gold-deep); }
+.hm-sum { max-width: 44ch; margin: 0; font-size: 1.04rem; line-height: 1.6; color: rgba(244, 239, 226, 0.7); }
+.hm-sum b { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--white); }
+.hm-sum b.lit { color: var(--gold-lift); }
 .hm-do { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .hm-cta {
   display: inline-flex;
@@ -2353,41 +2355,47 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font: inherit;
   font-size: var(--t-body);
   font-weight: 650;
-  color: var(--white);
-  background: var(--black-2);
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
   border: 0;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 12px 28px rgba(11, 11, 12, 0.22);
+  box-shadow: 0 12px 30px rgba(212, 175, 55, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
-.hm-cta svg { width: 16px; height: 16px; color: var(--gold-lift); transition: transform var(--fast) var(--ease); }
-.hm-cta:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(11, 11, 12, 0.28); }
+.hm-cta svg { width: 16px; height: 16px; transition: transform var(--fast) var(--ease); }
+.hm-cta:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(212, 175, 55, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 .hm-cta:hover svg { transform: translateX(3px); }
 .hm-ghost {
   padding: 14px 18px;
   font: inherit;
   font-size: var(--t-body);
   font-weight: 600;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--rule-strong);
+  color: #f4efe2;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
   cursor: pointer;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
   transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.hm-ghost:hover { background: var(--white); border-color: var(--gold); }
+.hm-ghost:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--gold-bright); }
 
 /* The photograph in the shape of an arch — the one outline every doctor here
-   works inside all day. */
+   works inside all day — with the light behind it that the band is lit by. */
 .hm-art { position: relative; display: grid; place-items: center; min-height: 380px; }
+.hm-art::before {
+  content: "";
+  position: absolute;
+  width: min(540px, 115%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(246, 230, 180, 0.2) 0%, rgba(212, 175, 55, 0.06) 45%, transparent 68%);
+}
 .hm-arcs {
   position: absolute;
   width: min(440px, 94%);
   aspect-ratio: 1 / 1.06;
-  border: 1px solid rgba(184, 145, 47, 0.34);
+  border: 1px solid rgba(212, 175, 55, 0.4);
   border-radius: 999px 999px 40px 40px;
   transform: translate(18px, -8px);
 }
@@ -2395,7 +2403,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   content: "";
   position: absolute;
   inset: -18px;
-  border: 1px dashed rgba(184, 145, 47, 0.2);
+  border: 1px dashed rgba(212, 175, 55, 0.22);
   border-radius: inherit;
 }
 .hm-arch {
@@ -2405,21 +2413,21 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   margin: 0;
   overflow: hidden;
   border-radius: 999px 999px 32px 32px;
-  box-shadow: 0 30px 60px rgba(11, 11, 12, 0.18);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(212, 175, 55, 0.25);
 }
 .hm-arch img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 42% 50%; }
 .hm-arch::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(212, 175, 55, 0.1) 0%, transparent 42%, rgba(11, 11, 12, 0.22) 100%);
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.08) 0%, transparent 42%, rgba(11, 11, 12, 0.3) 100%);
 }
 .hm-box {
   position: absolute;
   right: 0;
   bottom: 2%;
   width: min(176px, 32%);
-  filter: drop-shadow(0 24px 30px rgba(11, 11, 12, 0.35));
+  filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.6));
   animation: spot-float 7s ease-in-out infinite;
 }
 
@@ -2431,10 +2439,10 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   bottom: 5%;
   width: min(290px, 66%);
   padding: 16px 18px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.95);
   border-radius: 18px;
-  box-shadow: 0 20px 44px rgba(11, 11, 12, 0.2);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
@@ -2470,14 +2478,14 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font: inherit;
   font-size: var(--t-sm);
   font-weight: 650;
-  color: var(--black);
-  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  color: var(--white);
+  background: var(--black-2);
   border: 0;
   border-radius: 999px;
   cursor: pointer;
   transition: transform var(--fast) var(--ease);
 }
-.hm-next-go svg { width: 14px; height: 14px; }
+.hm-next-go svg { width: 14px; height: 14px; color: var(--gold-lift); }
 .hm-next-go:hover { transform: translateY(-1px); }
 
 /* --- the practice, in four figures --- */
@@ -2559,30 +2567,34 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .hm-bars i.now { background: var(--gold); }
 .hm-bars i.ahead { background: var(--rule); }
 
-/* --- the range, on a dark lab band --- */
+/* --- the range, on an ivory band ---
+   After the black welcome, the range is lit the way the shop lights it: an
+   ivory stage under each boxed shot, and a floor shadow beneath. Dark then
+   light keeps the page from reading as two heavy blocks in a row. */
 .hm-range {
   position: relative;
   isolation: isolate;
   padding: 34px 0 24px;
   overflow: hidden;
-  color: #f4efe2;
   background:
-    radial-gradient(55% 80% at 82% 0%, rgba(212, 175, 55, 0.2) 0%, transparent 62%),
-    linear-gradient(160deg, #17171a 0%, #0b0b0c 60%, #121214 100%);
+    radial-gradient(50% 80% at 88% 0%, rgba(212, 175, 55, 0.12) 0%, transparent 62%),
+    linear-gradient(180deg, #ffffff 0%, #faf6ee 100%);
+  border: 1px solid var(--rule);
   border-radius: 28px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow);
 }
 .hm-range::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23b8912f' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 28px 48px;
-  opacity: 0.12;
-  -webkit-mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 70%);
-  mask-image: radial-gradient(60% 90% at 0% 0%, #000 0%, transparent 70%);
+  opacity: 0.08;
+  -webkit-mask-image: radial-gradient(50% 80% at 100% 0%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(50% 80% at 100% 0%, #000 0%, transparent 70%);
 }
+.hm-range .hm-eyebrow { color: var(--gold-deep); }
 .hm-range-head {
   display: flex;
   flex-wrap: wrap;
@@ -2598,10 +2610,10 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   font-size: clamp(2.1rem, 3.6vw, 3rem);
   line-height: 1;
   letter-spacing: -0.016em;
-  color: var(--white);
+  color: var(--ink);
 }
-.hm-range-head h2 em { color: var(--gold-lift); }
-.hm-range-head p { max-width: 52ch; margin: 10px 0 0; font-size: var(--t-sm); line-height: 1.6; color: rgba(244, 239, 226, 0.62); }
+.hm-range-head h2 em { color: var(--gold-deep); }
+.hm-range-head p { max-width: 52ch; margin: 10px 0 0; font-size: var(--t-sm); line-height: 1.6; color: var(--ink-2); }
 .hm-range-nav { display: flex; align-items: center; gap: 8px; }
 .hm-range-nav button {
   display: grid;
@@ -2609,16 +2621,16 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   width: 40px;
   height: 40px;
   padding: 0;
-  color: var(--white);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
   border-radius: 999px;
   cursor: pointer;
   transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 .hm-range-nav button svg { width: 16px; height: 16px; }
 .hm-range-nav button svg.back { transform: rotate(180deg); }
-.hm-range-nav button:hover { background: rgba(212, 175, 55, 0.14); border-color: var(--gold-bright); }
+.hm-range-nav button:hover { background: var(--gold-wash); border-color: var(--gold); }
 .hm-range-all {
   display: inline-flex;
   align-items: center;
@@ -2627,13 +2639,15 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   padding: 10px 16px;
   font-size: var(--t-sm);
   font-weight: 650;
-  color: var(--black);
+  color: var(--white);
   text-decoration: none;
-  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  background: var(--black-2);
   border-radius: 999px;
-  box-shadow: 0 8px 22px rgba(212, 175, 55, 0.25);
+  box-shadow: 0 8px 22px rgba(11, 11, 12, 0.18);
+  transition: transform var(--fast) var(--ease);
 }
-.hm-range-all svg { width: 14px; height: 14px; }
+.hm-range-all svg { width: 14px; height: 14px; color: var(--gold-lift); }
+.hm-range-all:hover { transform: translateY(-1px); }
 
 .hm-hold {
   display: flex;
@@ -2645,20 +2659,20 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   margin: 18px 36px 0;
   padding: 7px 8px 7px 13px;
   font-size: var(--t-xs);
-  color: rgba(244, 239, 226, 0.78);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(212, 175, 55, 0.3);
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule);
   border-radius: 999px;
 }
-.hm-hold i { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--gold-bright); box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.16); }
-.hm-hold b { font-weight: 620; color: var(--white); }
+.hm-hold i { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--gold); box-shadow: 0 0 0 4px var(--gold-wash); }
+.hm-hold b { font-weight: 620; color: var(--ink); }
 .hm-hold a {
   padding: 3px 10px;
   font-weight: 650;
-  color: var(--black);
+  color: var(--white);
   text-decoration: none;
   white-space: nowrap;
-  background: var(--gold-lift);
+  background: var(--black-2);
   border-radius: 999px;
 }
 
@@ -2666,7 +2680,7 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   display: flex;
   gap: 16px;
   margin-top: 22px;
-  padding: 6px 36px 10px;
+  padding: 6px 36px 12px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scroll-padding: 0 36px;
@@ -2698,48 +2712,64 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
   aspect-ratio: 1 / 1.08;
   margin-bottom: 10px;
   overflow: hidden;
-  background:
-    radial-gradient(65% 55% at 50% 46%, rgba(246, 230, 180, 0.24) 0%, rgba(212, 175, 55, 0.06) 55%, transparent 100%),
-    #141416;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: radial-gradient(90% 70% at 50% 40%, #ffffff 0%, #f5f0e6 52%, #e8e0cf 100%);
+  border: 1px solid rgba(11, 11, 12, 0.05);
   border-radius: 20px;
-  transition: border-color var(--mid) var(--ease), transform var(--mid) var(--ease-out);
+  transition: border-color var(--mid) var(--ease), transform var(--mid) var(--ease-out), box-shadow var(--mid) var(--ease);
 }
 .hm-pc-stage::before {
   content: "";
   position: absolute;
   width: 74%;
   aspect-ratio: 1;
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(184, 145, 47, 0.22);
   border-radius: 50%;
+}
+.hm-pc-stage::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 12%;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(11, 11, 12, 0.22), transparent);
+  filter: blur(3px);
 }
 .hm-pc-shot {
   position: relative;
   z-index: 1;
-  width: 68%;
-  max-height: 72%;
+  width: 66%;
+  max-height: 70%;
   object-fit: contain;
-  filter: drop-shadow(0 20px 22px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 14px 16px rgba(11, 11, 12, 0.16));
   transition: transform 0.7s var(--ease-out);
 }
-.hm-pc-stage.photo::before { display: none; }
+.hm-pc-stage.photo { background: var(--black); }
+.hm-pc-stage.photo::before,
+.hm-pc-stage.photo::after { display: none; }
 .hm-pc-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 1s var(--ease-out); }
 .hm-pc:hover .hm-pc-stage,
-.hm-pc:focus-visible .hm-pc-stage { transform: translateY(-4px); border-color: rgba(212, 175, 55, 0.5); }
+.hm-pc:focus-visible .hm-pc-stage {
+  transform: translateY(-4px);
+  border-color: var(--gold-line);
+  box-shadow: 0 22px 44px rgba(11, 11, 12, 0.12);
+}
+.hm-pc:focus-visible .hm-pc-stage { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--gold); }
 .hm-pc:hover .hm-pc-shot { transform: translateY(-8px) scale(1.05) rotate(-1.5deg); }
 .hm-pc:hover .hm-pc-photo { transform: scale(1.05); }
-.hm-pc-name { font-family: var(--display); font-size: 1.4rem; line-height: 1.08; color: var(--white); }
-.hm-pc-line { font-size: var(--t-xs); color: rgba(244, 239, 226, 0.6); }
-.hm-pc-price { margin-top: 4px; font-size: var(--t-sm); font-weight: 650; font-variant-numeric: tabular-nums; color: var(--gold-lift); }
+.hm-pc-name { font-family: var(--display); font-size: 1.4rem; line-height: 1.08; color: var(--ink); }
+.hm-pc-line { font-size: var(--t-xs); color: var(--ink-3); }
+.hm-pc-price { margin-top: 4px; font-size: var(--t-sm); font-weight: 650; font-variant-numeric: tabular-nums; color: var(--gold-deep); }
 .hm-dots { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
 .hm-dots span {
   width: 6px;
   height: 6px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--rule-strong);
   border-radius: 999px;
   transition: width var(--mid) var(--ease), background var(--mid) var(--ease);
 }
-.hm-dots span.on { width: 18px; background: var(--gold-bright); }
+.hm-dots span.on { width: 18px; background: var(--gold); }
 
 /* --- the desk --- */
 .hm-desk {
