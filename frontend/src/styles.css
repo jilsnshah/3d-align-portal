@@ -4388,52 +4388,6 @@ button.progress-step:hover .progress-label { color: var(--ink); }
   .stage-nav-title b { font-size: var(--t-body); }
 }
 
-/* --- Which door an aligner case comes in by --- */
-/* Two routes to the same treatment, so they are shown side by side and read as
-   a choice rather than as a default with an alternative buried under it. */
-.intake-choice {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--s-3);
-  margin: var(--s-2) 0;
-}
-.intake-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  text-align: left;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-md);
-  background: var(--white);
-  cursor: pointer;
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
-}
-.intake-card:hover { border-color: var(--gold-line); }
-.intake-card.on {
-  border-color: var(--gold-deep);
-  box-shadow: 0 0 0 1px var(--gold-deep) inset;
-  background: var(--gold-wash);
-}
-.intake-card b { font-size: 0.98rem; }
-.intake-blurb { color: var(--ink-2); font-size: var(--t-sm); line-height: 1.45; }
-.intake-needs {
-  margin-top: 2px;
-  font-size: var(--t-micro);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-/* A discount the clinic is not told about is one they cannot pass on. */
-.quote-discount {
-  margin: -6px 0 8px;
-  font-size: var(--t-sm);
-  font-weight: 560;
-  color: var(--ok-deep, var(--ink-2));
-}
-
 /* --- The shop -------------------------------------------------------------
    Built from the lab's own product shots rather than its flyers. The boxed
    shots are on clear backgrounds, so each is lit on a stage the page draws:
@@ -7895,4 +7849,458 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   .bk-chip,
   .tc-card { transition: none; }
   .st-savebar { animation: none; }
+}
+
+/* --- Starting a case --------------------------------------------------------
+   The choices are drawn rather than described: the two doors, the arches,
+   express against standard. A rail down the side holds every answer given so
+   far, and each step ends in a bar that says what happens next. */
+
+.nc { display: flex; flex-direction: column; gap: var(--s-4); }
+.nc > * { animation: store-in 0.5s var(--ease-out) both; }
+
+.nc-hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px var(--s-5);
+  padding: 24px 30px;
+  overflow: hidden;
+  color: #f4efe2;
+  background:
+    radial-gradient(45% 90% at 12% 0%, rgba(212, 175, 55, 0.18) 0%, transparent 62%),
+    linear-gradient(155deg, #1a1a1d 0%, #0b0b0c 60%, #131315 100%);
+  border-radius: 24px;
+  box-shadow: var(--shadow-lg);
+}
+.nc-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='48'%3E%3Cg fill='none' stroke='%23d4af37' stroke-width='.8'%3E%3Cpath d='M14 0 28 8v16l-14 8-14-8V8z'/%3E%3Cpath d='M28 24l14 8v16l-14 8-14-8V32z'/%3E%3Cpath d='M0 24l14 8v16L0 56l-14-8V32z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 48px;
+  opacity: 0.12;
+  -webkit-mask-image: radial-gradient(60% 100% at 100% 0%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(60% 100% at 100% 0%, #000 0%, transparent 70%);
+}
+.nc-hero-say { min-width: 0; }
+.nc-kicker { font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold-bright); }
+.nc-hero h1 {
+  margin: 6px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(1.9rem, 3.2vw, 2.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: var(--white);
+}
+.nc-hero h1::after { display: none; }
+.nc-hero h1 em { font-style: italic; color: var(--gold-lift); }
+.nc-hero p { max-width: 58ch; margin: 8px 0 0; font-size: var(--t-sm); line-height: 1.55; color: rgba(244, 239, 226, 0.68); }
+.nc-hero-side { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.nc-draft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--gold-lift);
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  border-radius: 999px;
+}
+.nc-draft svg { width: 13px; height: 13px; }
+.nc-draft b { color: var(--white); }
+.nc-draft.quiet { color: rgba(244, 239, 226, 0.6); background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.14); }
+.nc-leave { font-size: var(--t-sm); color: rgba(244, 239, 226, 0.7); text-decoration: none; }
+.nc-leave:hover { color: var(--white); text-decoration: underline; }
+
+.nc-body { display: grid; grid-template-columns: 264px minmax(0, 1fr); align-items: start; gap: var(--s-5); }
+
+/* the rail: every answer so far, and the way back to it */
+.nc-rail { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.nc-rail ol { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 6px; list-style: none; background: var(--white); border: 1px solid var(--rule); border-radius: 18px; box-shadow: var(--shadow-xs); }
+.nc-rail li { position: relative; }
+.nc-rail li + li::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  top: -6px;
+  width: 1px;
+  height: 8px;
+  background: var(--rule-strong);
+}
+.nc-rail button {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  background: none;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.nc-rail button:disabled { cursor: default; }
+.nc-rail button:not(:disabled):hover { background: var(--paper); }
+.nc-rail li.on button { background: var(--gold-wash); }
+.nc-rail-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--ink-3);
+  background: var(--paper);
+  border-radius: 11px;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.nc-rail-mark svg { width: 18px; height: 18px; }
+.nc-rail li.on .nc-rail-mark { color: var(--gold-lift); background: var(--black-2); }
+.nc-rail li.done .nc-rail-mark { color: var(--white); background: var(--ok); }
+.nc-rail-say { display: flex; flex-direction: column; min-width: 0; }
+.nc-rail-say small { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-3); }
+.nc-rail-say b { font-size: var(--t-sm); font-weight: 650; color: var(--ink); }
+.nc-rail-say > span { overflow: hidden; font-size: var(--t-xs); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-3); }
+.nc-rail li.todo .nc-rail-say b { color: var(--ink-3); }
+.nc-rail-note { margin: 0; padding: 0 6px; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-3); }
+
+/* the step itself */
+.nc-pane { min-width: 0; }
+.nc-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+  padding: 26px 28px 0;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 22px;
+  box-shadow: var(--shadow-xs);
+  animation: store-in 0.4s var(--ease-out) both;
+}
+.nc-step-head h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(1.6rem, 2.4vw, 2rem); line-height: 1.1; letter-spacing: -0.012em; }
+.nc-step-head h2::after { display: none; }
+.nc-step-head p { max-width: 70ch; margin: 6px 0 0; font-size: var(--t-sm); line-height: 1.55; color: var(--ink-3); }
+.nc-hint { max-width: 70ch; margin: 0; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-3); }
+.nc-none { margin: 0; font-size: var(--t-sm); color: var(--ink-3); }
+
+.nc-fieldset { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.nc-fieldset legend {
+  padding: 0;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+.nc-fieldset textarea { width: 100%; }
+
+/* a chosen card wears a gold tick in its corner */
+.nc-picked {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--white);
+  background: var(--gold);
+  border-radius: 999px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease-out);
+}
+.nc-picked svg { width: 12px; height: 12px; }
+.on > .nc-picked { opacity: 1; transform: scale(1); }
+
+/* step one: the two doors */
+.nc-routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+.nc-route {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 20px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  color: inherit;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 18px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.nc-route:hover { border-color: var(--gold-line); transform: translateY(-2px); }
+.nc-route:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nc-route.on { background: var(--gold-wash); border-color: var(--gold); box-shadow: var(--glow-gold, none); }
+.nc-route b { font-size: 1.05rem; font-weight: 650; color: var(--ink); }
+.nc-route-blurb { font-size: var(--t-sm); line-height: 1.5; color: var(--ink-2); }
+.nc-route-art { width: 100%; max-width: 190px; height: auto; margin-bottom: 4px; }
+.nc-route-art .ink { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.nc-route-art .ink-soft { fill: none; stroke: var(--rule-strong); stroke-width: 2; }
+.nc-route-art .gold { fill: none; stroke: var(--gold); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nc-route-art .gold-fill { fill: var(--gold); stroke: none; }
+.nc-route-art .teeth circle { fill: var(--rule-strong); }
+.nc-route.on .nc-route-art .teeth circle { fill: var(--gold-line); }
+.nc-route-send { display: flex; flex-wrap: wrap; gap: 6px; }
+.nc-route-send i {
+  padding: 3px 10px;
+  font-size: var(--t-xs);
+  font-style: normal;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+}
+.nc-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: auto; padding-top: 8px; }
+.nc-flow i { font-size: var(--t-micro); font-style: normal; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.nc-flow i + i::before { content: "→ "; color: var(--gold); }
+
+/* step two: the patient */
+.nc-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--paper-2); border-radius: 999px; }
+.nc-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.nc-seg button.on { color: var(--white); background: var(--black-2); }
+.nc-seg button span {
+  padding: 1px 7px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--white);
+  border-radius: 999px;
+}
+.nc-seg button.on span { color: var(--white); background: rgba(255, 255, 255, 0.18); }
+.nc-search input { width: 100%; }
+.nc-search input:focus { width: 100%; }
+.nc-people {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+}
+.nc-people button {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  background: var(--white);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.nc-people button:hover { border-color: var(--gold-line); }
+.nc-people button.on { background: var(--gold-wash); border-color: var(--gold); }
+.nc-people .nc-picked { position: static; opacity: 0; transform: none; }
+.nc-people button.on .nc-picked { opacity: 1; }
+.nc-person { display: flex; flex-direction: column; min-width: 0; }
+.nc-person b { overflow: hidden; font-size: var(--t-sm); font-weight: 620; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.nc-person small { overflow: hidden; font-size: var(--t-xs); white-space: nowrap; text-overflow: ellipsis; color: var(--ink-3); }
+
+.nc-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.nc-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.nc-form input,
+.nc-form select { width: 100%; min-width: 0; }
+.nc-dup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 14px;
+}
+.nc-dup b { font-size: var(--t-sm); color: var(--gold-deep); }
+.nc-dup ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.nc-dup li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--t-sm); color: var(--ink); }
+.nc-dup small { font-size: var(--t-xs); color: var(--ink-3); }
+
+/* step three: the case */
+.nc-arches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; }
+.nc-arch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px;
+  font: inherit;
+  white-space: normal;
+  color: inherit;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.nc-arch:hover { border-color: var(--gold-line); transform: translateY(-1px); }
+.nc-arch:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nc-arch.on { background: var(--gold-wash); border-color: var(--gold); }
+.nc-arch b { font-size: var(--t-sm); font-weight: 620; color: var(--ink); }
+.nc-arch-art { width: 100%; max-width: 116px; height: auto; }
+.nc-arch-art .teeth rect { fill: var(--rule-strong); transition: fill var(--fast) var(--ease); }
+.nc-arch-art .teeth rect.on { fill: var(--gold); }
+
+.nc-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.nc-choice {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  color: inherit;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.nc-choice:hover { border-color: var(--gold-line); }
+.nc-choice:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nc-choice.on { background: var(--gold-wash); border-color: var(--gold); }
+.nc-choice b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-right: 26px; font-size: var(--t-body); font-weight: 650; color: var(--ink); }
+.nc-choice b em { padding: 2px 8px; font-size: var(--t-micro); font-style: normal; font-weight: 700; text-transform: uppercase; letter-spacing: var(--track-caps); color: var(--gold-deep); background: var(--white); border: 1px solid var(--gold-line); border-radius: 999px; }
+.nc-choice span { font-size: var(--t-xs); line-height: 1.5; color: var(--ink-3); overflow-wrap: anywhere; }
+.nc-bolt { width: 18px; height: 18px; color: var(--gold-deep); }
+
+.nc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nc-chip {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: var(--t-sm);
+  white-space: normal;
+  color: var(--ink-2);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.nc-chip:hover { border-color: var(--gold-line); color: var(--ink); }
+.nc-chip.on { font-weight: 620; color: var(--gold-deep); background: var(--gold-wash); border-color: var(--gold); }
+
+/* step four: the records */
+.nc-progress { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 16px; padding: 16px 18px; background: var(--paper); border-radius: 16px; }
+.nc-progress > div > b { font-size: var(--t-body); color: var(--ink); }
+.nc-ring { position: relative; display: grid; place-items: center; width: 64px; height: 64px; }
+.nc-ring svg { width: 64px; height: 64px; }
+.nc-ring b { position: absolute; font-size: var(--t-sm); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.nc-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; padding: 0; list-style: none; }
+.nc-checks li { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-sm); color: var(--ink-3); }
+.nc-checks li.done { color: var(--ink-2); }
+.nc-checks i { display: grid; place-items: center; width: 18px; height: 18px; color: var(--white); border: 1.5px solid var(--rule-strong); border-radius: 999px; }
+.nc-checks li.done i { background: var(--ok); border-color: var(--ok); }
+.nc-checks i svg { width: 11px; height: 11px; }
+.nc-checks small { font-size: var(--t-xs); color: var(--gold-deep); }
+.nc-files { min-width: 0; }
+
+/* step five: delivery and the review */
+.nc-addresses { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.nc-review { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; background: var(--paper); border: 1px solid var(--rule); border-radius: 18px; }
+.nc-review h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 1.35rem; line-height: 1.1; }
+.nc-review h3::after { display: none; }
+.nc-review dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px 20px; margin: 0; }
+.nc-review dl > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nc-review dt { font-size: var(--t-micro); font-weight: 700; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-3); }
+.nc-review dd { margin: 0; font-size: var(--t-sm); font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.nc-next { margin: 0; font-size: var(--t-xs); line-height: 1.55; color: var(--ink-3); }
+
+/* the bar that ends every step */
+.nc-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 0 -28px;
+  /* Room on the right for the floating contact dock, which sits over this
+     corner of the screen and would otherwise land on the one button the step
+     exists to press. */
+  padding: 14px 96px 14px 28px;
+  /* Opaque, because it sits over the rest of the step as that scrolls under
+     it. A translucent bar reads as a rendering fault. */
+  background: var(--white);
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 22px 22px;
+  box-shadow: 0 -10px 24px rgba(11, 11, 12, 0.06);
+}
+.nc-foot-say { flex: 1 1 180px; min-width: 0; font-size: var(--t-xs); color: var(--ink-3); overflow-wrap: anywhere; }
+.nc-foot .btn-primary { margin-left: auto; }
+
+@media (max-width: 1080px) {
+  .nc-body { grid-template-columns: 1fr; }
+  .nc-rail { position: static; }
+  .nc-rail ol { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .nc-rail ol::-webkit-scrollbar { display: none; }
+  .nc-rail li { flex: none; }
+  .nc-rail li + li::before { display: none; }
+  .nc-rail button { grid-template-columns: 30px auto; gap: 8px; padding: 7px 12px 7px 7px; }
+  .nc-rail-mark { width: 30px; height: 30px; border-radius: 9px; }
+  .nc-rail-say > span { display: none; }
+  .nc-rail-note { display: none; }
+}
+@media (max-width: 720px) {
+  .nc-hero { padding: 20px 18px; border-radius: 20px; }
+  .nc-step { padding: 20px 16px 0; border-radius: 18px; }
+  /* The dock is smaller on a phone, so the bar gives up less of its width to
+     clear it. */
+  .nc-foot { margin: 0 -16px; padding: 12px 64px 12px 16px; border-radius: 0 0 18px 18px; }
+  .nc-foot .btn-ghost,
+  .nc-foot .btn-primary { flex: 1 1 auto; }
+  .nc-form-row { grid-template-columns: 1fr; }
+  .nc-people { max-height: 300px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nc > *,
+  .nc-step { animation: none; }
+  .nc-route,
+  .nc-arch,
+  .nc-picked { transition: none; }
 }
