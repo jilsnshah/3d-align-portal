@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api, formatDate } from "../api";
 import type { LeaveDecision } from "../api";
+import { useToast } from "./Toast";
 import { Banner, ErrorText } from "./ui";
 
 /** Leave waiting on the lab, and the visits it would take away.
@@ -13,6 +14,7 @@ import { Banner, ErrorText } from "./ui";
  */
 export default function LeaveQueue() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [note, setNote] = useState("");
   const [outcome, setOutcome] = useState<LeaveDecision | null>(null);
 
@@ -24,6 +26,18 @@ export default function LeaveQueue() {
     onSuccess: (result) => {
       setNote("");
       setOutcome(result);
+      toast(
+        result.leave.status === "DECLINED"
+          ? { title: "Leave declined", tone: "warn", body: "Nothing in the diary moved." }
+          : {
+              title: "Leave approved",
+              tone: result.stranded.length > 0 ? "warn" : "ok",
+              body:
+                result.stranded.length > 0
+                  ? `${result.covered.length} visit(s) moved · ${result.stranded.length} nobody could cover, listed below.`
+                  : `${result.covered.length} visit(s) moved to another technician.`,
+            },
+      );
       void queryClient.invalidateQueries({ queryKey: ["leave-queue"] });
       void queryClient.invalidateQueries({ queryKey: ["attention"] });
       void queryClient.invalidateQueries({ queryKey: ["bookings"] });

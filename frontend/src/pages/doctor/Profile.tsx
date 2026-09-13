@@ -24,6 +24,7 @@ import { useAuth } from "../../auth";
 import LocationPicker from "../../components/LocationPicker";
 import type { PickedLocation } from "../../components/LocationPicker";
 import PushToggle from "../../components/PushToggle";
+import { useToast } from "../../components/Toast";
 import { ConfirmButton, ErrorText, Field, Loading } from "../../components/ui";
 
 type Tab = "overview" | "details" | "clinics" | "security" | "alerts";
@@ -330,6 +331,7 @@ function Overview({
 
 function Details() {
   const { me, refresh } = useAuth();
+  const toast = useToast();
   const doctor = me?.doctor;
   const [profile, setProfile] = useState({
     full_name: doctor?.full_name ?? "",
@@ -343,6 +345,7 @@ function Details() {
       await refresh();
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2600);
+      toast({ title: "Details saved", body: "Cases, invoices and delivery labels use these." });
     },
   });
   const dirty =
@@ -408,16 +411,23 @@ function Details() {
 
 function Clinics({ clinics, onAdd }: { clinics: Address[]; onAdd: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteAddress(id),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["addresses"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["addresses"] });
+      toast({ title: "Clinic removed", tone: "warn" });
+    },
   });
   const makeDefault = useMutation({
     mutationFn: (id: string) => {
       const target = clinics.find((a) => a.id === id)!;
       return api.updateAddress(id, { ...target, is_default_shipping: true });
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["addresses"] }),
+    onSuccess: (address) => {
+      void queryClient.invalidateQueries({ queryKey: ["addresses"] });
+      toast({ title: "Default delivery changed", body: `Parcels go to ${address.label} unless another is chosen.` });
+    },
   });
 
   return (
@@ -490,13 +500,15 @@ const BLANK_ADDRESS = {
     — a long address, a place name from the search — can run out of the box. */
 function AddClinic({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [address, setAddress] = useState(BLANK_ADDRESS);
   const [pin, setPin] = useState<PickedLocation | null>(null);
   const add = useMutation({
     mutationFn: () => api.createAddress({ ...address, latitude: pin?.lat, longitude: pin?.lng }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ["addresses"] });
       onClose();
+      toast({ title: "Clinic added", body: `${created.label} · ${created.city}` });
     },
   });
 
@@ -629,6 +641,7 @@ function AddClinic({ onClose }: { onClose: () => void }) {
 
 function Security() {
   const { me } = useAuth();
+  const toast = useToast();
   const [passwords, setPasswords] = useState({ current_password: "", new_password: "" });
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -638,6 +651,7 @@ function Security() {
       setPasswords({ current_password: "", new_password: "" });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2600);
+      toast({ title: "Password changed", body: "Use the new one next time you sign in." });
     },
   });
   return (

@@ -33,6 +33,7 @@ import { api } from "../../api";
 import type { AlignerIntake, Address, OrderDetail, Patient } from "../../api";
 import Avatar from "../../components/Avatar";
 import FileExplorer from "../../components/FileExplorer";
+import { useToast } from "../../components/Toast";
 import { ErrorText, Field, Loading } from "../../components/ui";
 
 type StepName = "start" | "patient" | "clinical" | "records" | "shipping";
@@ -260,6 +261,7 @@ function addressLine(a: Address): string {
 export default function NewOrder() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [intake, setIntake] = useState<AlignerIntake>("QUOTE_FIRST");
   const [step, setStep] = useState<StepName>("start");
   const [draft, setDraft] = useState<OrderDetail | null>(null);
@@ -338,6 +340,10 @@ export default function NewOrder() {
     onSuccess: (order) => {
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
       navigate(`/orders/${order.id}`);
+      toast({
+        title: "Case placed",
+        body: `${order.order_number} · send the intraoral scan when you are ready.`,
+      });
     },
   });
 
@@ -356,6 +362,10 @@ export default function NewOrder() {
     onSuccess: (order) => {
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
       navigate(`/orders/${order.id}`);
+      toast({
+        title: "Sent to 3D Align",
+        body: `${order.order_number} · the lab reads your records and comes back with a price.`,
+      });
     },
   });
 

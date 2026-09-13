@@ -21,6 +21,7 @@ import { api, formatDate, formatMoney, since } from "../../api";
 import type { PendingDoctor } from "../../api";
 import Avatar from "../../components/Avatar";
 import Drawer from "../../components/Drawer";
+import { useToast } from "../../components/Toast";
 import { Empty, ErrorText, Loading } from "../../components/ui";
 import { everyDoctor } from "../../fetchAll";
 
@@ -375,13 +376,19 @@ function DoctorPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [reason, setReason] = useState("");
   const verify = useMutation({
     mutationFn: (approve: boolean) => api.verifyDoctor(d.id, approve, reason),
-    onSuccess: () => {
+    onSuccess: (_doctor, approve) => {
       setReason("");
       void queryClient.invalidateQueries({ queryKey: ["staff-doctors"] });
       void queryClient.invalidateQueries({ queryKey: ["queue"] });
+      toast(
+        approve
+          ? { title: "Doctor verified", body: `${d.full_name} can send cases now.` }
+          : { title: "Sign-up declined", tone: "warn", body: `${d.full_name} has been told why.` },
+      );
     },
   });
 

@@ -20,6 +20,7 @@ import { WEEKDAYS, api, formatMoney } from "../../api";
 import type { AlignerPrice, BookingSettings, DeliveryCity, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 import OrthodontistRoster from "../../components/OrthodontistRoster";
+import { useToast } from "../../components/Toast";
 import LocationPicker from "../../components/LocationPicker";
 import { useAuth } from "../../auth";
 
@@ -159,6 +160,7 @@ function PaneHead({ kicker, title, sub }: { kicker: string; title: string; sub: 
 export default function AdminSettings() {
   const { me } = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const settings = useQuery({ queryKey: ["booking-settings"], queryFn: api.bookingSettings });
   const pricing = useQuery({ queryKey: ["pricing"], queryFn: api.pricing });
@@ -199,6 +201,7 @@ export default function AdminSettings() {
     onSuccess: () => {
       setShippingSaved(true);
       void queryClient.invalidateQueries({ queryKey: ["shipping-rates"] });
+      toast({ title: "Delivery charges saved", body: "New production phases are billed at these rates." });
     },
   });
 
@@ -215,6 +218,7 @@ export default function AdminSettings() {
     onSuccess: () => {
       setPricesSaved(true);
       void queryClient.invalidateQueries({ queryKey: ["pricing"] });
+      toast({ title: "Pricing saved", body: "Quotes from now on use these bands." });
     },
   });
 
@@ -224,6 +228,7 @@ export default function AdminSettings() {
       setSaved(true);
       void queryClient.invalidateQueries({ queryKey: ["booking-settings"] });
       void queryClient.invalidateQueries({ queryKey: ["availability"] });
+      toast({ title: "Settings saved", body: "The booking calendar and payment details update immediately." });
     },
   });
 

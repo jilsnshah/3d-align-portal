@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { api, formatMoney } from "../api";
 import type { OrderDetail, Payment } from "../api";
+import { useToast } from "./Toast";
 import { Banner, ErrorText } from "./ui";
 
 /** What the clinic owes on a case, and how they settle it.
@@ -89,6 +90,7 @@ export function PaymentRow({
   header?: ReactNode;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [reference, setReference] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -102,6 +104,10 @@ export function PaymentRow({
       void queryClient.invalidateQueries({ queryKey: ["order", orderId] });
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-ledger"] });
+      toast({
+        title: "Receipt sent",
+        body: `${formatMoney(payment.total)} for ${payment.label}. 3D Align will confirm it.`,
+      });
     },
   });
 

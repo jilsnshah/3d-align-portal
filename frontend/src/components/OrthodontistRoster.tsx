@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api } from "../api";
+import { useToast } from "./Toast";
 import { Banner, ErrorText, Field } from "./ui";
 
 /** The orthodontists who plan for the lab.
@@ -13,6 +14,7 @@ import { Banner, ErrorText, Field } from "./ui";
  */
 export default function OrthodontistRoster() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -22,19 +24,27 @@ export default function OrthodontistRoster() {
 
   const create = useMutation({
     mutationFn: () => api.createOrthodontist({ email, password, full_name: name }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       setOpen(false);
       setEmail("");
       setName("");
       setPassword("");
       void queryClient.invalidateQueries({ queryKey: ["orthodontists"] });
+      toast({ title: "Orthodontist added", body: `${created.full_name || created.email} can sign in now.` });
     },
   });
 
   const toggle = useMutation({
     mutationFn: (v: { id: string; is_active: boolean }) =>
       api.updateOrthodontist(v.id, { is_active: v.is_active }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["orthodontists"] }),
+    onSuccess: (updated) => {
+      void queryClient.invalidateQueries({ queryKey: ["orthodontists"] });
+      toast(
+        updated.is_active
+          ? { title: "Account reactivated", body: `${updated.full_name || updated.email} can sign in again.` }
+          : { title: "Account closed", tone: "warn", body: "They are signed out at once; their cases stay." },
+      );
+    },
   });
 
   const rows = roster.data ?? [];

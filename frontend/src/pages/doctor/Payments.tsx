@@ -29,6 +29,7 @@ import qrcode from "qrcode-generator";
 import { api, formatDate } from "../../api";
 import type { LedgerEntry } from "../../api";
 import { useAuth } from "../../auth";
+import { useToast } from "../../components/Toast";
 import { ErrorText, Loading } from "../../components/ui";
 
 /** ₹52,130 for a whole amount, ₹16,926.67 when there are paise — a doctor pays
@@ -635,6 +636,7 @@ function ChargeList({
     the screenshot. A charge whose receipt is with the lab shows that instead. */
 function PaySheet({ entry: e, onClose }: { entry: LedgerEntry; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const input = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
@@ -673,6 +675,7 @@ function PaySheet({ entry: e, onClose }: { entry: LedgerEntry; onClose: () => vo
     mutationFn: () => api.payProof(e.order_id, e.id, file!, reference),
     onSuccess: () => {
       setSent(true);
+      toast({ title: "Receipt sent", body: `${money(e.total)} · ${e.label}. 3D Align will confirm it.` });
       void queryClient.invalidateQueries({ queryKey: ["order", e.order_id] });
       void queryClient.invalidateQueries({ queryKey: ["orders"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-ledger"] });

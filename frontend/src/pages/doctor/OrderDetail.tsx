@@ -36,6 +36,8 @@ import type { FileCategory, OrderDetail as Order, Slot } from "../../api";
 import { completedCopy, stageIndex, stagesFor, waitingCopyFor } from "../../workflow";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
+import Reveal from "../../components/Reveal";
+import { useToast } from "../../components/Toast";
 import StageBrowser from "../../components/StageBrowser";
 import SlotCalendar from "../../components/SlotCalendar";
 import {
@@ -117,9 +119,13 @@ export default function DoctorOrderDetail() {
      has already left is not a thing that should be possible. */
   const [viewing, setViewing] = useState<number | null>(null);
 
+  const toast = useToast();
   const confirmDelivery = useMutation({
     mutationFn: (shipmentId: string) => api.confirmDelivery(orderId, shipmentId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Parcel marked received", body: "Thank you — the lab can see it arrived." });
+    },
   });
   const decidePhase = useMutation({
     mutationFn: (v: {
@@ -128,7 +134,13 @@ export default function DoctorOrderDetail() {
       notes: string;
       addressId: string | null;
     }) => api.decidePhase(orderId, v.id, v.decision, v.notes, v.addressId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast({
+        title: "Sent to 3D Align",
+        body: "Your progress photographs are with the lab. They review them before making the next batch.",
+      });
+    },
   });
 
   if (order.isLoading) return <Loading what="case" />;
@@ -220,48 +232,48 @@ export default function DoctorOrderDetail() {
           </svg>
           Cases
         </Link>
-        <div className="ws-id">
-          <div className="ws-title">
-            <span className="ws-ref mono">{data.order_number}</span>
-            <StatusPill status={data.status} label={data.status_label} />
-            {data.priority === "EXPRESS" && (
-              <span className="tag-express">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
-                </svg>
-                Express
+        {/* One line, not four. The case's name, its reference and its state are
+            what identify it; everything else about it is detail, set small and
+            kept on the same row so the work itself starts at the top of the
+            screen rather than a scroll below it. */}
+        <h1>{data.patient_name || "Practice stock"}</h1>
+        <span className="ws-ref mono">{data.order_number}</span>
+        <StatusPill status={data.status} label={data.status_label} />
+        {data.priority === "EXPRESS" && (
+          <span className="tag-express">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+            </svg>
+            Express
+          </span>
+        )}
+        <p className="ws-meta">
+          {data.patient_number && (
+            <span className="mono" title="Patient number">
+              {data.patient_number}
+            </span>
+          )}
+          {data.kind === "ALIGNER" ? (
+            <>
+              <span>
+                {data.category_label ? (
+                  <CategoryPill label={data.category_label} confirmed={data.category_confirmed} />
+                ) : (
+                  "Not sized yet"
+                )}
               </span>
-            )}
-          </div>
-          <h1>{data.patient_name || "Practice stock"}</h1>
-          <p className="ws-meta">
-            {data.patient_number && (
-              <span className="mono" title="Patient number">
-                {data.patient_number}
-              </span>
-            )}
-            {data.kind === "ALIGNER" ? (
-              <>
-                <span>
-                  {data.category_label ? (
-                    <CategoryPill label={data.category_label} confirmed={data.category_confirmed} />
-                  ) : (
-                    "Not sized yet"
-                  )}
-                </span>
-                <span>{archLabel(data.arch)}</span>
-                {data.assigned_to_name && <span>Planned by {data.assigned_to_name}</span>}
-              </>
-            ) : (
-              <span>{data.product_label || "Accessories"}</span>
-            )}
-            {data.branch_label && <span title={data.branch_label}>{data.branch_label.split(" · ")[0]}</span>}
-            {data.submitted_at && <span>Sent {formatDate(data.submitted_at)}</span>}
-          </p>
-        </div>
+              <span>{archLabel(data.arch)}</span>
+              {data.assigned_to_name && <span>Planned by {data.assigned_to_name}</span>}
+            </>
+          ) : (
+            <span>{data.product_label || "Accessories"}</span>
+          )}
+          {data.branch_label && <span title={data.branch_label}>{data.branch_label.split(" · ")[0]}</span>}
+          {data.submitted_at && <span title={`Sent ${formatDate(data.submitted_at)}`}>Sent {shortDate(data.submitted_at)}</span>}
+        </p>
         {data.has_simulation && !data.plan_locked && (
           <div className="ws-head-do">
-            <Link to={`/viewer/${data.id}`} className="ws-sim">
+            <Link to={`/viewer/${data.id}`} className="ws-sim" title="Step through the planned movement">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
                 <path d="M4 7.5 12 12l8-4.5M12 12v9" />
@@ -751,6 +763,14 @@ function DoctorActions({
   onDone: () => void;
   onCancelled: () => void;
 }) {
+  const toast = useToast();
+  /* Every one of these ends by changing the case, which changes the page.
+     Saying what happened is how the reader knows the click landed, and what
+     the case is now waiting for. */
+  const settled = (title: string, body?: string) => () => {
+    onDone();
+    toast({ title, body });
+  };
   const [revisionNotes, setRevisionNotes] = useState("");
   const [issueNotes, setIssueNotes] = useState("");
   const [dispatchMode, setDispatchMode] = useState<"FULL" | "PHASED">("PHASED");
@@ -770,21 +790,37 @@ function DoctorActions({
   const [slot, setSlot] = useState<Slot | null>(null);
   const [accessNotes, setAccessNotes] = useState("");
   const [changing, setChanging] = useState(false);
+  /* Moving a visit that is already booked. The lab's rule is one live visit
+     per case, so the old one is given up as the new one is taken — but only
+     when the clinic asks for that, never as a side effect of opening the
+     calendar to look. */
+  const [moving, setMoving] = useState(false);
 
-  const submit = useMutation({ mutationFn: () => api.submitOrder(order.id), onSuccess: onDone });
+  const liveVisit =
+    order.appointment && (order.appointment.status === "ASSIGNED" || order.appointment.status === "EN_ROUTE")
+      ? order.appointment
+      : null;
+
+  const submit = useMutation({
+    mutationFn: () => api.submitOrder(order.id),
+    onSuccess: settled("Sent to 3D Align", "The lab reads your records and comes back with a price."),
+  });
   const resubmit = useMutation({
     mutationFn: () => api.resubmitRecords(order.id),
-    onSuccess: onDone,
+    onSuccess: settled("Records sent back", "3D Align will look at them again."),
   });
-  const acceptQuote = useMutation({ mutationFn: () => api.acceptQuote(order.id), onSuccess: onDone });
+  const acceptQuote = useMutation({
+    mutationFn: () => api.acceptQuote(order.id),
+    onSuccess: settled("Quote accepted", "Next: send the intraoral scan, however suits the clinic."),
+  });
   const approvePlan = useMutation({
     mutationFn: () =>
       api.respondToPlan(order.id, { approve: true, shipping_address_id: deliverTo }),
-    onSuccess: onDone,
+    onSuccess: settled("Plan approved", "3D Align starts the training aligner."),
   });
   const requestRevision = useMutation({
     mutationFn: () => api.respondToPlan(order.id, { approve: false, revision_notes: revisionNotes }),
-    onSuccess: onDone,
+    onSuccess: settled("Sent back for revision", "The lab has your notes and will redraw the plan."),
   });
   const confirmFit = useMutation({
     mutationFn: () =>
@@ -796,11 +832,11 @@ function DoctorActions({
           order.phases_divided || dispatchMode !== "PHASED" ? null : phaseCount,
         shipping_address_id: deliverTo,
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Fit confirmed", "Production of the aligner series has started."),
   });
   const reportIssue = useMutation({
     mutationFn: () => api.submitFitReview(order.id, { fits: false, issue_notes: issueNotes }),
-    onSuccess: onDone,
+    onSuccess: settled("Fit issue reported", "3D Align will look at it and come back to you."),
   });
   const scanSources = useQuery({
     queryKey: ["scan-sources", order.id],
@@ -810,7 +846,7 @@ function DoctorActions({
   });
   const reuseScan = useMutation({
     mutationFn: (sourceOrderId: string) => api.reuseScan(order.id, sourceOrderId),
-    onSuccess: onDone,
+    onSuccess: settled("Scan reused", "The lab will check it is still current before planning from it."),
   });
   const saveScanRoute = useMutation({
     mutationFn: () =>
@@ -818,7 +854,7 @@ function DoctorActions({
         route: scanRoute,
         courier_tracking: courierTracking,
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Tracking saved", "3D Align will confirm when the impression arrives."),
   });
   const book = useMutation({
     mutationFn: () =>
@@ -827,14 +863,44 @@ function DoctorActions({
         access_notes: accessNotes,
         address_id: visitTo,
       }),
-    onSuccess: () => {
+    onSuccess: (booked) => {
       setSlot(null);
       onDone();
+      toast({
+        title: "Scan visit booked",
+        body: booked.appointment
+          ? `${new Date(booked.appointment.starts_at).toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", hour12: false })} · ${booked.appointment.technician_name || "a technician"} will attend.`
+          : "A technician will attend at the time you picked.",
+      });
     },
   });
   const cancelVisit = useMutation({
     mutationFn: () => api.cancelAppointment(order.appointment!.id, "Cancelled by the clinic."),
-    onSuccess: onDone,
+    onSuccess: settled("Visit cancelled", "Book another time whenever it suits the clinic."),
+  });
+  /* A case may hold one live visit, so moving one is giving up the old time to
+     take the new. Both halves are done here rather than asking the clinic to
+     cancel first and then find the calendar again. */
+  const reschedule = useMutation({
+    mutationFn: async () => {
+      await api.cancelAppointment(order.appointment!.id, "Moved by the clinic.");
+      return api.bookAppointment(order.id, {
+        starts_at: slot!.starts_at,
+        access_notes: accessNotes,
+        address_id: visitTo,
+      });
+    },
+    onSuccess: (moved) => {
+      setSlot(null);
+      setMoving(false);
+      onDone();
+      toast({
+        title: "Visit moved",
+        body: moved.appointment
+          ? `Now ${new Date(moved.appointment.starts_at).toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", hour12: false })} · ${moved.appointment.technician_name || "a technician"} will attend.`
+          : "The new time is booked.",
+      });
+    },
   });
   const cancelDraft = useMutation({
     mutationFn: () => api.cancelDraft(order.id, "Cancelled by the clinic."),
@@ -959,25 +1025,19 @@ function DoctorActions({
             <Banner tone="warn">{order.records_request_note}</Banner>
           )}
 
-          {order.appointment && (order.appointment.status === "ASSIGNED" || order.appointment.status === "EN_ROUTE") && (
-            <div className="stack-sm">
-              <Banner tone="ok">
-                <div>
-                  <b>{order.appointment.status_label}</b> — {formatDate(order.appointment.starts_at)}
-                  <br />
-                  {order.appointment.technician_name} will attend
-                  {order.appointment.location ? ` at ${order.appointment.location}` : ""}.
-                </div>
-              </Banner>
-              <ErrorText error={cancelVisit.error} />
-              <div>
-                <ConfirmButton
-                  label="Cancel this visit"
-                  confirmLabel="Yes, cancel it"
-                  onConfirm={() => cancelVisit.mutate()}
-                />
-              </div>
-            </div>
+          {/* A quiet line, because the visit is stated in full — with the two
+              things that can be done about it — inside the scan-visit route
+              below. Saying it twice made the panel read as two bookings. */}
+          {liveVisit && scanRoute !== "APPOINTMENT" && (
+            <p className="ws-aside-line">
+              <span>
+                <b>{liveVisit.status_label}</b> — {formatDate(liveVisit.starts_at)},{" "}
+                {liveVisit.technician_name || "a technician"} attending
+              </span>
+              <button type="button" className="btn-link" onClick={() => setScanRoute("APPOINTMENT")}>
+                Move or cancel it
+              </button>
+            </p>
           )}
           {order.scan_route === "COURIER" && order.scan_courier_tracking && (
             <Banner tone="ok">
@@ -1042,35 +1102,81 @@ function DoctorActions({
           </div>
 
           {scanRoute === "UPLOAD" && (
-            <Uploads
-              order={order}
-              categories={["INTRAORAL_SCAN"]}
-              onDone={onDone}
-              fallback={
-                <FileUploader
-                  orderId={order.id}
-                  categories={["INTRAORAL_SCAN"]}
-                  onUploaded={onDone}
-                  hint="STL files only."
-                />
-              }
-            />
+            <Reveal className="ws-step">
+              <p className="ws-step-say">Drop the STL files in — the case moves the moment they land.</p>
+              <Uploads
+                order={order}
+                categories={["INTRAORAL_SCAN"]}
+                onDone={onDone}
+                fallback={
+                  <FileUploader
+                    orderId={order.id}
+                    categories={["INTRAORAL_SCAN"]}
+                    onUploaded={onDone}
+                    hint="STL files only."
+                  />
+                }
+              />
+            </Reveal>
           )}
 
-          {scanRoute === "APPOINTMENT" && !order.appointment?.status.match(/ASSIGNED|EN_ROUTE/) && (
-            <div className="stack-sm">
+          {/* A visit is already booked: choosing this route again shows it,
+              with the two things that can be done about it. Rendering nothing
+              here is what made the route look broken once a visit existed. */}
+          {scanRoute === "APPOINTMENT" && liveVisit && !moving && (
+            <Reveal className="ws-booked">
+              <div className="ws-booked-say">
+                <b>
+                  {new Date(liveVisit.starts_at).toLocaleString("en-IN", {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  })}
+                </b>
+                <span>
+                  {liveVisit.technician_name || "A technician"} will attend
+                  {liveVisit.location ? ` at ${liveVisit.location}` : ""} · {liveVisit.status_label}
+                </span>
+              </div>
+              <ErrorText error={cancelVisit.error} />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setSlot(null);
+                    setMoving(true);
+                  }}
+                >
+                  Move to another time
+                </button>
+                <ConfirmButton
+                  label="Cancel this visit"
+                  confirmLabel="Yes, cancel it"
+                  onConfirm={() => cancelVisit.mutate()}
+                />
+              </div>
+            </Reveal>
+          )}
+
+          {scanRoute === "APPOINTMENT" && (!liveVisit || moving) && (
+            <Reveal className="ws-step stack-sm">
+              <p className="ws-step-say">
+                {moving
+                  ? "Pick the new time. The time already held is given up the moment the new one is taken."
+                  : "A technician is assigned automatically, and only times somebody can actually reach this address by are offered."}
+              </p>
               <AddressChooser
                 value={visitTo}
                 onChange={setVisitTo}
                 title="Which clinic is the patient being seen at?"
               />
-              <p className="dim">
-                Pick a free slot. A technician is assigned automatically, and the times offered are
-                the ones somebody can actually reach this address by.
-              </p>
               <SlotCalendar selected={slot} onPick={setSlot} addressId={visitTo} />
               {slot && (
-                <>
+                <Reveal className="ws-confirm">
                   <Field label="Anything the technician should know">
                     <input
                       value={accessNotes}
@@ -1078,26 +1184,43 @@ function DoctorActions({
                       placeholder="Parking, floor, who to ask for"
                     />
                   </Field>
-                  <ErrorText error={book.error} />
+                  <ErrorText error={book.error ?? reschedule.error} />
                   <div className="row">
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={book.isPending}
-                      onClick={() => book.mutate()}
+                      disabled={book.isPending || reschedule.isPending}
+                      onClick={() => (moving ? reschedule.mutate() : book.mutate())}
                     >
-                      {book.isPending
-                        ? "Booking…"
-                        : `Book ${new Date(slot.starts_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                      {book.isPending || reschedule.isPending
+                        ? moving
+                          ? "Moving…"
+                          : "Booking…"
+                        : `${moving ? "Move to" : "Book"} ${new Date(slot.starts_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
                     </button>
+                    {moving && (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        onClick={() => {
+                          setMoving(false);
+                          setSlot(null);
+                        }}
+                      >
+                        Keep the time already booked
+                      </button>
+                    )}
                   </div>
-                </>
+                </Reveal>
               )}
-            </div>
+            </Reveal>
           )}
 
           {scanRoute === "COURIER" && (
-            <>
+            <Reveal className="ws-step" focus>
+              <p className="ws-step-say">
+                Post the impression, then put the tracking number here so the lab can watch for it.
+              </p>
               <Field label="Your courier tracking number">
                 <input value={courierTracking} onChange={(e) => setCourierTracking(e.target.value)} />
               </Field>
@@ -1112,7 +1235,7 @@ function DoctorActions({
                   {saveScanRoute.isPending ? "Saving…" : "Save tracking number"}
                 </button>
               </div>
-            </>
+            </Reveal>
           )}
         </ActionPanel>
       );
@@ -1176,7 +1299,7 @@ function DoctorActions({
           {/* The second answer stays folded until it is chosen, so the
               approve button is the only thing competing for attention. */}
           {changing && (
-            <div className="ws-alt">
+            <Reveal className="ws-alt" focus>
               <Field label="What should the lab change?">
                 <textarea
                   value={revisionNotes}
@@ -1198,7 +1321,7 @@ function DoctorActions({
                   Cancel
                 </button>
               </div>
-            </div>
+            </Reveal>
           )}
         </ActionPanel>
       );
@@ -1283,7 +1406,7 @@ function DoctorActions({
           </div>
 
           {changing && (
-            <div className="ws-alt">
+            <Reveal className="ws-alt" focus>
               <Field label="What is wrong with the fit?">
                 <textarea
                   value={issueNotes}
@@ -1318,7 +1441,7 @@ function DoctorActions({
                   Cancel
                 </button>
               </div>
-            </div>
+            </Reveal>
           )}
         </ActionPanel>
       );
@@ -1451,6 +1574,7 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
   const [notes, setNotes] = useState("");
 
   const phase = order.phase_plan.find((p) => p.status === "ACTIVE");
+  const toast = useToast();
   const report = useMutation({
     mutationFn: () =>
       api.reportPhaseFitIssue(order.id, {
@@ -1458,7 +1582,13 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
         aligner_number: Number(aligner),
         notes,
       }),
-    onSuccess: onDone,
+    onSuccess: () => {
+      onDone();
+      toast({
+        title: "Fit issue sent",
+        body: "Nothing further is made until 3D Align answers it.",
+      });
+    },
   });
 
   if (!phase) return null;
@@ -1485,6 +1615,7 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
   }
 
   return (
+    <Reveal as="section" focus>
     <ActionPanel
       title={`Fit issue in phase ${phase.phase}`}
       why="Say which aligner, on which arch, and send the same six views as a progress set."
@@ -1545,5 +1676,6 @@ function PhaseFitIssuePanel({ order, onDone }: { order: Order; onDone: () => voi
         </button>
       </div>
     </ActionPanel>
+    </Reveal>
   );
 }

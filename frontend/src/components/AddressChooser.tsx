@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import LocationPicker from "./LocationPicker";
+import Reveal from "./Reveal";
+import { useToast } from "./Toast";
 import type { PickedLocation } from "./LocationPicker";
 import { ErrorText, Field } from "./ui";
 
@@ -34,6 +36,7 @@ export default function AddressChooser({
   title?: string;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState(BLANK);
@@ -58,6 +61,7 @@ export default function AddressChooser({
       setAdding(false);
       onChange(created.id);
       void queryClient.invalidateQueries({ queryKey: ["addresses"] });
+      toast({ title: "Address added", body: `Delivering to ${created.label}.` });
     },
   });
 
@@ -90,7 +94,9 @@ export default function AddressChooser({
           + Deliver somewhere else
         </button>
       ) : (
-        <div className="card stack-sm">
+        /* The form used to mount below the fold on a long panel, so the
+           "somewhere else" link appeared to do nothing. */
+        <Reveal className="card stack-sm">
           <h4>New delivery address</h4>
           <LocationPicker
             value={pin}
@@ -161,7 +167,7 @@ export default function AddressChooser({
               Cancel
             </button>
           </div>
-        </div>
+        </Reveal>
       )}
     </div>
   );

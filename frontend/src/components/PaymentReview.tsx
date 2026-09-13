@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, formatDate, formatMoney } from "../api";
 import type { OrderDetail, Payment } from "../api";
 import type { ReactNode } from "react";
+import { useToast } from "./Toast";
 import { Banner, ErrorText } from "./ui";
 
 /** The lab's side of the money: what has been paid, and the receipts waiting to
@@ -52,16 +53,29 @@ export function VerifyRow({
   header?: ReactNode;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [reason, setReason] = useState("");
 
   const decide = useMutation({
     mutationFn: (approve: boolean) =>
       api.verifyPayment(orderId, payment.id, approve, reason),
-    onSuccess: () => {
+    onSuccess: (_order, approve) => {
       setReason("");
       void queryClient.invalidateQueries({ queryKey: ["staff-order", orderId] });
       void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
       void queryClient.invalidateQueries({ queryKey: ["staff-payments"] });
+      toast(
+        approve
+          ? {
+              title: "Payment confirmed",
+              body: `${formatMoney(payment.total)} · ${payment.label}. Whatever it was holding is now unlocked.`,
+            }
+          : {
+              title: "Receipt refused",
+              tone: "warn",
+              body: `The clinic has been told why, and can send another for ${formatMoney(payment.total)}.`,
+            },
+      );
     },
   });
 

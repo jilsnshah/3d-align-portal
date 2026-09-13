@@ -18,6 +18,7 @@ import type { Booking, Technician } from "../../api";
 import AttentionQueue from "../../components/AttentionQueue";
 import Avatar from "../../components/Avatar";
 import Drawer from "../../components/Drawer";
+import { useToast } from "../../components/Toast";
 import LeaveQueue from "../../components/LeaveQueue";
 import RouteMap from "../../components/RouteMap";
 import RouteSheet from "../../components/RouteSheet";
@@ -435,6 +436,7 @@ function BookingPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [target, setTarget] = useState("");
   const done = () => {
     void queryClient.invalidateQueries({ queryKey: ["bookings"] });
@@ -442,14 +444,18 @@ function BookingPanel({
   };
   const reassign = useMutation({
     mutationFn: (force: boolean) => api.reassignBooking(b.id, target, force),
-    onSuccess: () => {
+    onSuccess: (moved) => {
       setTarget("");
       done();
+      toast({ title: "Visit reassigned", body: `${moved.technician_name} now attends ${b.order.patient_name}.` });
     },
   });
   const cancel = useMutation({
     mutationFn: () => api.cancelAppointment(b.id, "Cancelled by the lab."),
-    onSuccess: done,
+    onSuccess: () => {
+      done();
+      toast({ title: "Visit cancelled", tone: "warn", body: "The clinic can book another time." });
+    },
   });
 
   const live = b.status === "ASSIGNED" || b.status === "EN_ROUTE";
@@ -612,6 +618,7 @@ function RoutesView() {
     decline and leave the visit where it is. */
 function RequestsView() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const requests = useQuery({ queryKey: ["reassignments"], queryFn: () => api.reassignments(true) });
   const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
   const [note, setNote] = useState<Record<string, string>>({});
@@ -631,9 +638,14 @@ function RequestsView() {
         }
         throw err;
       }),
-    onSuccess: () => {
+    onSuccess: (_result, args) => {
       setConflict({});
       setForced({});
+      toast(
+        args.body.action === "DECLINE"
+          ? { title: "Handover declined", tone: "warn", body: "The visit stays where it is." }
+          : { title: "Visit handed over", body: "The technician has been told." },
+      );
       void queryClient.invalidateQueries({ queryKey: ["reassignments"] });
       void queryClient.invalidateQueries({ queryKey: ["bookings"] });
       void queryClient.invalidateQueries({ queryKey: ["route"] });

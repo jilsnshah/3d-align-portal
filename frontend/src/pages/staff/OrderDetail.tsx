@@ -9,6 +9,7 @@ import FileExplorer from "../../components/FileExplorer";
 import StageBrowser from "../../components/StageBrowser";
 import { stageIndex } from "../../workflow";
 import PaymentReview from "../../components/PaymentReview";
+import { useToast } from "../../components/Toast";
 import PhaseTracker from "../../components/PhaseTracker";
 import {
   ActionPanel,
@@ -39,6 +40,8 @@ export default function StaffOrderDetail() {
     queryFn: () => (isTechnician ? api.technicianCase(orderId) : api.staffOrder(orderId)),
   });
 
+  const toast = useToast();
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["staff-order", orderId] });
     void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
@@ -53,17 +56,26 @@ export default function StaffOrderDetail() {
 
   const markDelivered = useMutation({
     mutationFn: (shipmentId: string) => api.updateShipment(shipmentId, { mark_delivered: true }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Marked delivered", body: "The clinic can see it has arrived." });
+    },
   });
 
   const invoice = useMutation({
     mutationFn: () => api.generateInvoice(orderId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Invoice generated", body: "It is on the case, under Invoice." });
+    },
   });
 
   const cancel = useMutation({
     mutationFn: (reason: string) => api.cancelOrder(orderId, reason),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Case cancelled", tone: "warn", body: "The clinic has been told." });
+    },
   });
 
   if (order.isLoading) return <Loading what="case" />;
@@ -227,6 +239,14 @@ function TechnicianPanel({ order, onDone }: { order: Order; onDone: () => void }
 }
 
 function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
+  const toast = useToast();
+  /* Each of these hands the case to somebody else. The panel it was pressed
+     in disappears as the case moves on, so the confirmation is what tells the
+     lab which way it went. */
+  const settled = (title: string, body?: string) => () => {
+    onDone();
+    toast({ title, body });
+  };
   const [note, setNote] = useState("");
   const [category, setCategory] = useState("");
   const [extras, setExtras] = useState<{ description: string; unit_price: string; quantity: number }[]>([]);
@@ -254,13 +274,14 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
 
   const startReview = useMutation({
     mutationFn: () => api.startReview(order.id),
-    onSuccess: onDone,
+    onSuccess: settled("Review started", "The case is off the new-submissions pile and on your desk."),
   });
   const requestRecords = useMutation({
     mutationFn: () => api.requestRecords(order.id, note),
     onSuccess: () => {
       setNote("");
       onDone();
+      toast({ title: "Sent back for records", body: "The clinic has been told exactly what is missing." });
     },
   });
   const sendQuote = useMutation({
@@ -278,13 +299,14 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         discount_reason: discountReason,
         tax: tax || "0",
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Quote sent", "The clinic decides next — nothing is made until they accept."),
   });
   const acceptScan = useMutation({
     mutationFn: () => api.acceptScan(order.id, note),
     onSuccess: () => {
       setNote("");
       onDone();
+      toast({ title: "Scan accepted", body: "The case is in planning." });
     },
   });
   const rejectScan = useMutation({
@@ -292,6 +314,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     onSuccess: () => {
       setNote("");
       onDone();
+      toast({ title: "New scan requested", tone: "warn", body: "The clinic has your note and will send another." });
     },
   });
   const sharePlan = useMutation({
@@ -307,22 +330,38 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         attachments_required: plan.attachments_required,
         summary: plan.summary,
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Plan shared", "The clinic approves it, or sends it back with changes."),
   });
   const phaseIssue = order.phase_issues.find((i) => i.status === "OPEN");
   const resolveIssue = useMutation({
     mutationFn: (resolution: "COMMENTS" | "REMAKE" | "RESCAN") =>
       api.resolvePhaseFitIssue(order.id, resolution, note),
-    onSuccess: onDone,
+    onSuccess: (_order, resolution) =>
+      settled(
+        resolution === "COMMENTS"
+          ? "Advice sent"
+          : resolution === "REMAKE"
+            ? "Phase being remade"
+            : "New scan requested",
+        resolution === "COMMENTS"
+          ? "The issue stays open until the clinic says whether it worked."
+          : "The clinic has been told what happens next.",
+      )(),
   });
   const reviewPhase = useMutation({
     mutationFn: (outcome: "CONTINUE" | "RESCAN") => api.reviewPhase(order.id, outcome, note),
-    onSuccess: onDone,
+    onSuccess: (_order, outcome) =>
+      settled(
+        outcome === "CONTINUE" ? "Phase approved" : "New scan requested",
+        outcome === "CONTINUE"
+          ? "The next batch is on the bench."
+          : "The remaining aligners will be rebuilt from a fresh scan.",
+      )(),
   });
   const resolveFit = useMutation({
     mutationFn: (resolution: "rescan" | "replan" | "refabricate") =>
       api.resolveFitIssue(order.id, resolution),
-    onSuccess: onDone,
+    onSuccess: settled("Fit issue resolved", "A fresh training aligner is on its way to the clinic."),
   });
   const shipTraining = useMutation({
     mutationFn: () =>
@@ -332,7 +371,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         tracking_number: shipment.tracking_number,
         tracking_url: shipment.tracking_url,
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Training aligner shipped", "The clinic confirms the fit when it arrives."),
   });
   const shipProduct = useMutation({
     mutationFn: () =>
@@ -342,7 +381,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
         tracking_number: shipment.tracking_number,
         tracking_url: shipment.tracking_url,
       }),
-    onSuccess: onDone,
+    onSuccess: settled("Order shipped", "It completes itself once the clinic confirms it arrived."),
   });
   const shipAligners = useMutation({
     mutationFn: () =>
@@ -356,11 +395,12 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     onSuccess: () => {
       setShipment({ ...shipment, aligner_range_to: "", tracking_number: "" });
       onDone();
+      toast({ title: "Batch dispatched", body: "Tracking is on the case, and the clinic can see it." });
     },
   });
   const complete = useMutation({
     mutationFn: () => api.completeOrder(order.id),
-    onSuccess: onDone,
+    onSuccess: settled("Case completed", "It moves out of the open list."),
   });
 
   const chosen = prices.data?.find((p) => p.category === category);

@@ -17,6 +17,7 @@ import { WEEKDAYS, api } from "../../api";
 import type { AvailabilityRule, Technician } from "../../api";
 import Avatar from "../../components/Avatar";
 import Drawer from "../../components/Drawer";
+import { useToast } from "../../components/Toast";
 import { ConfirmButton, Empty, ErrorText, Field, Loading } from "../../components/ui";
 
 /** The working day as drawn: six in the morning to ten at night. */
@@ -269,6 +270,7 @@ export default function AdminTechnicians() {
     changed here. */
 function TechPanel({ tech, onClose }: { tech: Technician; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const onDone = () => void queryClient.invalidateQueries({ queryKey: ["technicians"] });
   const [rules, setRules] = useState<AvailabilityRule[]>(tech.availability);
   const [off, setOff] = useState({ starts_at: "", ends_at: "", reason: "" });
@@ -279,11 +281,19 @@ function TechPanel({ tech, onClose }: { tech: Technician; onClose: () => void })
     onSuccess: () => {
       setEditing(false);
       onDone();
+      toast({ title: "Hours saved", body: `${tech.full_name} is bookable in the new windows.` });
     },
   });
   const toggle = useMutation({
     mutationFn: () => api.updateTechnician(tech.id, { is_active: !tech.is_active }),
-    onSuccess: onDone,
+    onSuccess: () => {
+      onDone();
+      toast(
+        tech.is_active
+          ? { title: "Account deactivated", tone: "warn", body: `${tech.full_name} takes no new visits.` }
+          : { title: "Account reactivated", body: `${tech.full_name} can be booked again.` },
+      );
+    },
   });
   const addOff = useMutation({
     mutationFn: () =>
@@ -295,6 +305,7 @@ function TechPanel({ tech, onClose }: { tech: Technician; onClose: () => void })
     onSuccess: () => {
       setOff({ starts_at: "", ends_at: "", reason: "" });
       onDone();
+      toast({ title: "Time off booked", body: "The diary is closed for those dates." });
     },
   });
   const dropOff = useMutation({ mutationFn: (id: string) => api.removeTimeOff(id), onSuccess: onDone });
@@ -509,12 +520,14 @@ const BLANK = { email: "", password: "", full_name: "", phone: "", employee_code
 /** A new scan technician's account, made in a panel of its own. */
 function AddTechnician({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [form, setForm] = useState(BLANK);
   const create = useMutation({
     mutationFn: () => api.createTechnician(form),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ["technicians"] });
       onClose();
+      toast({ title: "Technician added", body: `${created.full_name} is bookable from today.` });
     },
   });
 

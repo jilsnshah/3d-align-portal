@@ -26,6 +26,7 @@ import { api, formatDate, since } from "../../api";
 import type { OrderSummary, Patient } from "../../api";
 import Avatar from "../../components/Avatar";
 import StageTrack from "../../components/StageTrack";
+import { useToast } from "../../components/Toast";
 import { CategoryPill, Empty, ErrorText, Field, Loading, StatusPill } from "../../components/ui";
 import { everyCase, everyPatient } from "../../fetchAll";
 import { ASK_ONE } from "../../workflow";
@@ -623,6 +624,7 @@ function AddPatient({
   onAdded: (p: Patient) => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [form, setForm] = useState(BLANK);
   /* Someone of this name is already on file. Said before the second record is
      made rather than discovered later as two half-histories — and still
@@ -634,6 +636,10 @@ function AddPatient({
     onSuccess: (patient) => {
       void queryClient.invalidateQueries({ queryKey: ["patients"] });
       onAdded(patient);
+      toast({
+        title: "Patient added",
+        body: `${patient.full_name}${patient.patient_number ? ` · ${patient.patient_number}` : ""}`,
+      });
     },
   });
 

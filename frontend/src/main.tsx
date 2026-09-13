@@ -13,6 +13,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { sessionSlot } from "./api";
 import { AuthProvider } from "./auth";
+import { ToastProvider } from "./components/Toast";
 import "./styles.css";
 
 // Claim this tab's session slot before the first request goes out.
@@ -27,7 +28,10 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          {/* Inside the router: a confirmation can offer the next place to go. */}
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

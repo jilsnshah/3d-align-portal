@@ -1238,114 +1238,6 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 .file-row.superseded:hover { opacity: 0.78; }
 .file-row.superseded .name { text-decoration: line-through; }
 
-/* ---------------- booking calendar ---------------- */
-
-.cal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 5px;
-}
-.cal-dow {
-  text-align: center;
-  font-size: 0.66rem;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-  color: var(--ink-3);
-  padding-bottom: 5px;
-}
-.cal-day {
-  aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
-  background: var(--surface, var(--white));
-  padding: 2px;
-  min-height: 52px;
-  transition:
-    border-color var(--fast) var(--ease),
-    background-color var(--fast) var(--ease),
-    box-shadow var(--fast) var(--ease),
-    transform var(--fast) var(--ease);
-}
-.cal-day .n { font-size: 0.92rem; font-weight: 650; font-variant-numeric: tabular-nums; }
-.cal-day .s { font-size: 0.62rem; color: var(--ink-3); }
-.cal-day:disabled { background: var(--paper); color: var(--ink-3); cursor: not-allowed; opacity: 1; }
-.cal-day.has-slots { border-color: var(--gold-line); background: var(--gold-soft); }
-.cal-day.has-slots .s { color: var(--warn); font-weight: 650; }
-.cal-day.has-slots:hover {
-  border-color: var(--gold);
-  box-shadow: var(--shadow);
-  transform: translateY(-1px);
-}
-.cal-day.open {
-  border-color: var(--black);
-  border-width: 2px;
-  box-shadow: 0 0 0 3px rgba(11, 11, 12, 0.08);
-}
-
-.cal-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.76rem;
-  color: var(--ink-3);
-}
-.cal-legend .swatch {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  border: 1px solid var(--rule-strong);
-  display: inline-block;
-}
-.cal-legend .swatch.free { background: var(--gold-soft); border-color: var(--gold-line); }
-.cal-legend .swatch.full { background: var(--paper); margin-left: 10px; }
-
-.slot-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-  gap: 7px;
-}
-.slot {
-  border: 1px solid var(--gold-line);
-  background: var(--gold-soft);
-  color: var(--warn);
-  border-radius: var(--r-sm);
-  padding: 10px 6px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
-.slot:hover:not(:disabled) {
-  background: var(--gold-bright);
-  color: var(--black);
-  border-color: var(--gold);
-  box-shadow: var(--glow-gold);
-}
-.slot:disabled {
-  background: var(--paper);
-  border-color: var(--rule);
-  color: var(--ink-3);
-  text-decoration: line-through;
-  cursor: not-allowed;
-  opacity: 1;
-}
-.slot.picked {
-  background: var(--black);
-  border-color: var(--black);
-  color: var(--white);
-  box-shadow: 0 2px 10px rgba(11, 11, 12, 0.25);
-}
-
 /* ---------------- technician job cards ---------------- */
 
 .job {
@@ -5518,15 +5410,19 @@ button.progress-step:hover .progress-label { color: var(--ink); }
 .ws { display: flex; flex-direction: column; gap: var(--s-4); }
 
 /* who and what */
+/* The case, named in one line.
+   It used to take four: a back link, a row of pills, a 2.75rem name and a
+   line of facts under it — a third of a laptop screen spent saying which case
+   this is, before the case could say what it wanted. */
 .ws-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: var(--s-2) var(--s-5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--rule);
 }
 .ws-back {
-  grid-column: 1 / -1;
-  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5539,17 +5435,23 @@ button.progress-step:hover .progress-label { color: var(--ink); }
 .ws-back svg { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
 .ws-back:hover { color: var(--gold-deep); }
 .ws-back:hover svg { transform: translateX(-2px); }
-.ws-id { min-width: 0; }
-.ws-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ws-back::after {
+  /* A hairline between the way back and the case itself, so the line reads as
+     two things rather than one run-on sentence. */
+  content: "";
+  width: 1px;
+  height: 16px;
+  margin-left: 12px;
+  background: var(--rule-strong);
+}
 .ws-ref { font-size: var(--t-xs); letter-spacing: 0.02em; color: var(--ink-3); }
 .ws-head h1 {
-  margin: 8px 0 0;
+  margin: 0;
   font-family: var(--display);
   font-weight: 400;
-  font-size: clamp(2rem, 3.4vw, 2.75rem);
-  line-height: 1;
-  letter-spacing: -0.015em;
-  text-wrap: balance;
+  font-size: clamp(1.35rem, 2.1vw, 1.75rem);
+  line-height: 1.1;
+  letter-spacing: -0.012em;
 }
 .ws-head h1::after { display: none; }
 .ws-meta {
@@ -5557,10 +5459,14 @@ button.progress-step:hover .progress-label { color: var(--ink); }
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 0;
-  margin: 10px 0 0;
-  font-size: var(--t-sm);
-  color: var(--ink-2);
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
 }
+/* The facts take whatever is left of the line and push the simulation button
+   to the far end; below a laptop they wrap onto their own row. */
+.ws-meta { flex: 1 1 320px; min-width: 0; }
+.ws-head-do { margin-left: auto; }
 .ws-meta > span { display: inline-flex; align-items: center; }
 .ws-meta > span + span::before {
   content: "";
@@ -8303,4 +8209,312 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   .nc-route,
   .nc-arch,
   .nc-picked { transition: none; }
+}
+
+/* --- Telling the reader what happened ---------------------------------------
+   Two halves of the same idea. A panel that a click opens brings itself to the
+   eye and lights once, so nothing important ever appears below the fold
+   unannounced; and an action that completes says so in the corner, because the
+   page it changed is often somewhere else entirely. */
+
+.reveal { animation: reveal-in 0.34s var(--ease-out) both; }
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+/* One pass of gold down the edge: enough for the eye to find the new panel,
+   gone before it becomes decoration. */
+.reveal::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1.5px solid var(--gold);
+  opacity: 0;
+  pointer-events: none;
+  animation: reveal-ring 1.5s var(--ease-out) 0.1s both;
+}
+.reveal { position: relative; }
+@keyframes reveal-ring {
+  0% { opacity: 0; }
+  22% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+.toasts {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 40px));
+  pointer-events: none;
+}
+.toast {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 13px 14px;
+  color: #f4efe2;
+  background:
+    radial-gradient(70% 130% at 0% 0%, rgba(212, 175, 55, 0.18) 0%, transparent 62%),
+    linear-gradient(160deg, #1a1a1d 0%, #0b0b0c 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  animation: toast-in 0.32s var(--ease-out) both;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.toast-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--black);
+  background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright));
+  border-radius: 999px;
+}
+.toast-mark svg { width: 16px; height: 16px; }
+.toast.warn .toast-mark { color: var(--black); background: linear-gradient(180deg, #f0d68a, #d9a520); }
+.toast.bad .toast-mark { color: var(--white); background: var(--danger); }
+.toast-say { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.toast-say b { font-size: var(--t-sm); font-weight: 650; color: var(--white); }
+.toast-say small { font-size: var(--t-xs); line-height: 1.5; color: rgba(244, 239, 226, 0.7); overflow-wrap: anywhere; }
+.toast-say a { margin-top: 4px; font-size: var(--t-xs); font-weight: 650; color: var(--gold-lift); text-decoration: none; }
+.toast-say a:hover { text-decoration: underline; }
+.toast-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: rgba(244, 239, 226, 0.5);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.toast-close:hover { color: var(--white); background: rgba(255, 255, 255, 0.1); }
+.toast-close svg { width: 13px; height: 13px; }
+
+/* The same confirmation said in place, where the eye is already looking. */
+.done-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ok);
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
+  border-radius: 12px;
+}
+.done-line svg { width: 15px; height: 15px; flex: none; }
+
+@media (max-width: 720px) {
+  .toasts { left: 12px; right: 12px; bottom: 12px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .toast { animation: none; }
+  .reveal::after { display: none; }
+}
+
+/* --- Booking a scan visit ---------------------------------------------------
+   The month and the day sit side by side, so choosing a day fills the panel
+   beside it instead of mounting a second screen below the fold. */
+
+.cal { display: flex; flex-direction: column; gap: 10px; }
+.cal-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+.cal-month { padding: 14px 16px; border-right: 1px solid var(--rule); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.cal-head strong { font-size: var(--t-sm); font-weight: 650; }
+.cal-nav {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink-2);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cal-nav:hover:not(:disabled) { color: var(--ink); border-color: var(--gold-line); }
+.cal-nav:disabled { opacity: 0.35; cursor: default; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-dow {
+  padding-bottom: 4px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink-3);
+}
+.cal-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 0;
+  font: inherit;
+  color: var(--ink-3);
+  background: var(--paper);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.cal-day .n { font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cal-day:disabled { color: var(--rule-strong); background: transparent; cursor: not-allowed; }
+.cal-day.has-slots { color: var(--gold-deep); background: var(--gold-wash); border-color: var(--gold-line); }
+.cal-day.has-slots:hover { background: var(--gold-soft); border-color: var(--gold); }
+.cal-day.open { color: var(--white); background: var(--black-2); border-color: var(--black-2); }
+.cal-day.picked { box-shadow: 0 0 0 2px var(--gold); }
+.cal-tick { position: absolute; right: 4px; top: 4px; width: 6px; height: 6px; background: var(--gold); border-radius: 999px; }
+.cal-day.open .cal-tick { background: var(--gold-lift); }
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+}
+.cal-legend .swatch { width: 10px; height: 10px; border: 1px solid var(--rule); border-radius: 3px; }
+.cal-legend .swatch.free { background: var(--gold-wash); border-color: var(--gold-line); }
+.cal-legend .swatch.full { margin-left: 8px; background: var(--paper); }
+
+.cal-times { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px 16px; background: linear-gradient(180deg, #ffffff, #fdfcfa); }
+.cal-times-head { display: flex; flex-direction: column; gap: 2px; }
+.cal-times-head b { font-family: var(--display); font-weight: 400; font-size: 1.3rem; line-height: 1.15; color: var(--ink); }
+.cal-times-head span { font-size: var(--t-xs); color: var(--ink-3); }
+.cal-none { margin: 0; font-size: var(--t-sm); color: var(--ink-3); }
+.cal-sections { display: flex; flex-direction: column; gap: 14px; }
+.cal-part h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 7px; font-size: var(--t-xs); font-weight: 700; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-3); }
+.cal-part h4 span { font-size: var(--t-micro); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--gold-deep); }
+.cal-skeleton { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.cal-skeleton span { height: 34px; background: var(--paper-2); border-radius: 999px; animation: pulse 1.4s ease-in-out infinite; }
+
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; }
+.slot {
+  padding: 8px 6px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.slot:hover:not(:disabled) { border-color: var(--gold); background: var(--gold-wash); transform: translateY(-1px); }
+.slot:disabled { color: var(--rule-strong); background: var(--paper); cursor: not-allowed; text-decoration: line-through; }
+.slot.picked { color: var(--black); background: linear-gradient(180deg, var(--gold-lift), var(--gold-bright)); border-color: var(--gold-deep); box-shadow: var(--glow-gold, none); }
+
+.cal-picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+  background: var(--paper);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 12px;
+}
+.cal-picked.on { color: var(--gold-deep); background: var(--gold-wash); border-style: solid; border-color: var(--gold-line); }
+.cal-picked b { color: var(--ink); }
+.cal-picked svg { width: 16px; height: 16px; flex: none; }
+
+/* A price range is one long unbreakable token — "₹69,000.00 – ₹89,000.00" —
+   and on a phone it pushed the whole page sideways rather than wrapping. */
+.ws-glance { min-width: 0; }
+.ws-tile { min-width: 0; }
+.ws-tile b,
+.ws-tile span,
+.ws-tile small {
+  min-width: 0;
+  /* The tile sets nowrap, which beats overflow-wrap: the text has to be
+     allowed to break before it can be told where to break. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A visit already booked, shown when the clinic opens that route again. */
+.ws-booked {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
+  border-radius: 16px;
+}
+.ws-booked-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ws-booked-say b { font-size: var(--t-body); color: var(--ink); }
+.ws-booked-say span { font-size: var(--t-sm); color: var(--ink-2); overflow-wrap: anywhere; }
+/* Two answers, side by side where there is room and stacked where there is
+   not — they used to sit on top of one another on a phone. */
+.ws-booked .row,
+.ws-confirm .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+
+@media (max-width: 720px) {
+  /* The case line keeps to one line on a phone and trims what will not fit;
+     the facts are all repeated further down the case. */
+  .ws-meta {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+    -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
+    mask-image: linear-gradient(90deg, #000 82%, transparent);
+  }
+  .ws-head { gap: 6px 10px; }
+  .ws-head h1 { font-size: 1.3rem; }
+  /* A full-width button cannot end up under the contact dock in the corner. */
+  .ws-booked .row > button,
+  .ws-booked .row > .row,
+  .ws-confirm .row > button { flex: 1 1 100%; }
+  .ws-confirm .row > .btn-link { text-align: left; }
+}
+
+/* The step a choice opens, inside the case's "now" panel. */
+.ws-step { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ws-step-say { margin: 0; font-size: var(--t-sm); line-height: 1.5; color: var(--ink-3); }
+.ws-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 16px;
+}
+
+@media (max-width: 900px) {
+  .cal-frame { grid-template-columns: 1fr; }
+  .cal-month { border-right: 0; border-bottom: 1px solid var(--rule); }
 }

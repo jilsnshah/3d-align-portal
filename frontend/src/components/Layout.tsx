@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { api, formatDate, openFreshTab } from "../api";
 import PushToggle from "./PushToggle";
+import ScrollToTop from "./ScrollToTop";
 import SocialDock from "./SocialDock";
 import { useAuth } from "../auth";
 
@@ -70,6 +71,8 @@ export default function Layout() {
 
   return (
     <div className="shell">
+      {/* A new page opens at its top, however far down the last one was read. */}
+      <ScrollToTop />
       <header className="topbar">
         <NavLink to={isAdmin ? "/staff" : isTech ? "/tech" : "/"} className="brand">
           <img className="brand-logo" src="/logo.png" alt="3D Aligners" />

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api, formatDate } from "../api";
+import { useToast } from "./Toast";
 import { ErrorText } from "./ui";
 
 /** Visits approved leave stranded.
@@ -13,6 +14,7 @@ import { ErrorText } from "./ui";
  */
 export default function AttentionQueue() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [note, setNote] = useState("");
 
   const queue = useQuery({ queryKey: ["attention"], queryFn: api.bookingsNeedingAttention });
@@ -20,8 +22,13 @@ export default function AttentionQueue() {
   const settle = useMutation({
     mutationFn: (v: { id: string; action: "RESCHEDULE" | "IGNORE" }) =>
       api.settleAttention(v.id, v.action, note),
-    onSuccess: () => {
+    onSuccess: (_booking, v) => {
       setNote("");
+      toast(
+        v.action === "RESCHEDULE"
+          ? { title: "Clinic asked to rebook", body: "They pick another time from their case." }
+          : { title: "Visit left standing", tone: "warn", body: "Somebody still has to cover it." },
+      );
       void queryClient.invalidateQueries({ queryKey: ["attention"] });
       void queryClient.invalidateQueries({ queryKey: ["bookings"] });
     },
