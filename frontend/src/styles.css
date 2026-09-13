@@ -8518,3 +8518,205 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   .cal-frame { grid-template-columns: 1fr; }
   .cal-month { border-right: 0; border-bottom: 1px solid var(--rule); }
 }
+
+/* --- Choosing a clinic ------------------------------------------------------
+   The chosen one reads as a line; the rest are behind it, searchable. A radio
+   per clinic was fine at three and unusable at thirty — the question's own
+   button ended up a screen below the answers. */
+
+.ac { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ac-title {
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ac-box { position: relative; min-width: 0; }
+.ac-one,
+.ac-trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+}
+.ac-one { flex-direction: column; align-items: flex-start; gap: 2px; }
+.ac-trigger { cursor: pointer; transition: border-color var(--fast) var(--ease); }
+.ac-trigger:hover { border-color: var(--gold-line); }
+.ac-trigger.open { border-color: var(--gold); box-shadow: var(--glow-gold, none); }
+.ac-trigger > svg { flex: none; width: 16px; height: 16px; color: var(--ink-3); transition: transform var(--fast) var(--ease); }
+.ac-trigger.open > svg { transform: rotate(180deg); }
+.ac-chosen,
+.ac-opt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.ac-one b,
+.ac-chosen b,
+.ac-opt b {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+  font-weight: 650;
+  color: var(--ink);
+}
+.ac-one b em,
+.ac-chosen b em,
+.ac-opt b em {
+  padding: 1px 8px;
+  font-size: var(--t-micro);
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--gold-deep);
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 999px;
+}
+.ac-one > span,
+.ac-chosen > span,
+.ac-opt > span { font-size: var(--t-xs); color: var(--ink-3); overflow-wrap: anywhere; }
+.ac-none { color: var(--ink-3); }
+
+.ac-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  animation: reveal-in 0.16s var(--ease-out) both;
+}
+.ac-search input,
+.ac-search input:focus { width: 100%; }
+.ac-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.ac-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.ac-list button:hover { background: var(--paper); }
+.ac-list button.on { background: var(--gold-wash); }
+.ac-list button > svg { flex: none; width: 15px; height: 15px; color: var(--gold-deep); }
+.ac-empty { padding: 10px; font-size: var(--t-sm); color: var(--ink-3); }
+.ac-add {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  text-align: left;
+  color: var(--gold-deep);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 10px 10px;
+  cursor: pointer;
+}
+.ac-add:hover { background: var(--gold-wash); }
+
+/* --- What the stage itself holds --------------------------------------------
+   The sections stay below, in the file; the stage lifts the one the doctor
+   needs now to the top, inside the panel that asks for it. */
+
+.ws-stage-fold {
+  min-width: 0;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.ws-stage-fold > .fold,
+.ws-stage-fold > .card { border: 0; box-shadow: none; background: transparent; }
+.ws-stage-fold .fold > summary { padding-left: 14px; padding-right: 14px; }
+.ws-stage-fold .fold-body { padding-left: 14px; padding-right: 14px; }
+
+/* One parcel, stated where the stage asks about it. */
+.ws-parcel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+}
+.ws-parcel-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 240px; }
+.ws-parcel-say b { font-size: var(--t-body); color: var(--ink); }
+.ws-parcel-say span { font-size: var(--t-sm); color: var(--ink-3); overflow-wrap: anywhere; }
+.ws-parcel-say .mono { color: var(--ink-2); }
+.ws-parcel .row { display: flex; flex-wrap: wrap; gap: 8px 10px; }
+
+/* The fee a stage is waiting on, said in the stage rather than left to the
+   payments tab to explain. */
+.ws-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-line);
+  border-radius: 16px;
+}
+.ws-gate-say { display: flex; flex-direction: column; gap: 3px; }
+.ws-gate-say b { font-size: var(--t-body); color: var(--ink); }
+.ws-gate-say span { font-size: var(--t-sm); line-height: 1.5; color: var(--ink-2); }
+.ws-gate .pay-row { margin: 0; padding: 0; border: 0; background: transparent; }
+
+@media (max-width: 720px) {
+  .ws-parcel .row > button { flex: 1 1 100%; }
+}
+
+/* Where a phased case has got to, said in the stage that is asking about it.
+   The bar is a reading of the case's own phase plan: filled for delivered,
+   lit for the one in flight, empty for what is still to come. */
+.ws-phases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+  padding: 12px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+}
+.ws-phases-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ws-phases-say b { font-size: var(--t-sm); font-weight: 650; color: var(--ink); }
+.ws-phases-say span { font-size: var(--t-xs); color: var(--ink-3); }
+.ws-phases-bar { display: flex; gap: 4px; }
+.ws-phases-bar i {
+  width: 26px;
+  height: 6px;
+  background: var(--rule);
+  border-radius: 999px;
+}
+.ws-phases-bar i.done { background: var(--gold-line); }
+.ws-phases-bar i.on {
+  background: linear-gradient(90deg, var(--gold-bright), var(--gold-deep));
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
+}

@@ -61,7 +61,7 @@ import {
   StatusPill,
 } from "../../components/ui";
 
-type Tab = "overview" | "records" | "payments" | "history";
+type Tab = "overview" | "records" | "delivery" | "payments" | "history";
 
 const RECORD_CATEGORIES: FileCategory[] = ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"];
 
@@ -174,10 +174,21 @@ export default function DoctorOrderDetail() {
   }[tone];
   const upNext = liveStage >= 0 ? stages[liveStage + 1]?.label : undefined;
 
-  /* The plan fee is asked for inside the plan step itself, so it is not
-     mentioned a second time underneath it. */
-  const planFeeInStep = data.status === "PLAN_SHARED" && data.plan_locked;
-  const alsoDue = money.due.filter((p) => !(planFeeInStep && p.kind === "TREATMENT_PLAN"));
+  const plan = [...data.plans].reverse().find((p) => p.status !== "SUPERSEDED") ?? null;
+  const quote = data.quotes[data.quotes.length - 1] ?? null;
+  const delivered = data.shipments.filter((s) => s.status === "DELIVERED").length;
+  const inTransit = data.shipments.length - delivered;
+  const activePhase = data.phase_plan.find((p) => p.status === "ACTIVE" || p.status === "ISSUE");
+
+  /* A fee the current stage is waiting on is asked for inside that stage, so
+     it is not mentioned a second time underneath it. */
+  const feeInStep =
+    data.status === "PLAN_SHARED" && data.plan_locked
+      ? "TREATMENT_PLAN"
+      : data.status === "TRAINING_ALIGNER_PRODUCTION"
+        ? "TRAINING_FIT"
+        : null;
+  const alsoDue = money.due.filter((p) => p.kind !== feeInStep);
 
   const tabs: { key: Tab; label: string; badge?: string; warn?: boolean }[] = [
     { key: "overview", label: "Overview" },
@@ -199,6 +210,23 @@ export default function DoctorOrderDetail() {
           },
         ]
       : []),
+    /* Deliveries are their own part of the case, not a card buried in the
+       overview: a clinic tracking a parcel should not read past a quote it
+       agreed to three weeks ago to find it. */
+    ...(data.shipments.length > 0 || data.phases_divided
+      ? [
+          {
+            key: "delivery" as Tab,
+            label: "Delivery",
+            badge:
+              inTransit > 0
+                ? `${inTransit} on the way`
+                : delivered > 0
+                  ? `${delivered} delivered`
+                  : undefined,
+          },
+        ]
+      : []),
     { key: "history", label: "History", badge: data.events.length > 0 ? String(data.events.length) : undefined },
   ];
   // Looking back is reading, not working: only what is unaffected by it stays.
@@ -217,11 +245,6 @@ export default function DoctorOrderDetail() {
     }
   }
 
-  const plan = [...data.plans].reverse().find((p) => p.status !== "SUPERSEDED") ?? null;
-  const quote = data.quotes[data.quotes.length - 1] ?? null;
-  const delivered = data.shipments.filter((s) => s.status === "DELIVERED").length;
-  const inTransit = data.shipments.length - delivered;
-  const activePhase = data.phase_plan.find((p) => p.status === "ACTIVE" || p.status === "ISSUE");
 
   return (
     <main className="page ws">
@@ -311,7 +334,13 @@ export default function DoctorOrderDetail() {
               data.status === "DISPATCHING" &&
               data.phases_divided && <PhaseFitIssuePanel order={data} onDone={invalidate} />
             )}
-            <DoctorActions order={data} onDone={invalidate} onCancelled={() => navigate("/orders")} />
+            {/* A phase waiting on the clinic's decision owns the moment: the
+                stage's own line would otherwise sit above it saying something
+                more general about the same case, and the panel read as two
+                things happening at once. */}
+            {!data.awaiting_phase_decision && (
+              <DoctorActions order={data} onDone={invalidate} onCancelled={() => navigate("/orders")} />
+            )}
             {data.awaiting_phase_decision && (
               <PhaseDecisionPanel
                 order={data}
@@ -423,7 +452,7 @@ export default function DoctorOrderDetail() {
                     : "Tracking to follow"
                   : `${data.shipments.length} parcel${data.shipments.length === 1 ? "" : "s"} so far`
               }
-              onClick={() => showTab("overview", true)}
+              onClick={() => showTab("delivery", true)}
             />
           )}
         </aside>
@@ -446,15 +475,22 @@ export default function DoctorOrderDetail() {
       </nav>
 
       <div className="ws-panel" role="tabpanel" key={tab}>
-        {tab === "overview" && (
-          <Overview
-            order={data}
-            onMarkDelivered={
-              data.status === "COMPLETED" || data.status === "CANCELLED"
-                ? undefined
-                : (id) => confirmDelivery.mutate(id)
-            }
-          />
+        {tab === "overview" && <Overview order={data} />}
+        {tab === "delivery" && (
+          <div className="ws-ship">
+            <PhaseTracker order={data} />
+            <ShipmentsCard
+              order={data}
+              open
+              // The clinic receives the parcel, so it confirms arrival.
+              onMarkDelivered={
+                data.status === "COMPLETED" || data.status === "CANCELLED"
+                  ? undefined
+                  : (id) => confirmDelivery.mutate(id)
+              }
+              deliverLabel="Mark received"
+            />
+          </div>
         )}
         {tab === "records" && (
           <div className="ws-records">
@@ -591,14 +627,8 @@ function Glance({
 }
 
 /** The case at rest: what is being made and for how much on the left, the
-    clinical facts on the right. */
-function Overview({
-  order,
-  onMarkDelivered,
-}: {
-  order: Order;
-  onMarkDelivered?: (id: string) => void;
-}) {
+    clinical facts on the right. Deliveries have a part of their own. */
+function Overview({ order }: { order: Order }) {
   const nothingYet =
     !order.has_simulation &&
     order.shipments.length === 0 &&
@@ -616,14 +646,6 @@ function Overview({
           </p>
         )}
         <SimulationCard order={order} />
-        <PhaseTracker order={order} />
-        <ShipmentsCard
-          order={order}
-          open
-          // The clinic receives the parcel, so it confirms arrival.
-          onMarkDelivered={onMarkDelivered}
-          deliverLabel="Mark received"
-        />
         <PlanCard order={order} open />
         <QuoteCard order={order} open={order.plans.length === 0} />
         {order.accessories.length > 0 && (
@@ -707,6 +729,7 @@ function PhaseDecisionPanel({
           : `You have confirmed ${span}. The lab reviews your progress photographs before making the next batch.`
       }
     >
+      {order.phases_divided && <PhaseLine order={order} />}
       {!isFinal && (
         <>
           {/* The lab needs to see how the teeth actually moved before it makes
@@ -901,6 +924,10 @@ function DoctorActions({
           : "The new time is booked.",
       });
     },
+  });
+  const markReceived = useMutation({
+    mutationFn: (shipmentId: string) => api.confirmDelivery(order.id, shipmentId),
+    onSuccess: settled("Parcel marked received", "Thank you — the lab can see it arrived."),
   });
   const cancelDraft = useMutation({
     mutationFn: () => api.cancelDraft(order.id, "Cancelled by the clinic."),
@@ -1273,8 +1300,17 @@ function DoctorActions({
       return (
         <ActionPanel
           title="Treatment plan ready"
-          why="Approve to start the training aligner, or send it back with changes. The plan itself is under Overview."
+          why="Read it here, then approve to start the training aligner — or send it back with changes."
         >
+          {/* The plan is what the question is about, so it is in the question
+              rather than a tab away under Overview. The frame is only drawn
+              when there is a plan to put in it — an empty bordered box reads
+              as something that failed to load. */}
+          {order.plans.length > 0 && (
+            <div className="ws-stage-fold">
+              <PlanCard order={order} open />
+            </div>
+          )}
           <AddressChooser
             value={deliverTo}
             onChange={setDeliverTo}
@@ -1446,6 +1482,92 @@ function DoctorActions({
         </ActionPanel>
       );
     }
+    case "TRAINING_ALIGNER_PRODUCTION": {
+      /* The lab will not dispatch a training aligner it has not been paid for
+         — its own ship step refuses. The clinic was never told that here; the
+         charge simply sat in the payments tab and the case looked stalled. */
+      const fee = order.payments.find((p) => p.kind === "TRAINING_FIT");
+      if (fee && fee.status !== "VERIFIED") {
+        return (
+          <ActionPanel
+            title="Pay for the training aligner"
+            why={
+              fee.status === "SUBMITTED"
+                ? "Your receipt is with 3D Align. The aligner ships as soon as it is confirmed."
+                : "3D Align is making it now and ships it once this is paid — charged once for the case; refits and re-scans are not charged again."
+            }
+          >
+            {fee.status === "SUBMITTED" ? (
+              <Banner tone="warn">
+                Receipt sent{fee.reference && ` · ${fee.reference}`}. 3D Align is checking it —
+                nothing else is needed from you.
+              </Banner>
+            ) : (
+              <div className="ws-gate">
+                <div className="ws-gate-say">
+                  <b>{formatMoney(fee.total)} — training fit aligner</b>
+                  <span>Nothing is dispatched until this is settled.</span>
+                </div>
+                <PaymentRow orderId={order.id} payment={fee} />
+              </div>
+            )}
+          </ActionPanel>
+        );
+      }
+      return <Waiting>The training aligner is being made. It ships as soon as it is ready.</Waiting>;
+    }
+
+    case "TRAINING_ALIGNER_SHIPPED": {
+      const parcel =
+        [...order.shipments]
+          .reverse()
+          .find((s) => s.shipment_type === "TRAINING_ALIGNER" && s.status !== "DELIVERED") ?? null;
+      return (
+        <ActionPanel
+          title="The training aligner is on its way"
+          why="Mark it received when it arrives — that is what asks you to confirm the fit."
+        >
+          {parcel ? (
+            <Parcel
+              shipment={parcel}
+              pending={markReceived.isPending}
+              onReceived={() => markReceived.mutate(parcel.id)}
+            />
+          ) : (
+            <p className="dim">Tracking appears here as soon as the lab adds it.</p>
+          )}
+          <ErrorText error={markReceived.error} />
+        </ActionPanel>
+      );
+    }
+
+    case "DISPATCHING": {
+      const onTheWay = order.shipments.filter((s) => s.status !== "DELIVERED");
+      if (onTheWay.length === 0) {
+        return <Waiting>{waitingCopyFor(order.kind, order.status) ?? waitingCopy(order.status)}</Waiting>;
+      }
+      return (
+        <ActionPanel
+          title={onTheWay.length === 1 ? "A parcel is on its way" : `${onTheWay.length} parcels are on their way`}
+          why="Mark each one received when it arrives, so the lab knows the case can carry on."
+        >
+          {/* A phased case is somewhere in a series, and which phase it is in
+              decides what happens after this parcel. That belonged in the
+              stage rather than a tab away. */}
+          {order.phases_divided && <PhaseLine order={order} />}
+          {onTheWay.map((s) => (
+            <Parcel
+              key={s.id}
+              shipment={s}
+              pending={markReceived.isPending}
+              onReceived={() => markReceived.mutate(s.id)}
+            />
+          ))}
+          <ErrorText error={markReceived.error} />
+        </ActionPanel>
+      );
+    }
+
     case "CANCELLED":
       return (
         <ActionPanel title="This case was cancelled" why={order.cancel_reason || undefined}>
@@ -1459,6 +1581,92 @@ function DoctorActions({
     default:
       return <Waiting>{waitingCopyFor(order.kind, order.status) ?? waitingCopy(order.status)}</Waiting>;
   }
+}
+
+/** Where the series has got to, in one line: which phase is live, what it
+    carries, and how many are still to come. Reads the case's own phase plan —
+    nothing here decides anything, it only says what the plan already holds. */
+function PhaseLine({ order }: { order: Order }) {
+  const phases = order.phase_plan;
+  if (phases.length === 0) return null;
+  const live = phases.find((ph) => ph.status === "ACTIVE" || ph.status === "ISSUE") ?? null;
+  const done = phases.filter((ph) => ph.status === "COMPLETED").length;
+  const left = phases.length - done - (live ? 1 : 0);
+  return (
+    <div className="ws-phases">
+      <span className="ws-phases-say">
+        <b>
+          {live ? `Phase ${live.phase} of ${phases.length}` : `${done} of ${phases.length} phases delivered`}
+          {live ? ` · aligners ${live.from_step}–${live.to_step}` : ""}
+        </b>
+        <span>
+          {left > 0
+            ? `${left} more phase${left === 1 ? "" : "s"} after this one.`
+            : "This is the last phase of the series."}
+        </span>
+      </span>
+      <span className="ws-phases-bar" aria-hidden="true">
+        {phases.map((ph) => (
+          <i
+            key={ph.phase}
+            className={ph.status === "COMPLETED" ? "done" : live && ph.phase === live.phase ? "on" : ""}
+            title={`Phase ${ph.phase}: aligners ${ph.from_step}–${ph.to_step}`}
+          />
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** One parcel, stated where the stage asks about it: what is in it, where it
+    is, and the one thing the clinic does when it arrives. */
+function Parcel({
+  shipment,
+  pending,
+  onReceived,
+}: {
+  shipment: Order["shipments"][number];
+  pending: boolean;
+  onReceived: () => void;
+}) {
+  const what =
+    shipment.shipment_type === "TRAINING_ALIGNER"
+      ? "Training aligner"
+      : shipment.shipment_type === "PRODUCT"
+        ? "Your order"
+        : shipment.shipment_type === "FULL_CASE"
+          ? "The full series"
+          : `Phase ${shipment.phase_number ?? ""}`;
+  return (
+    <div className="ws-parcel">
+      <span className="ws-parcel-say">
+        <b>
+          {what}
+          {shipment.aligner_range_from
+            ? ` · aligners ${shipment.aligner_range_from}–${shipment.aligner_range_to}`
+            : ""}
+        </b>
+        {shipment.tracking_number ? (
+          <span>
+            {shipment.carrier ? `${shipment.carrier} · ` : ""}
+            <span className="mono">{shipment.tracking_number}</span>
+          </span>
+        ) : (
+          <span>Tracking to follow.</span>
+        )}
+      </span>
+      <span className="row">
+        {shipment.tracking_url && (
+          <a className="btn-ghost btn-sm" href={shipment.tracking_url} target="_blank" rel="noreferrer">
+            Track it
+          </a>
+        )}
+        <button type="button" className="btn-primary" disabled={pending} onClick={onReceived}>
+          {pending ? "Saving…" : "Mark received"}
+        </button>
+      </span>
+    </div>
+  );
 }
 
 function waitingCopy(status: Order["status"]): string {
@@ -1480,7 +1688,7 @@ function waitingCopy(status: Order["status"]): string {
     case "ALIGNER_PRODUCTION":
       return "Your aligner series is in production.";
     case "DISPATCHING":
-      return "Aligners are shipping. Tracking is under Overview as each batch goes out.";
+      return "Aligners are shipping. Tracking is under Delivery as each batch goes out.";
     case "PHASE_REVIEW":
       return "The lab is reviewing your progress photographs before making the next batch.";
     case "PRODUCT_FABRICATION":

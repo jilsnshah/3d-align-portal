@@ -2,13 +2,19 @@
 
    A practice can run several clinics, so the delivery address is confirmed at
    the moment of dispatch rather than inherited from whenever the case was
-   opened. New addresses can be added without leaving the decision — the same
-   shape as choosing a delivery address at checkout. */
+   opened.
+
+   It used to print every clinic as a radio button. That reads well at three
+   and falls apart at thirty: the question — and the button that answers it —
+   ends up a screen below the list. So the chosen clinic is stated in one line
+   and the rest sit behind it, searchable by name, city or pincode. New
+   addresses can still be added without leaving the decision. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api";
+import type { Address } from "../api";
 import LocationPicker from "./LocationPicker";
 import Reveal from "./Reveal";
 import { useToast } from "./Toast";
@@ -26,6 +32,18 @@ const BLANK = {
   is_default_shipping: false,
 };
 
+/** The one line a clinic reads as. */
+function oneLine(a: Address): string {
+  return [a.line1, a.line2, a.city, a.pincode].filter(Boolean).join(", ");
+}
+
+function matches(a: Address, q: string): boolean {
+  if (!q) return true;
+  return [a.label, a.line1, a.line2, a.city, a.state, a.pincode]
+    .filter(Boolean)
+    .some((v) => v.toLowerCase().includes(q));
+}
+
 export default function AddressChooser({
   value,
   onChange,
@@ -39,8 +57,11 @@ export default function AddressChooser({
   const toast = useToast();
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
   const [adding, setAdding] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [draft, setDraft] = useState(BLANK);
   const [pin, setPin] = useState<PickedLocation | null>(null);
+  const box = useRef<HTMLDivElement | null>(null);
 
   // Default to the clinic's usual address so the common case is one click.
   useEffect(() => {
@@ -51,6 +72,23 @@ export default function AddressChooser({
     // onChange is stable enough here; re-running on every render would fight the user.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addresses.data, value]);
+
+  // A menu left open after the eye has moved on is a menu in the way.
+  useEffect(() => {
+    if (!open) return;
+    function away(e: MouseEvent) {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    }
+    function key(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -65,35 +103,136 @@ export default function AddressChooser({
     },
   });
 
+  const all = useMemo(() => addresses.data ?? [], [addresses.data]);
+  const chosen = all.find((a) => a.id === value) ?? null;
+  const q = search.trim().toLowerCase();
+  const found = useMemo(() => all.filter((a) => matches(a, q)), [all, q]);
+  // One clinic is not a choice; it is a fact, and it reads as a line.
+  const only = all.length === 1 ? all[0] : null;
+
   return (
-    <div className="stack-sm">
-      <h4>{title}</h4>
+    <div className="ac">
+      <span className="ac-title">{title}</span>
 
-      {addresses.data?.map((address) => (
-        <label className="addr-option" key={address.id}>
-          <input
-            type="radio"
-            name="delivery-address"
-            checked={value === address.id}
-            onChange={() => onChange(address.id)}
-          />
-          <span>
-            <b>{address.label}</b>
-            {address.is_default_shipping && <span className="pill pill-gold">Default</span>}
-            <span className="addr-line">
-              {address.line1}
-              {address.line2 ? `, ${address.line2}` : ""}, {address.city}, {address.state}{" "}
-              {address.pincode}
-            </span>
-          </span>
-        </label>
-      ))}
+      <div className="ac-box" ref={box}>
+        {only ? (
+          <div className="ac-one">
+            <b>{only.label}</b>
+            <span>{oneLine(only)}</span>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={`ac-trigger${open ? " open" : ""}`}
+              aria-haspopup="listbox"
+              aria-expanded={open}
+              onClick={() => {
+                setSearch("");
+                setOpen((v) => !v);
+              }}
+            >
+              <span className="ac-chosen">
+                {chosen ? (
+                  <>
+                    <b>
+                      {chosen.label}
+                      {chosen.is_default_shipping && <em>Default</em>}
+                    </b>
+                    <span>{oneLine(chosen)}</span>
+                  </>
+                ) : (
+                  <b className="ac-none">Choose a clinic</b>
+                )}
+              </span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
 
-      {!adding ? (
+            {open && (
+              <div className="ac-menu" role="listbox" aria-label={title}>
+                {/* Searching a handful of clinics is slower than reading them,
+                    so the box only appears once there are enough to hunt. */}
+                {all.length > 6 && (
+                  <span className="search ac-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+                    </svg>
+                    <input
+                      autoFocus
+                      value={search}
+                      placeholder="Name, city or PIN code"
+                      aria-label="Search clinics"
+                      onChange={(e) => setSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && found[0]) {
+                          onChange(found[0].id);
+                          setOpen(false);
+                        }
+                      }}
+                    />
+                  </span>
+                )}
+
+                <ul className="ac-list">
+                  {found.length === 0 ? (
+                    <li className="ac-empty">No clinic matches “{search}”.</li>
+                  ) : (
+                    found.map((a) => (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={value === a.id}
+                          className={value === a.id ? "on" : ""}
+                          onClick={() => {
+                            onChange(a.id);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="ac-opt">
+                            <b>
+                              {a.label}
+                              {a.is_default_shipping && <em>Default</em>}
+                            </b>
+                            <span>{oneLine(a)}</span>
+                          </span>
+                          {value === a.id && (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="m5 12.5 4.5 4.5L19 7.5" />
+                            </svg>
+                          )}
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+
+                <button
+                  type="button"
+                  className="ac-add"
+                  onClick={() => {
+                    setOpen(false);
+                    setAdding(true);
+                  }}
+                >
+                  + Deliver somewhere else
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {only && !adding && (
         <button type="button" className="btn-link" onClick={() => setAdding(true)}>
           + Deliver somewhere else
         </button>
-      ) : (
+      )}
+
+      {adding && (
         /* The form used to mount below the fold on a long panel, so the
            "somewhere else" link appeared to do nothing. */
         <Reveal className="card stack-sm">
