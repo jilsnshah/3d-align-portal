@@ -23,7 +23,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -39,6 +39,7 @@ import FileExplorer from "../../components/FileExplorer";
 import Reveal from "../../components/Reveal";
 import { useToast } from "../../components/Toast";
 import StageBrowser from "../../components/StageBrowser";
+import Journey from "../../components/Journey";
 import SlotCalendar from "../../components/SlotCalendar";
 import {
   ActionPanel,
@@ -182,6 +183,11 @@ export default function DoctorOrderDetail() {
 
   /* A fee the current stage is waiting on is asked for inside that stage, so
      it is not mentioned a second time underneath it. */
+  /* While the plan stage is open, the plan is already on the screen inside
+     the panel on the left. Repeating it as a fold under Overview is the same
+     document twice on one page. */
+  const planInStep = data.status === "PLAN_SHARED" && !data.plan_locked && data.plans.length > 0;
+
   const feeInStep =
     data.status === "PLAN_SHARED" && data.plan_locked
       ? "TREATMENT_PLAN"
@@ -475,7 +481,7 @@ export default function DoctorOrderDetail() {
       </nav>
 
       <div className="ws-panel" role="tabpanel" key={tab}>
-        {tab === "overview" && <Overview order={data} />}
+        {tab === "overview" && <Overview order={data} hidePlan={planInStep} />}
         {tab === "delivery" && (
           <div className="ws-ship">
             <PhaseTracker order={data} />
@@ -510,84 +516,6 @@ export default function DoctorOrderDetail() {
         )}
       </div>
     </main>
-  );
-}
-
-/** Where the case has been and where it is, each stage dated by when it was
-    entered. A stage already passed can be opened and read back. */
-function Journey({
-  order,
-  viewing,
-  onView,
-}: {
-  order: Order;
-  viewing: number | null;
-  onView: (index: number | null) => void;
-}) {
-  const strip = useRef<HTMLOListElement | null>(null);
-  const done = order.status === "COMPLETED";
-  const stages = stagesFor(order.kind, order.intake);
-  const current = stageIndex(order.kind, order.status, order.intake);
-  const stuck = order.status === "RECORDS_REQUESTED" || order.status === "FIT_ISSUE";
-
-  /* On a phone the strip scrolls, and it opened on the first stage — the one
-     that matters was off the right edge. Centre the current stage instead. */
-  useEffect(() => {
-    const ol = strip.current;
-    const li = ol?.querySelector<HTMLElement>("li.current");
-    if (!ol || !li || ol.scrollWidth <= ol.clientWidth) return;
-    ol.scrollLeft = li.offsetLeft - (ol.clientWidth - li.offsetWidth) / 2;
-  }, [current]);
-
-  if (order.status === "CANCELLED") return null;
-
-  return (
-    <ol className="ws-journey" aria-label="Case progress" ref={strip}>
-      {stages.map((stage, i) => {
-        const isCurrent = !done && i === current;
-        const isDone = done || (current > -1 && i < current);
-        const entered = order.events.find((e) => stage.statuses.includes(e.to_status))?.created_at;
-        const reachable = current < 0 || i <= current;
-        const isViewed = viewing === i;
-        const state = isCurrent ? (stuck ? "current blocked" : "current") : isDone ? "done" : "ahead";
-        const inner = (
-          <>
-            <span className="jr-dot" aria-hidden="true">
-              {isDone ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m5 12 5 5 9-10" />
-                </svg>
-              ) : (
-                i + 1
-              )}
-            </span>
-            <span className="jr-say">
-              <b>{stage.label}</b>
-              <small>
-                {isCurrent ? order.status_label : entered ? shortDate(entered) : isDone ? "Done" : " "}
-              </small>
-            </span>
-          </>
-        );
-        return (
-          <li key={stage.key} className={`${state}${isViewed ? " viewing" : ""}`}>
-            {reachable ? (
-              <button
-                type="button"
-                className="jr-step"
-                aria-current={isCurrent ? "step" : undefined}
-                title={isCurrent ? "Back to now" : `Look back at ${stage.label}`}
-                onClick={() => onView(isCurrent || isViewed ? null : i)}
-              >
-                {inner}
-              </button>
-            ) : (
-              <span className="jr-step">{inner}</span>
-            )}
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -628,8 +556,9 @@ function Glance({
 
 /** The case at rest: what is being made and for how much on the left, the
     clinical facts on the right. Deliveries have a part of their own. */
-function Overview({ order }: { order: Order }) {
+function Overview({ order, hidePlan = false }: { order: Order; hidePlan?: boolean }) {
   const nothingYet =
+    !hidePlan &&
     !order.has_simulation &&
     order.shipments.length === 0 &&
     order.plans.length === 0 &&
@@ -646,7 +575,7 @@ function Overview({ order }: { order: Order }) {
           </p>
         )}
         <SimulationCard order={order} />
-        <PlanCard order={order} open />
+        {!hidePlan && <PlanCard order={order} open />}
         <QuoteCard order={order} open={order.plans.length === 0} />
         {order.accessories.length > 0 && (
           <section className="card">

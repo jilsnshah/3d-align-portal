@@ -4205,15 +4205,6 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 .stage-nav-title { text-align: center; min-width: 0; }
 .stage-nav-title b { font-size: var(--t-h3); display: block; letter-spacing: -0.005em; }
-.stage-nav-step {
-  display: block;
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
 .stage-readonly {
   margin: var(--s-3) 0 0;
   padding: var(--s-2) var(--s-3);

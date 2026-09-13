@@ -74,9 +74,9 @@ export default function StageBrowser({
         </button>
 
         <div className="stage-nav-title">
-          <span className="stage-nav-step">
-            Stage {index + 1} of {stages.length}
-          </span>
+          {/* No "stage 3 of 7" counter: the journey strip above already draws
+              where this stage sits, and a number here only said it again in
+              words. The stage's own name is what identifies it. */}
           <b>{stage.label}</b>
           {entered && <span className="dim"> · {formatDate(entered)}</span>}
         </div>

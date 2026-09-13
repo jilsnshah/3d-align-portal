@@ -1,13 +1,24 @@
+/* The lab's side of one case.
+ *
+ * Built on the same four layers as the clinic's page — who and what, the
+ * journey, the one thing that happens next, and the file behind it one tab at
+ * a time — because it is the same case. What differs is whose move it is: the
+ * panel here asks the lab for the thing the stage needs, and exposes the
+ * records, the scan, the plan or the photographs that decision is made from
+ * inside the stage itself rather than a scroll below it. */
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { api, formatDate, formatMoney, formatRange } from "../../api";
-import type { OrderDetail as Order } from "../../api";
+import { api, formatDate, formatMoney, formatRange, since } from "../../api";
+import type { FileCategory, OrderDetail as Order } from "../../api";
 import FileUploader from "../../components/FileUploader";
 import FileExplorer from "../../components/FileExplorer";
 import StageBrowser from "../../components/StageBrowser";
-import { stageIndex } from "../../workflow";
+import Journey from "../../components/Journey";
+import { stageIndex, stagesFor } from "../../workflow";
 import PaymentReview from "../../components/PaymentReview";
 import { useToast } from "../../components/Toast";
 import PhaseTracker from "../../components/PhaseTracker";
@@ -15,19 +26,117 @@ import {
   ActionPanel,
   CaseSummary,
   SimulationCard,
+  FileList,
   InvoiceCard,
-  OrderHeader,
   PlanCard,
-  ProgressRail,
   QuoteCard,
   ShipmentsCard,
   Timeline,
   Waiting,
-  sectionOrder,
 } from "../../components/OrderView";
-import type { SectionKey } from "../../components/OrderView";
-import { Banner, Checklist, ConfirmButton, ErrorText, Field, Loading } from "../../components/ui";
+import {
+  Banner,
+  CategoryPill,
+  Checklist,
+  ConfirmButton,
+  ErrorText,
+  Field,
+  Loading,
+  StatusPill,
+} from "../../components/ui";
 import { useAuth } from "../../auth";
+
+type Tab = "overview" | "records" | "delivery" | "payments" | "history";
+
+const RECORD_CATEGORIES: FileCategory[] = ["RECORD_PHOTO", "OPG", "LATERAL_CEPH", "CBCT", "OTHER"];
+
+/* Stages the case is sitting with the clinic on. The lab can read them, but
+   there is nothing on the bench until the clinic answers. */
+const WITH_THE_CLINIC = new Set([
+  "RECORDS_REQUESTED",
+  "PLAN_SHARED",
+  "TRAINING_ALIGNER_SHIPPED",
+  "FIT_REVIEW",
+]);
+
+function archLabel(arch: Order["arch"]): string {
+  return arch === "BOTH" ? "Both arches" : arch === "UPPER" ? "Upper arch" : "Lower arch";
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+/** The files a stage is judged from, shown inside that stage. Read-only: the
+    cabinet under Records is where files are added and binned. */
+function StepFiles({
+  order,
+  categories,
+  title,
+}: {
+  order: Order;
+  categories: FileCategory[];
+  title: string;
+}) {
+  if (!order.files.some((f) => categories.includes(f.category))) return null;
+  return (
+    <div className="ws-stage-fold">
+      <FileList order={order} categories={categories} title={title} open />
+    </div>
+  );
+}
+
+/** Parcels still in transit, settled where the stage is about them. The lab
+    marks one delivered when the courier says so and the clinic has not. */
+function Parcels({
+  order,
+  onDeliver,
+}: {
+  order: Order;
+  onDeliver?: (shipmentId: string) => void;
+}) {
+  const out = order.shipments.filter((s) => s.status !== "DELIVERED");
+  if (out.length === 0) return null;
+  return (
+    <div className="ws-stage-fold">
+      {out.map((s) => (
+        <div className="ws-parcel" key={s.id}>
+          <div className="ws-parcel-say">
+            <b>
+              {s.shipment_type.replace(/_/g, " ").toLowerCase()}
+              {s.phase_number ? ` · phase ${s.phase_number}` : ""}
+              {s.aligner_range_from && s.aligner_range_to
+                ? ` · aligners ${s.aligner_range_from}\u2013${s.aligner_range_to}`
+                : ""}
+            </b>
+            <span>
+              {s.carrier || "Courier not named"}
+              {s.tracking_number && (
+                <>
+                  {" \u00b7 "}
+                  <span className="mono">{s.tracking_number}</span>
+                </>
+              )}
+              {s.shipped_at && ` \u00b7 sent ${formatDate(s.shipped_at)}`}
+            </span>
+          </div>
+          <div className="row">
+            {s.tracking_url && (
+              <a className="btn-link" href={s.tracking_url} target="_blank" rel="noreferrer">
+                Track it
+              </a>
+            )}
+            {onDeliver && (
+              <button type="button" className="btn-ghost btn-sm" onClick={() => onDeliver(s.id)}>
+                Mark delivered
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function StaffOrderDetail() {
   const { orderId = "" } = useParams();
@@ -53,6 +162,7 @@ export default function StaffOrderDetail() {
      every action panel below has to know to stand down while a past
      stage is open. */
   const [viewing, setViewing] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
 
   const markDelivered = useMutation({
     mutationFn: (shipmentId: string) => api.updateShipment(shipmentId, { mark_delivered: true }),
@@ -88,106 +198,416 @@ export default function StaffOrderDetail() {
   const canInvoice =
     !data.invoice && (data.status === "DISPATCHING" || data.status === "COMPLETED");
 
-  const sections = sectionOrder(data.status);
-  const render = (key: SectionKey, isLive: boolean) => {
-    switch (key) {
-      case "quote":
-        return <QuoteCard key={key} order={data} open={isLive} />;
-      case "plan":
-        return <PlanCard key={key} order={data} open={isLive} />;
-      case "shipments":
-        return (
-          <ShipmentsCard
-            key={key}
-            order={data}
-            open={isLive}
-            onMarkDelivered={closed ? undefined : (id) => markDelivered.mutate(id)}
-          />
-        );
-      case "invoice":
-        return <InvoiceCard key={key} order={data} />;
-      case "files":
-        // Nothing is made and nothing is fitted, so an accessory order has no
-        // records, no scan and no photographs. The whole card goes, not just
-        // its contents — an empty card is furniture.
-        if (data.kind === "ACCESSORY") return null;
-        return (
-          <div className="card" key={key}>
-            <FileExplorer order={data} onChanged={invalidate} />
-          </div>
-        );
-    }
-  };
-
+  const stages = stagesFor(data.kind, data.intake);
   const liveStage = stageIndex(data.kind, data.status, data.intake);
   const lookingBack = viewing !== null && viewing !== (liveStage >= 0 ? liveStage : null);
+  const upNext = liveStage >= 0 ? stages[liveStage + 1]?.label : undefined;
+
+  const checking = data.payments.filter((p) => p.status === "SUBMITTED");
+  const unpaid = data.payments.filter((p) => p.status !== "VERIFIED" && p.status !== "SUBMITTED");
+  const sum = (list: typeof unpaid) => list.reduce((n, p) => n + Number(p.total), 0);
+  const unpaidTotal = sum(unpaid);
+  const paidTotal = sum(data.payments.filter((p) => p.status === "VERIFIED"));
+  const delivered = data.shipments.filter((s) => s.status === "DELIVERED").length;
+  const inTransit = data.shipments.length - delivered;
+  const activePhase = data.phase_plan.find((p) => p.status === "ACTIVE" || p.status === "ISSUE");
+  const plan = [...data.plans].reverse().find((p) => p.status !== "SUPERSEDED") ?? null;
+  const quote = data.quotes[data.quotes.length - 1] ?? null;
+  const currentFiles = data.files.filter((f) => f.is_current).length;
+
+  /* Whose move it is. The clinic's page says "your move"; from this side the
+     same case says whether it is on the bench or waiting on the clinic — one
+     word that decides whether this page needs reading at all today. */
+  const tone = closed
+    ? data.status === "COMPLETED"
+      ? "done"
+      : "stop"
+    : WITH_THE_CLINIC.has(data.status) || Boolean(data.awaiting_phase_decision)
+      ? "lab"
+      : "you";
+  const eyebrow = {
+    you: "On your bench",
+    lab: "With the clinic",
+    done: "Complete",
+    stop: "Cancelled",
+  }[tone];
+
+  const tabs: { key: Tab; label: string; badge?: string; warn?: boolean }[] = [
+    { key: "overview", label: "Overview" },
+    ...(data.kind !== "ACCESSORY"
+      ? [{ key: "records" as Tab, label: "Records", badge: currentFiles > 0 ? String(currentFiles) : undefined }]
+      : []),
+    ...(!isTechnician && data.payments.length > 0
+      ? [
+          {
+            key: "payments" as Tab,
+            label: "Payments",
+            badge:
+              checking.length > 0
+                ? `${checking.length} to check`
+                : unpaidTotal > 0
+                  ? `${formatMoney(unpaidTotal)} unpaid`
+                  : undefined,
+            warn: checking.length > 0,
+          },
+        ]
+      : []),
+    ...(!isTechnician && (data.shipments.length > 0 || data.phases_divided)
+      ? [
+          {
+            key: "delivery" as Tab,
+            label: "Delivery",
+            badge:
+              inTransit > 0
+                ? `${inTransit} on the way`
+                : delivered > 0
+                  ? `${delivered} delivered`
+                  : undefined,
+          },
+        ]
+      : []),
+    { key: "history", label: "History", badge: data.events.length > 0 ? String(data.events.length) : undefined },
+  ];
+  // Looking back is reading, not working: only what is unaffected by it stays.
+  const allowed = lookingBack ? tabs.filter((t) => t.key === "payments" || t.key === "history") : tabs;
+  const tab: Tab = allowed.find((t) => t.key === params.get("tab"))?.key ?? allowed[0].key;
+
+  function showTab(key: Tab, scroll = false) {
+    const query = new URLSearchParams(params);
+    if (key === "overview") query.delete("tab");
+    else query.set("tab", key);
+    setParams(query, { replace: true });
+    if (scroll) {
+      requestAnimationFrame(() =>
+        document.getElementById("ws-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  }
 
   return (
-    <main className="page">
-      <OrderHeader order={data} />
-      <ProgressRail order={data} viewing={viewing} onView={setViewing} />
-
-      <div className="split">
-        <div className="stack">
-          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
-
-          {/* While a past stage is open the page offers nothing to do. Acting
-              on a stage the case has already left is not a thing that should
-              be possible, so the panel stands down entirely. */}
-          {lookingBack ? null : isTechnician ? (
-            <TechnicianPanel order={data} onDone={invalidate} />
+    <main className="page ws">
+      <header className="ws-head">
+        <Link to={isTechnician ? "/tech" : "/staff/orders"} className="ws-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5M11 6l-6 6 6 6" />
+          </svg>
+          {isTechnician ? "Visits" : "Cases"}
+        </Link>
+        <h1>{data.patient_name || "Practice stock"}</h1>
+        <span className="ws-ref mono">{data.order_number}</span>
+        <StatusPill status={data.status} label={data.status_label} />
+        {data.priority === "EXPRESS" && (
+          <span className="tag-express">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" strokeLinejoin="round" />
+            </svg>
+            Express
+          </span>
+        )}
+        <p className="ws-meta">
+          {data.patient_number && (
+            <span className="mono" title="Patient number">
+              {data.patient_number}
+            </span>
+          )}
+          {/* Whose case this is comes before what it is: the lab works by
+              clinic, and the name is what a phone call is about. */}
+          <span title={`${data.doctor_name} · ${data.clinic_name}`}>{data.doctor_name}</span>
+          <span>{data.branch_label ? data.branch_label.split(" · ")[0] : data.clinic_name}</span>
+          {data.kind === "ALIGNER" ? (
+            <>
+              <span>
+                {data.category_label ? (
+                  <CategoryPill label={data.category_label} confirmed={data.category_confirmed} />
+                ) : (
+                  "Not sized yet"
+                )}
+              </span>
+              <span>{archLabel(data.arch)}</span>
+              {data.assigned_to_name && <span>Planned by {data.assigned_to_name}</span>}
+            </>
           ) : (
-            <StaffActions order={data} onDone={invalidate} />
+            <span>{data.product_label || "Accessories"}</span>
           )}
-
-          {/* The cabinet uploads and bins files, so it is an editing
-              surface too. What that stage collected is shown above,
-              read-only, by the browser itself. */}
-          {lookingBack ? null : sections.map((key, index) => render(key, index === 0))}
-
-          {!isTechnician && canInvoice && (
-            <div className="card">
-              <div className="card-head">
-                <h4>Invoice</h4>
-              </div>
-              <p className="muted" style={{ fontSize: "0.9rem", marginBottom: 12 }}>
-                Billed at the agreed price{billedTotal ? ` — ${formatMoney(billedTotal)}` : ""}.
-              </p>
-              <ErrorText error={invoice.error} />
-              <button
-                type="button"
-                className="btn-dark"
-                disabled={invoice.isPending}
-                onClick={() => invoice.mutate()}
-              >
-                {invoice.isPending ? "Generating…" : "Generate invoice"}
-              </button>
-            </div>
+          {data.submitted_at && (
+            <span title={`Sent ${formatDate(data.submitted_at)}`}>Sent {shortDate(data.submitted_at)}</span>
           )}
+        </p>
+        {data.has_simulation && (
+          <div className="ws-head-do">
+            <Link to={`/viewer/${data.id}`} className="ws-sim" title="Step through the planned movement">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
+                <path d="M4 7.5 12 12l8-4.5M12 12v9" />
+              </svg>
+              Open the 3D simulation
+            </Link>
+          </div>
+        )}
+      </header>
 
+      <Journey order={data} viewing={viewing} onView={setViewing} />
 
-          {!isTechnician && !closed && (
-            <div className="card">
-              <h4 style={{ marginBottom: 10 }}>Cancel this case</h4>
-              <ErrorText error={cancel.error} />
-              <ConfirmButton
-                label="Cancel case"
-                confirmLabel="Yes, cancel it"
-                onConfirm={() => cancel.mutate("Cancelled by the lab.")}
+      <div className={lookingBack && data.payments.length === 0 ? "ws-top solo" : "ws-top"}>
+        {lookingBack ? (
+          <StageBrowser order={data} viewing={viewing} onView={setViewing} />
+        ) : (
+          <section className={`ws-now tone-${tone}`} aria-label="What happens next">
+            <header className="ws-now-head">
+              <span className="ws-now-eyebrow">{eyebrow}</span>
+              {tone === "lab" && upNext && <span className="ws-now-next">Then: {upNext}</span>}
+              {!closed && <span className="ws-now-next">Updated {since(data.updated_at)} ago</span>}
+            </header>
+
+            {isTechnician ? (
+              <TechnicianPanel order={data} onDone={invalidate} />
+            ) : (
+              <StaffActions
+                order={data}
+                onDone={invalidate}
+                onDeliver={closed ? undefined : (id) => markDelivered.mutate(id)}
               />
-            </div>
-          )}
-        </div>
+            )}
 
-        <div className="stack">
-          <PhaseTracker order={data} />
-          <PaymentReview order={data} />
-          <SimulationCard order={data} />
-          <CaseSummary order={data} />
-          <Timeline order={data} />
-        </div>
+            {/* A receipt sitting unchecked is money the clinic thinks it has
+                paid and a stage that will not move. Said once, with the way
+                to it — it is a second job, not the stage's own. */}
+            {!isTechnician && checking.length > 0 && (
+              <div className="ws-now-also">
+                <span>
+                  <b>
+                    {checking.length} receipt{checking.length === 1 ? "" : "s"} to check
+                  </b>{" "}
+                  — {formatMoney(sum(checking))} said to be paid
+                </span>
+                <button type="button" className="btn-link" onClick={() => showTab("payments", true)}>
+                  Check now →
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        <aside className="ws-glance" aria-label="At a glance">
+          {!isTechnician && data.payments.length > 0 && (
+            <Glance
+              label="Payments"
+              tone={checking.length > 0 ? "warn" : unpaidTotal > 0 ? undefined : "ok"}
+              value={
+                checking.length > 0
+                  ? `${checking.length} to check`
+                  : unpaidTotal > 0
+                    ? `${formatMoney(unpaidTotal)} unpaid`
+                    : "All paid"
+              }
+              sub={paidTotal > 0 ? `${formatMoney(paidTotal)} confirmed` : "Nothing confirmed yet"}
+              onClick={() => showTab("payments", true)}
+            />
+          )}
+          {data.kind !== "ACCESSORY" && !lookingBack && (
+            <Glance
+              label="Records"
+              tone={data.files.some((f) => f.category === "INTRAORAL_SCAN" && f.is_current) ? "ok" : undefined}
+              value={`${currentFiles} file${currentFiles === 1 ? "" : "s"}`}
+              sub={
+                data.files.some((f) => f.category === "INTRAORAL_SCAN" && f.is_current)
+                  ? `Scan v${data.scan_revision || 1} on the case`
+                  : "No scan yet"
+              }
+              onClick={() => showTab("records", true)}
+            />
+          )}
+          {!lookingBack && (
+            <Glance
+              label={data.kind === "ALIGNER" ? "Treatment" : "Ordered"}
+              value={
+                data.kind !== "ALIGNER"
+                  ? data.product_label || `${data.accessories.length} item${data.accessories.length === 1 ? "" : "s"}`
+                  : plan && plan.total_aligners > 0
+                    ? `${plan.total_aligners} aligners`
+                    : quote
+                      ? formatRange(quote.total, quote.total_max, quote.currency)
+                      : "Not sized yet"
+              }
+              sub={
+                data.kind !== "ALIGNER"
+                  ? "Made from the scan as it stands"
+                  : plan && plan.total_aligners > 0
+                    ? `${plan.aligners_upper} upper · ${plan.aligners_lower} lower`
+                    : quote
+                      ? "Expected price, set by the plan"
+                      : "Sized when the plan is made"
+              }
+              onClick={() => showTab("overview", true)}
+            />
+          )}
+          {!isTechnician && !lookingBack && (data.shipments.length > 0 || data.phases_divided) && (
+            <Glance
+              label="Delivery"
+              value={
+                activePhase && data.phases_divided
+                  ? `Phase ${activePhase.phase} of ${data.phase_plan.length}`
+                  : inTransit > 0
+                    ? `${inTransit} on the way`
+                    : `${delivered} delivered`
+              }
+              sub={
+                data.dispatch_mode === "PHASED"
+                  ? "Phase-wise dispatch"
+                  : data.dispatch_mode === "FULL"
+                    ? "One shipment, whole series"
+                    : `${data.shipments.length} parcel${data.shipments.length === 1 ? "" : "s"} so far`
+              }
+              onClick={() => showTab("delivery", true)}
+            />
+          )}
+        </aside>
+      </div>
+
+      <nav className="ws-tabs" id="ws-tabs" role="tablist" aria-label="Case file">
+        {allowed.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={tab === t.key ? "on" : ""}
+            onClick={() => showTab(t.key)}
+          >
+            {t.label}
+            {t.badge && <small className={t.warn ? "warn" : ""}>{t.badge}</small>}
+          </button>
+        ))}
+      </nav>
+
+      <div className="ws-panel" role="tabpanel" key={tab}>
+        {tab === "overview" && (
+          <div className="ws-overview">
+            <div className="ws-col">
+              <SimulationCard order={data} />
+              {data.plans.length > 0 && <PlanCard order={data} open />}
+              <QuoteCard order={data} open={data.plans.length === 0} />
+              {data.accessories.length > 0 && (
+                <section className="card">
+                  <h4 style={{ marginBottom: 10 }}>Items</h4>
+                  <ul className="ws-items">
+                    {data.accessories.map((line) => (
+                      <li key={line.accessory_id}>
+                        <span>
+                          {line.name}
+                          {line.quantity > 1 && <span className="dim"> × {line.quantity}</span>}
+                        </span>
+                        <span className="num">{formatMoney(line.line_total)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+            <div className="ws-col">
+              <CaseSummary order={data} />
+              {!isTechnician && !closed && (
+                <section className="card">
+                  <h4 style={{ marginBottom: 10 }}>Cancel this case</h4>
+                  <ErrorText error={cancel.error} />
+                  <ConfirmButton
+                    label="Cancel case"
+                    confirmLabel="Yes, cancel it"
+                    onConfirm={() => cancel.mutate("Cancelled by the lab.")}
+                  />
+                </section>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "records" && (
+          <div className="ws-records">
+            <div className="card">
+              <FileExplorer order={data} onChanged={invalidate} />
+            </div>
+          </div>
+        )}
+
+        {tab === "delivery" && (
+          <div className="ws-ship">
+            <PhaseTracker order={data} />
+            <ShipmentsCard
+              order={data}
+              open
+              onMarkDelivered={closed ? undefined : (id) => markDelivered.mutate(id)}
+            />
+          </div>
+        )}
+
+        {tab === "payments" && (
+          <div className="ws-pay">
+            <PaymentReview order={data} />
+            <InvoiceCard order={data} />
+            {canInvoice && (
+              <section className="card">
+                <div className="card-head">
+                  <h4>Invoice</h4>
+                </div>
+                <p className="muted" style={{ fontSize: "0.9rem", marginBottom: 12 }}>
+                  Billed at the agreed price{billedTotal ? ` — ${formatMoney(billedTotal)}` : ""}.
+                </p>
+                <ErrorText error={invoice.error} />
+                <button
+                  type="button"
+                  className="btn-dark"
+                  disabled={invoice.isPending}
+                  onClick={() => invoice.mutate()}
+                >
+                  {invoice.isPending ? "Generating…" : "Generate invoice"}
+                </button>
+              </section>
+            )}
+          </div>
+        )}
+
+        {tab === "history" && (
+          <div className="ws-hist">
+            <Timeline order={data} />
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+/** One side question, answered in a figure, and the way to its detail. */
+function Glance({
+  label,
+  value,
+  sub,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  tone?: "warn" | "ok";
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
+      <small>{label}</small>
+      <b>{value}</b>
+      {sub && <span>{sub}</span>}
+      {onClick && (
+        <svg className="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      )}
+    </>
+  );
+  return onClick ? (
+    <button type="button" className={`ws-tile${tone ? ` ${tone}` : ""}`} onClick={onClick}>
+      {body}
+    </button>
+  ) : (
+    <div className={`ws-tile${tone ? ` ${tone}` : ""}`}>{body}</div>
   );
 }
 
@@ -238,7 +658,17 @@ function TechnicianPanel({ order, onDone }: { order: Order; onDone: () => void }
   );
 }
 
-function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
+function StaffActions({
+  order,
+  onDone,
+  onDeliver,
+}: {
+  order: Order;
+  onDone: () => void;
+  /** Settling a parcel is part of the shipped stage, so it is offered there
+      as well as in the delivery section. */
+  onDeliver?: (shipmentId: string) => void;
+}) {
   const toast = useToast();
   /* Each of these hands the case to somebody else. The panel it was pressed
      in disappears as the case moves on, so the confirmation is what tells the
@@ -459,6 +889,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
     case "SUBMITTED":
       return (
         <ActionPanel title="Review this submission" why="Check the records are adequate to plan from.">
+          <StepFiles order={order} categories={RECORD_CATEGORIES} title="What the clinic sent" />
           <ErrorText error={startReview.error} />
           <button
             type="button"
@@ -486,6 +917,8 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             Pick the aligner band this case looks like from the photographs. Each band has a fixed
             price; the exact figure is confirmed later with the treatment plan.
           </p>
+
+          <StepFiles order={order} categories={RECORD_CATEGORIES} title="The records to price from" />
 
           <div className="band-grid">
             {prices.data
@@ -678,6 +1111,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               { done: false, label: "Scan checked and accepted" },
             ]}
           />
+          <StepFiles order={order} categories={["INTRAORAL_SCAN"]} title="The scan to check" />
           <Field label="Note">
             <textarea
               value={note}
@@ -736,6 +1170,21 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
                 ?.revision_notes}
             </Banner>
           )}
+          {/* The plan document and the staged models are what this step is
+              waiting for, so they are attached here rather than in the cabinet
+              two sections down. */}
+          <FileUploader
+            orderId={order.id}
+            categories={["TREATMENT_PLAN", "SIMULATION_MODEL"]}
+            onUploaded={onDone}
+            hint="The plan document, and the staged models the clinic steps through in 3D."
+          />
+          <StepFiles
+            order={order}
+            categories={["TREATMENT_PLAN", "SIMULATION_MODEL"]}
+            title="Attached so far"
+          />
+
           <div className="grid-2">
             <Field label="Upper aligners">
               <input
@@ -926,6 +1375,11 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
             why={`The clinic reports that ${phaseIssue.arch.toLowerCase()} aligner ${phaseIssue.aligner_number} does not fit. Nothing further is made until this is answered.`}
           >
             {phaseIssue.notes && <Banner tone="warn">{phaseIssue.notes}</Banner>}
+            <StepFiles
+              order={order}
+              categories={["PHASE_FIT_PHOTO"]}
+              title={`Phase ${phaseIssue.phase_number} fit photographs`}
+            />
             {phaseIssue.messages.length > 0 && (
               <div className="stack-sm" style={{ marginBottom: 10 }}>
                 {phaseIssue.messages.map((m) => (
@@ -938,7 +1392,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               </div>
             )}
             <p className="dim">
-              The six views are in <b>Phase fit issue photographs</b> below. Instructions
+              The six views are in this step. Instructions
               change nothing that has been made and do not close the issue — the clinic
               tries them and says whether they worked, and only they can close it. A
               remake replaces the same aligners as a new round of this phase; a rescan
@@ -987,11 +1441,11 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
           title="Fit issue reported"
           why={`All three routes produce a fresh training aligner — this case moves to round ${order.fit_round + 1}.`}
         >
-          {order.files
-            .filter((f) => f.category === "FIT_ISSUE_PHOTO" && f.is_current)
-            .length > 0 && (
-            <p className="dim">The doctor attached photographs — see the files section below.</p>
-          )}
+          <StepFiles
+            order={order}
+            categories={["FIT_ISSUE_PHOTO"]}
+            title="Photographs from the clinic"
+          />
           <ErrorText error={resolveFit.error} />
           <div className="stack-sm">
             <button
@@ -1102,12 +1556,17 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
           why="The clinic has sent six views of the phase it just finished — upper, lower and frontal, with the aligners in and out. Compare them against the step the plan expected before committing the next batch."
         >
           <p className="dim">
-            Open the <b>Progress photographs</b> section below to see them. If the teeth are
+            They are in this step. If the teeth are
             tracking, the next phase goes to the bench. If they are not, the case needs a fresh
             scan — the treatment plan is not reopened; the remaining aligners are simply rebuilt
             against where the teeth actually are, and a training aligner confirms the new fit
             before the phases carry on.
           </p>
+          <StepFiles
+            order={order}
+            categories={["PROGRESS_PHOTO"]}
+            title={`Progress photographs · round ${order.progress_round || 1}`}
+          />
           <Field label="Notes for the clinic (required to ask for a new scan)">
             <textarea
               value={note}
@@ -1161,10 +1620,10 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               <p className="dim">
                 Waiting on delivery of{" "}
                 {outstanding.length === 1 ? "the parcel" : `${outstanding.length} parcels`}. Mark
-                it delivered in the shipments list below, or the clinic can confirm receipt
-                themselves.
+                it delivered here, or the clinic can confirm receipt themselves.
               </p>
             )}
+            <Parcels order={order} onDeliver={onDeliver} />
             <ErrorText error={complete.error} />
             {order.status === "DISPATCHING" && (
               <button
@@ -1188,6 +1647,7 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
               : "The doctor chose phase-wise dispatch. Add one shipment per batch."
           }
         >
+          {order.phases_divided && <PhaseTracker order={order} />}
           {order.phase_blocker ? (
             <Banner tone="warn">{order.phase_blocker}</Banner>
           ) : (
@@ -1293,11 +1753,38 @@ function StaffActions({ order, onDone }: { order: Order; onDone: () => void }) {
       );
 
     case "RECORDS_REQUESTED":
-      return <Waiting>Waiting on the doctor to supply better records.</Waiting>;
+      return (
+        <>
+          <Waiting>Waiting on the doctor to supply better records.</Waiting>
+          {order.records_request_note && (
+            <p className="ws-step-say">You asked for: {order.records_request_note}</p>
+          )}
+        </>
+      );
     case "PLAN_SHARED":
-      return <Waiting>Waiting on the doctor to approve the treatment plan.</Waiting>;
+      /* What they are deciding about, on the screen that says they are
+         deciding — the lab is usually looking this up to answer a phone call
+         about it. */
+      return (
+        <>
+          <Waiting>Waiting on the doctor to approve the treatment plan.</Waiting>
+          {order.plans.length > 0 && (
+            <div className="ws-stage-fold">
+              <PlanCard order={order} open />
+            </div>
+          )}
+        </>
+      );
     case "TRAINING_ALIGNER_SHIPPED":
-      return <Waiting>In transit. Mark it delivered below once it arrives.</Waiting>;
+      return (
+        <>
+          <Waiting>
+            In transit. The clinic confirms the fit once it arrives — mark it delivered here if the
+            courier says so first.
+          </Waiting>
+          <Parcels order={order} onDeliver={onDeliver} />
+        </>
+      );
     case "FIT_REVIEW":
       return <Waiting>Waiting on the doctor to confirm the fit and pick a dispatch mode.</Waiting>;
     case "COMPLETED":
