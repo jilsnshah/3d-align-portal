@@ -92,6 +92,17 @@ function RecordSetCard({
   const canEdit = set.editable;
   const current = set.slots.filter((s) => s.file).length + set.extras.filter((f) => f.is_current).length;
 
+  const extraRows = set.extras.map((file) => (
+    <FileRow
+      key={file.id}
+      order={order}
+      file={file}
+      canEdit={canEdit}
+      onChanged={onChanged}
+      onPreview={onPreview}
+    />
+  ));
+
   return (
     <details className="fold" open={open ?? (!set.complete || set.category === "INTRAORAL_SCAN")}>
       <summary>
@@ -139,21 +150,28 @@ function RecordSetCard({
           <PlainUploader order={order} set={set} onChanged={onChanged} />
         )}
 
-        {set.extras.length > 0 && (
-          <div style={{ marginTop: hasSlots || !canEdit ? 14 : 10 }}>
-            {hasSlots && <h4 style={{ marginBottom: 8 }}>Earlier rounds &amp; extras</h4>}
-            {set.extras.map((file) => (
-              <FileRow
-                key={file.id}
-                order={order}
-                file={file}
-                canEdit={canEdit}
-                onChanged={onChanged}
-                onPreview={onPreview}
-              />
-            ))}
-          </div>
-        )}
+        {/* Superseded rounds and stray files are the set's history, not the
+            set: on a case in its third round they buried the views the lab
+            actually asked for under a list nobody had opened. Folded away,
+            with the count on the fold so it is clear something is in there.
+
+            A set with no slots is different: those rows *are* its files, and
+            hiding them would hide the content itself. */}
+        {set.extras.length > 0 &&
+          (hasSlots ? (
+            <details className="fold sub-fold">
+              <summary>
+                <span className="fold-chevron">▶</span>
+                <h4>Earlier rounds &amp; extras</h4>
+                <span className="fold-sub dim">
+                  {set.extras.length} file{set.extras.length === 1 ? "" : "s"}
+                </span>
+              </summary>
+              <div className="fold-body">{extraRows}</div>
+            </details>
+          ) : (
+            <div style={{ marginTop: canEdit ? 10 : 14 }}>{extraRows}</div>
+          ))}
 
         {!canEdit && set.locked_reason && (
           <p className="dim" style={{ marginTop: 10 }}>

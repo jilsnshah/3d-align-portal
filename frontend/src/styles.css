@@ -8585,16 +8585,17 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
 .ac-opt > span { font-size: var(--t-xs); color: var(--ink-3); overflow-wrap: anywhere; }
 .ac-none { color: var(--ink-3); }
 
+/* Drawn at the page root and placed against the trigger, because the stage
+   panels clip what overflows them: the list used to be cut off at the panel's
+   edge, so the clinics past it could not be reached at all. */
 .ac-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 20;
+  position: fixed;
+  z-index: 80;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px;
+  overflow: hidden;
   background: var(--white);
   border: 1px solid var(--rule-strong);
   border-radius: 16px;
@@ -8603,7 +8604,19 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
 }
 .ac-search input,
 .ac-search input:focus { width: 100%; }
-.ac-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.ac-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  /* Scrolls itself, and keeps the wheel here rather than throwing the page
+     behind it into motion once the ends are reached. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
 .ac-list button {
   display: flex;
   align-items: center;
@@ -8720,3 +8733,16 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   background: linear-gradient(90deg, var(--gold-bright), var(--gold-deep));
   box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
 }
+
+/* A fold inside a fold: the set's own history, kept quiet so it never
+   competes with the views the stage is asking for. */
+.sub-fold {
+  margin-top: 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+.sub-fold > summary { padding: 9px 12px; }
+.sub-fold > summary h4 { font-size: var(--t-xs); font-weight: 700; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-3); }
+.sub-fold > summary .fold-sub { font-size: var(--t-xs); }
+.sub-fold > .fold-body { padding: 0 12px 10px; }

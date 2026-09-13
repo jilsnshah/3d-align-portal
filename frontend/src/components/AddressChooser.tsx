@@ -11,7 +11,8 @@
    addresses can still be added without leaving the decision. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { api } from "../api";
 import type { Address } from "../api";
@@ -62,6 +63,29 @@ export default function AddressChooser({
   const [draft, setDraft] = useState(BLANK);
   const [pin, setPin] = useState<PickedLocation | null>(null);
   const box = useRef<HTMLDivElement | null>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  /* Where the menu sits on the screen. It is drawn at the page root rather
+     than inside the panel, because the stage panels clip what overflows them —
+     the list was cut off at the panel's edge and the clinics past it could not
+     be reached at all, let alone scrolled to. */
+  const [at, setAt] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+
+  const place = useCallback(() => {
+    const el = trigger.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 16;
+    const above = r.top - 16;
+    // Drop downwards where there is room, upwards where there is not.
+    const down = below >= 220 || below >= above;
+    setAt({
+      top: down ? r.bottom + 6 : Math.max(8, r.top - 6 - Math.min(above, 380)),
+      left: r.left,
+      width: r.width,
+      maxHeight: Math.max(180, Math.min(380, down ? below : above)),
+    });
+  }, []);
 
   // Default to the clinic's usual address so the common case is one click.
   useEffect(() => {
@@ -73,22 +97,31 @@ export default function AddressChooser({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addresses.data, value]);
 
-  // A menu left open after the eye has moved on is a menu in the way.
+  // A menu left open after the eye has moved on is a menu in the way. It also
+  // has to follow its trigger: drawn at the page root, it would otherwise sit
+  // still while the page scrolled under it.
   useEffect(() => {
     if (!open) return;
+    place();
     function away(e: MouseEvent) {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (box.current?.contains(target) || menu.current?.contains(target)) return;
+      setOpen(false);
     }
     function key(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", key);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", away);
       document.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
     };
-  }, [open]);
+  }, [open, place]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -124,6 +157,7 @@ export default function AddressChooser({
           <>
             <button
               type="button"
+              ref={trigger}
               className={`ac-trigger${open ? " open" : ""}`}
               aria-haspopup="listbox"
               aria-expanded={open}
@@ -150,8 +184,16 @@ export default function AddressChooser({
               </svg>
             </button>
 
-            {open && (
-              <div className="ac-menu" role="listbox" aria-label={title}>
+            {open &&
+              at &&
+              createPortal(
+              <div
+                className="ac-menu"
+                role="listbox"
+                aria-label={title}
+                ref={menu}
+                style={{ top: at.top, left: at.left, width: at.width, maxHeight: at.maxHeight }}
+              >
                 {/* Searching a handful of clinics is slower than reading them,
                     so the box only appears once there are enough to hunt. */}
                 {all.length > 6 && (
@@ -220,7 +262,8 @@ export default function AddressChooser({
                 >
                   + Deliver somewhere else
                 </button>
-              </div>
+              </div>,
+              document.body,
             )}
           </>
         )}
