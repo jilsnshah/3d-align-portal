@@ -25,7 +25,6 @@ const ADMIN_NAV = [
   { to: "/staff/bookings", label: "Bookings" },
   { to: "/staff/payments", label: "Payments" },
   { to: "/staff/stats", label: "Insights" },
-  { to: "/staff/technicians", label: "Technicians" },
   { to: "/staff/settings", label: "Settings" },
 ];
 

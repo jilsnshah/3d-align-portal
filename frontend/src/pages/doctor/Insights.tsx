@@ -507,7 +507,7 @@ export default function Insights({ lab = false }: { lab?: boolean }) {
   const [range, setRange] = useState<Range>("90d");
   const cases = useQuery({
     queryKey: lab ? ["staff-orders", "every-case"] : ["orders", "every-case"],
-    queryFn: lab ? everyStaffCase : everyCase,
+    queryFn: () => (lab ? everyStaffCase() : everyCase()),
   });
   const patients = useQuery({ queryKey: ["patients", "all"], queryFn: everyPatient, enabled: !lab });
   const ledger = useQuery({ queryKey: ["payment-ledger"], queryFn: api.paymentLedger, enabled: !lab });

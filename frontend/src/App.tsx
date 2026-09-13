@@ -21,7 +21,6 @@ import StaffOrderDetail from "./pages/staff/OrderDetail";
 import StaffDoctors from "./pages/staff/Doctors";
 import StaffPayments from "./pages/staff/Payments";
 import AdminBookings from "./pages/admin/Bookings";
-import AdminTechnicians from "./pages/admin/Technicians";
 import AdminSettings from "./pages/admin/Settings";
 import TechSchedule from "./pages/tech/Schedule";
 import Viewer from "./pages/Viewer";
@@ -64,7 +63,12 @@ export default function App() {
           <Route path="/viewer/:orderId" element={<Viewer />} />
           <Route path="/staff/doctors" element={<StaffDoctors />} />
           <Route path="/staff/bookings" element={<AdminBookings />} />
-          <Route path="/staff/technicians" element={<AdminTechnicians />} />
+          {/* The scan team moved into Settings › People. Bookmarks and old
+              links still land on it. */}
+          <Route
+            path="/staff/technicians"
+            element={<Navigate to="/staff/settings?tab=people" replace />}
+          />
           <Route path="/staff/settings" element={<AdminSettings />} />
           <Route path="/staff/payments" element={<StaffPayments />} />
           <Route path="/staff/stats" element={<Insights lab />} />

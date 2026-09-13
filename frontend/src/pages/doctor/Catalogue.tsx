@@ -167,6 +167,11 @@ export default function Catalogue() {
   const [params, setParams] = useSearchParams();
   const [ordering, setOrdering] = useState<Product | null>(null);
   const [mediaAt, setMediaAt] = useState(0);
+  /* The gallery turns itself. The sheet is read while the order is filled in,
+     and thumbnails nobody thinks to click mean one photograph is all most
+     clinics ever see of the appliance. It holds still under the pointer, so a
+     picture being studied does not slide away. */
+  const [mediaHeld, setMediaHeld] = useState(false);
   // ?patient=<id> from a patient's panel: the order sheet opens with them chosen.
   const [patientId, setPatientId] = useState(() => params.get("patient") ?? "");
   // Two fields, as everywhere else.
@@ -294,6 +299,27 @@ export default function Catalogue() {
     [range],
   );
 
+  /* The gallery of whatever is being ordered. Above the early return below:
+     the pictures depend only on which product is open, and a hook that runs
+     only once the catalogue has loaded is a hook React counts differently
+     between renders. */
+  const media = ordering ? galleryFor(ordering) : [];
+  const shownMedia = media[Math.min(mediaAt, media.length - 1)];
+
+  // A different appliance opens on its own first picture.
+  useEffect(() => {
+    setMediaAt(0);
+  }, [ordering]);
+
+  useEffect(() => {
+    if (!ordering || media.length < 2 || mediaHeld) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // mediaAt is a dependency on purpose: picking a thumbnail restarts the
+    // wait rather than cutting it short.
+    const turn = window.setInterval(() => setMediaAt((n) => (n + 1) % media.length), 4200);
+    return () => window.clearInterval(turn);
+  }, [ordering, media.length, mediaHeld, mediaAt]);
+
   if (products.isLoading) {
     return (
       <main className="page page-wide stack">
@@ -317,8 +343,6 @@ export default function Catalogue() {
         }
       : { b: "Couriered to you", s: "Straight to your clinic's address" };
 
-  const media = ordering ? galleryFor(ordering) : [];
-  const shownMedia = media[Math.min(mediaAt, media.length - 1)];
   const orderingNeed = ordering ? needOf(ordering.code) : undefined;
 
   return (
@@ -536,7 +560,13 @@ export default function Catalogue() {
             {/* A gallery of the thing being ordered, kept in view the whole time
                 it is configured: the boxed shot, the appliance in use, a case
                 it was used on, and the lab's catalogue card. */}
-            <div className="sheet-media">
+            <div
+              className="sheet-media"
+              onMouseEnter={() => setMediaHeld(true)}
+              onMouseLeave={() => setMediaHeld(false)}
+              onFocusCapture={() => setMediaHeld(true)}
+              onBlurCapture={() => setMediaHeld(false)}
+            >
               <div className="g-main" key={shownMedia?.key}>
                 {shownMedia?.node}
               </div>

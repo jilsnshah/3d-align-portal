@@ -136,7 +136,7 @@ function treatment(o: OrderSummary): string {
 
 export default function Patients() {
   const patients = useQuery({ queryKey: ["patients", "all"], queryFn: everyPatient });
-  const cases = useQuery({ queryKey: ["orders", "every-case"], queryFn: everyCase });
+  const cases = useQuery({ queryKey: ["orders", "every-case"], queryFn: () => everyCase() });
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
 
   const [search, setSearch] = useState("");

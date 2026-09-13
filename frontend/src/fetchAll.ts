@@ -9,7 +9,7 @@
  */
 
 import { api } from "./api";
-import type { OrderSummary, Patient, PendingDoctor } from "./api";
+import type { CaseSeries, OrderSummary, Patient, PendingDoctor } from "./api";
 
 /** Read in pages this size until a short page says there are no more. */
 const CHUNK = 100;
@@ -28,13 +28,18 @@ export function everyPatient(): Promise<Patient[]> {
   return drain((offset) => api.patients({ limit: CHUNK, offset }));
 }
 
-export function everyCase(): Promise<OrderSummary[]> {
-  return drain((offset) => api.orders(false, { limit: CHUNK, offset }));
+export function everyCase(
+  filters: { search?: string; series?: CaseSeries; addressId?: string } = {},
+): Promise<OrderSummary[]> {
+  return drain((offset) => api.orders(false, { limit: CHUNK, offset }, filters));
 }
 
-/** Every case the lab account may see, across every practice and series. */
-export function everyStaffCase(): Promise<OrderSummary[]> {
-  return drain((offset) => api.staffOrders({}, { limit: CHUNK, offset }));
+/** Every case the lab account may see, across every practice and series —
+    or every one matching a filter, when a list is counting under one. */
+export function everyStaffCase(
+  filters: { series?: CaseSeries; status?: string; search?: string; assignedTo?: string } = {},
+): Promise<OrderSummary[]> {
+  return drain((offset) => api.staffOrders(filters, { limit: CHUNK, offset }));
 }
 
 /** Every doctor who has signed up, verified or not. */

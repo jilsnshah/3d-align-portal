@@ -156,7 +156,7 @@ export default function AdminBookings() {
           </p>
         </div>
         <div className="masthead-do">
-          <Link to="/staff/technicians">
+          <Link to="/staff/settings?tab=people">
             <button type="button" className="btn-ghost">
               Technicians
             </button>
@@ -312,7 +312,7 @@ function WeekBoard({
   if (people.length === 0) {
     return (
       <Empty>
-        No technicians yet. <Link to="/staff/technicians">Add one</Link> to start taking bookings.
+        No technicians yet. <Link to="/staff/settings?tab=people">Add one</Link> to start taking bookings.
       </Empty>
     );
   }

@@ -412,7 +412,7 @@ export default function StaffQueue() {
   const queue = useQuery({ queryKey: ["queue"], queryFn: api.queue, refetchInterval: 60_000 });
   const cases = useQuery({
     queryKey: ["staff-orders", "every-case"],
-    queryFn: everyStaffCase,
+    queryFn: () => everyStaffCase(),
     refetchInterval: 120_000,
   });
   const ledger = useQuery({ queryKey: ["staff-payments", ""], queryFn: () => api.labPayments() });

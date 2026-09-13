@@ -2348,6 +2348,29 @@ tbody tr.clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--gold-b
 }
 @keyframes pipe-draw { to { stroke-dashoffset: 0; } }
 
+/* The aligner turning inside the curve. It is the ground the number is read
+   against, so it sits under everything, is faded well back, and is masked to a
+   soft disc — a hard canvas edge inside the arch reads as a mistake. */
+.arch-spin {
+  position: absolute;
+  z-index: 0;
+  top: 58%;
+  left: 50%;
+  width: 42%;
+  aspect-ratio: 1 / 0.86;
+  transform: translate(-50%, -50%);
+  opacity: 0.68;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 52%, transparent 76%);
+  mask-image: radial-gradient(ellipse at 50% 50%, #000 52%, transparent 76%);
+}
+.pipe-center { z-index: 2; }
+@media (max-width: 720px) {
+  /* On a phone the arch is small and the number fills it; the aligner behind
+     it would be read as smudge rather than as an object. */
+  .arch-spin { display: none; }
+}
+
 .pipe-center {
   position: absolute;
   top: var(--top);

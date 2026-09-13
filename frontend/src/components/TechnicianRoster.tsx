@@ -1,24 +1,29 @@
-/* Scan staff, their working week, and time off.
+/* The scan team: who goes out to clinics, the week they work, and their time
+ * off.
  *
- * It was a card per technician with the whole week printed as text, a
- * time-off form on every card, and an account form standing permanently
- * beside the list. Now the team is a roster: each technician a card with what
- * matters at a glance — visits coming up, hours a week, whether they are away
- * — and their week drawn as seven small bars. A card opens into a panel where
- * the hours and time off are changed; a new account is made in a panel of its
- * own. The calls behind every change are the ones the page always made.
+ * It used to be a section of its own in the lab's top-level navigation, which
+ * put a page nobody opens twice a month beside the queue and the case list. It
+ * is an account roster — the same kind of thing as the orthodontists — so it
+ * lives under Settings › People with them. The calls behind every change are
+ * the ones the page always made.
+ *
+ * What it is for: a technician here is a bookable person. Their working week
+ * is what the clinic's scan calendar offers, their daily cap is how many
+ * visits the router will stack on them, and their time off closes the diary
+ * for those dates. Deactivating an account takes them out of the rota without
+ * touching the visits already on the board.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { WEEKDAYS, api } from "../../api";
-import type { AvailabilityRule, Technician } from "../../api";
-import Avatar from "../../components/Avatar";
-import Drawer from "../../components/Drawer";
-import { useToast } from "../../components/Toast";
-import { ConfirmButton, Empty, ErrorText, Field, Loading } from "../../components/ui";
+import { WEEKDAYS, api } from "../api";
+import type { AvailabilityRule, Technician } from "../api";
+import Avatar from "./Avatar";
+import Drawer from "./Drawer";
+import { useToast } from "./Toast";
+import { ConfirmButton, Empty, ErrorText, Field, Skeleton } from "./ui";
 
 /** The working day as drawn: six in the morning to ten at night. */
 const DAY_FROM = 6 * 60;
@@ -107,7 +112,7 @@ const CUTS: { key: Cut; label: string }[] = [
   { key: "all", label: "All" },
 ];
 
-export default function AdminTechnicians() {
+export default function TechnicianRoster() {
   const technicians = useQuery({ queryKey: ["technicians"], queryFn: api.technicians });
   const [search, setSearch] = useState("");
   const [cut, setCut] = useState<Cut>("active");
@@ -137,132 +142,144 @@ export default function AdminTechnicians() {
   const away = active.filter((t) => awayNow(t)).length;
   const opened = openId ? list.find((t) => t.id === openId) ?? null : null;
 
-  if (technicians.isLoading) return <Loading what="technicians" />;
-
   return (
-    <main className="page page-wide">
-      <header className="masthead">
-        <div className="masthead-say">
-          <span className="masthead-eyebrow">3D Align lab · scan team</span>
-          <h1>Technicians</h1>
-          <p className="masthead-sum">
-            <b>{active.length}</b> active
-            {" · "}
-            <b>{upcoming}</b> upcoming {upcoming === 1 ? "visit" : "visits"}
-            {away > 0 && (
-              <>
-                {" · "}
-                <b className="lit">{away}</b> away today
-              </>
-            )}
-          </p>
-        </div>
-
-        <div className="masthead-do">
-          <span className="search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
-            </svg>
-            <input
-              placeholder="Name, phone or employee code"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search technicians"
-            />
+    <>
+      <section className="pr-card">
+        <div className="card-head tc-head">
+          <h2 className="st-card-title">Scan technicians</h2>
+          <span className="dim">
+            They take the scan visits. Their hours are what a clinic's calendar offers.
           </span>
-          <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
-            Add technician
-          </button>
         </div>
-      </header>
 
-      <section className="console" aria-label="Filters">
-        <div className="cut" role="tablist" aria-label="Show">
-          {CUTS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              role="tab"
-              aria-selected={cut === c.key}
-              className={cut === c.key ? "on" : ""}
-              onClick={() => setCut(c.key)}
-            >
-              {c.label}
-              <span className="cut-n">{counts[c.key]}</span>
-            </button>
-          ))}
-        </div>
-        <span className="tally-say">
-          {shown.length} {shown.length === 1 ? "technician" : "technicians"}
-        </span>
-        <Link to="/staff/bookings" className="btn-link clear">
-          Open bookings
-        </Link>
-      </section>
+        {technicians.isLoading ? (
+          <Skeleton rows={3} />
+        ) : (
+          <>
+            <p className="st-note tc-sum">
+              <b>{active.length}</b> active
+              {" · "}
+              <b>{upcoming}</b> upcoming {upcoming === 1 ? "visit" : "visits"}
+              {away > 0 && (
+                <>
+                  {" · "}
+                  <b className="lit">{away}</b> away today
+                </>
+              )}
+            </p>
 
-      {list.length === 0 ? (
-        <Empty>
-          No technicians yet.{" "}
-          <button type="button" className="btn-link" onClick={() => setAdding(true)}>
-            Add the first one
-          </button>
-        </Empty>
-      ) : shown.length === 0 ? (
-        <Empty>No technician matches.</Empty>
-      ) : (
-        <div className="tc-grid">
-          {shown.map((t) => {
-            const out = awayNow(t);
-            const next = nextAway(t);
-            return (
-              <button
-                key={t.id}
-                type="button"
-                className={`tc-card${t.is_active ? "" : " off"}`}
-                onClick={() => setOpenId(t.id)}
-              >
-                <span className="tc-top">
-                  <Avatar name={t.full_name} />
-                  <span className="tc-name">
-                    <b>{t.full_name}</b>
-                    <small>{[t.employee_code, t.phone || t.email].filter(Boolean).join(" · ")}</small>
-                  </span>
-                  <span className={!t.is_active ? "pill pill-danger" : out ? "pill pill-warn" : "pill pill-ok"}>
-                    {!t.is_active ? "Inactive" : out ? "On leave" : "Active"}
-                  </span>
-                </span>
-                <span className="tc-figs">
-                  <span>
-                    <b>{t.upcoming_jobs}</b>
-                    <small>Upcoming</small>
-                  </span>
-                  <span>
-                    <b>{hoursLabel(weeklyHours(t.availability))}</b>
-                    <small>A week</small>
-                  </span>
-                  <span>
-                    <b>{t.max_daily_jobs}</b>
-                    <small>Visits a day</small>
-                  </span>
-                </span>
-                <WeekBars rules={t.availability} />
-                <span className={`tc-foot${out ? " away" : ""}`}>
-                  {out
-                    ? `Away until ${shortDay(out.ends_at)}`
-                    : next
-                      ? `Time off from ${shortDay(next.starts_at)}`
-                      : "No time off booked"}
-                </span>
+            <section className="console" aria-label="Filters">
+              <div className="cut" role="tablist" aria-label="Show">
+                {CUTS.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={cut === c.key}
+                    className={cut === c.key ? "on" : ""}
+                    onClick={() => setCut(c.key)}
+                  >
+                    {c.label}
+                    <span className="cut-n">{counts[c.key]}</span>
+                  </button>
+                ))}
+              </div>
+
+              <span className="console-rule" aria-hidden="true" />
+
+              <span className="search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+                </svg>
+                <input
+                  placeholder="Name, phone or employee code"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  aria-label="Search technicians"
+                />
+              </span>
+
+              <span className="tally-say">
+                {shown.length} {shown.length === 1 ? "technician" : "technicians"}
+              </span>
+
+              <Link to="/staff/bookings" className="btn-link clear">
+                Open bookings
+              </Link>
+            </section>
+
+            {list.length === 0 ? (
+              <Empty>
+                No technicians yet.{" "}
+                <button type="button" className="btn-link" onClick={() => setAdding(true)}>
+                  Add the first one
+                </button>
+              </Empty>
+            ) : shown.length === 0 ? (
+              <Empty>No technician matches.</Empty>
+            ) : (
+              <div className="tc-grid">
+                {shown.map((t) => {
+                  const out = awayNow(t);
+                  const next = nextAway(t);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`tc-card${t.is_active ? "" : " off"}`}
+                      onClick={() => setOpenId(t.id)}
+                    >
+                      <span className="tc-top">
+                        <Avatar name={t.full_name} />
+                        <span className="tc-name">
+                          <b>{t.full_name}</b>
+                          <small>{[t.employee_code, t.phone || t.email].filter(Boolean).join(" · ")}</small>
+                        </span>
+                        <span className={!t.is_active ? "pill pill-danger" : out ? "pill pill-warn" : "pill pill-ok"}>
+                          {!t.is_active ? "Inactive" : out ? "On leave" : "Active"}
+                        </span>
+                      </span>
+                      <span className="tc-figs">
+                        <span>
+                          <b>{t.upcoming_jobs}</b>
+                          <small>Upcoming</small>
+                        </span>
+                        <span>
+                          <b>{hoursLabel(weeklyHours(t.availability))}</b>
+                          <small>A week</small>
+                        </span>
+                        <span>
+                          <b>{t.max_daily_jobs}</b>
+                          <small>Visits a day</small>
+                        </span>
+                      </span>
+                      <WeekBars rules={t.availability} />
+                      <span className={`tc-foot${out ? " away" : ""}`}>
+                        {out
+                          ? `Away until ${shortDay(out.ends_at)}`
+                          : next
+                            ? `Time off from ${shortDay(next.starts_at)}`
+                            : "No time off booked"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="pr-actions">
+              <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
+                Add technician
               </button>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          </>
+        )}
+      </section>
 
       {opened && <TechPanel key={opened.id} tech={opened} onClose={() => setOpenId(null)} />}
       {adding && <AddTechnician onClose={() => setAdding(false)} />}
-    </main>
+    </>
   );
 }
 

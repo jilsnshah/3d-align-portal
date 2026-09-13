@@ -1,12 +1,12 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { CaseSeries, PAGE_SIZE, api, formatDate, formatMoney, since } from "../../api";
-import { LoadMore } from "../../components/LoadMore";
 import type { OrderSummary } from "../../api";
 import { CategoryPill, Empty, Loading, StatusPill } from "../../components/ui";
 import { ASK_ONE, URGENCY } from "../../workflow";
+import { everyCase } from "../../fetchAll";
 import StageTrack from "../../components/StageTrack";
 
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
@@ -14,6 +14,11 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     key: "aligner",
     label: "Aligner cases",
     hint: "Cases in planning or production, carrying an AL number.",
+  },
+  {
+    key: "enquiry",
+    label: "Enquiries",
+    hint: "Submitted for assessment, still on an EN reference.",
   },
   {
     key: "product",
@@ -24,11 +29,6 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
     key: "accessory",
     label: "Accessories",
     hint: "Stock items — nothing made, nothing scanned, packed and sent.",
-  },
-  {
-    key: "enquiry",
-    label: "Enquiries",
-    hint: "Submitted for assessment, still on an EN reference.",
   },
 ];
 
@@ -66,8 +66,23 @@ export default function DoctorOrders() {
   const [stage, setStage] = useState("");
   const [express, setExpress] = useState(false);
   const [oldestFirst, setOldestFirst] = useState(true);
+  /* "Products" as one lump answers "have we ordered any appliances", never
+     "where are the Essix retainers". The catalogue names what was ordered, so
+     the list can be cut by the thing itself. */
+  const [item, setItem] = useState("");
 
   const addresses = useQuery({ queryKey: ["addresses"], queryFn: api.addresses });
+  /* The names to offer. Only fetched for the two kinds that have any, and
+     matched against the line the case already carries — "Essix Retainer ·
+     0.8 mm · x3" for an appliance, the shelf items themselves for a box of
+     accessories — so nothing new is asked of the server. */
+  const catalogue = useQuery({
+    queryKey: ["catalogue-names", series],
+    queryFn: async (): Promise<{ name: string }[]> =>
+      series === "accessory" ? await api.accessories() : await api.products(),
+    enabled: series === "product" || series === "accessory",
+    staleTime: 5 * 60 * 1000,
+  });
   /* Where each case stands on money. The list endpoint does not carry it, but
      the practice's own ledger names the case every charge belongs to, so the
      two are joined here rather than asking the server for something new. */
@@ -109,20 +124,19 @@ export default function DoctorOrders() {
   }
 
   const addressId = multiBranch ? branch : "";
-  const orders = useInfiniteQuery({
-    queryKey: ["orders", series, search, addressId],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api.orders(
-        false,
-        { limit: PAGE_SIZE + 1, offset: pageParam as number },
-        { search, series, addressId },
-      ),
-    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
+  /* The whole of what matches, rather than a page of it. Every figure on this
+     page — the tally under the heading, the number on each cut, what is
+     outstanding — counts across the practice, and a count that grew every time
+     the reader pressed "load more" was not counting anything. The table still
+     draws a page at a time; only the paging moved off the server. */
+  const orders = useQuery({
+    queryKey: ["orders", "every", series, search, addressId],
+    queryFn: () => everyCase({ search, series, addressId }),
   });
   const active = SERIES.find((s) => s.key === series)!;
 
-  const all = (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE));
+  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  const [limit, setLimit] = useState(PAGE_SIZE);
 
   const isClosed = (o: OrderSummary) => o.status === "COMPLETED" || o.status === "CANCELLED";
   const isNeeds = (o: OrderSummary) => o.needs_doctor_action && o.status !== "CANCELLED";
@@ -168,6 +182,7 @@ export default function DoctorOrders() {
     else if (attention === "closed") rows = rows.filter(isClosed);
     if (stage) rows = rows.filter((o) => o.status === stage);
     if (express) rows = rows.filter((o) => o.priority === "EXPRESS");
+    if (item) rows = rows.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()));
 
     const byAge = (a: OrderSummary, b: OrderSummary) =>
       oldestFirst
@@ -187,7 +202,24 @@ export default function DoctorOrders() {
       }
       return byAge(a, b);
     });
-  }, [all, attention, stage, express, oldestFirst]);
+  }, [all, attention, stage, express, item, oldestFirst]);
+
+  const items = useMemo(() => {
+    if (series !== "product" && series !== "accessory") return [];
+    return (catalogue.data ?? [])
+      .map((c) => ({
+        name: c.name,
+        n: all.filter((o) => o.product_label.toLowerCase().includes(c.name.toLowerCase())).length,
+      }))
+      .filter((c) => c.n > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogue.data, all, series]);
+
+  // Changing the kind, or a name that no longer appears, drops the choice
+  // rather than leaving an empty table behind a filter nothing matches.
+  useEffect(() => {
+    if (item && !items.some((i) => i.name === item)) setItem("");
+  }, [items, item]);
 
   /* What the practice owes across the cases on this page, for the line under
      the masthead. */
@@ -196,11 +228,16 @@ export default function DoctorOrders() {
     [all, money],
   );
 
-  const filtered = attention !== "all" || Boolean(stage) || express;
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [series, search, addressId, attention, stage, express, item, oldestFirst]);
+
+  const filtered = attention !== "all" || Boolean(stage) || express || Boolean(item);
   function clearFilters() {
     setAttention("all");
     setStage("");
     setExpress(false);
+    setItem("");
   }
 
   return (
@@ -296,6 +333,20 @@ export default function DoctorOrders() {
               ))}
             </select>
           </label>
+
+          {items.length > 0 && (
+            <label className="pick">
+              <span>{series === "product" ? "Product" : "Item"}</span>
+              <select value={item} onChange={(e) => setItem(e.target.value)}>
+                <option value="">{series === "product" ? "Every product" : "Every item"}</option>
+                {items.map((i) => (
+                  <option key={i.name} value={i.name}>
+                    {i.name} ({i.n})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {multiBranch && (
             <label className="pick">
@@ -397,8 +448,27 @@ export default function DoctorOrders() {
         </Empty>
       ) : (
         <div className="stack">
-          <CaseTable orders={shown} money={money} onOpen={(id: string) => navigate(`/orders/${id}`)} />
-          <LoadMore query={orders} noun="cases" shown={all.length} />
+          <CaseTable
+            orders={shown.slice(0, limit)}
+            money={money}
+            onOpen={(id: string) => navigate(`/orders/${id}`)}
+          />
+          {shown.length > limit ? (
+            <div className="pt-more">
+              <button type="button" className="btn-ghost" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
+                Show {Math.min(PAGE_SIZE, shown.length - limit)} more
+              </button>
+              <span className="dim">
+                {limit} of {shown.length} shown
+              </span>
+            </div>
+          ) : (
+            shown.length > PAGE_SIZE && (
+              <p className="dim" style={{ textAlign: "center", padding: "10px 0" }}>
+                All {shown.length} cases shown.
+              </p>
+            )
+          )}
         </div>
       )}
     </main>

@@ -13,15 +13,15 @@
  * colleague as a link.
  */
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { PAGE_SIZE, api } from "../../api";
 import type { CaseSeries, OrderSummary } from "../../api";
 import { useAuth } from "../../auth";
 import LabCaseTable from "../../components/LabCaseTable";
-import { LoadMore } from "../../components/LoadMore";
+import { everyStaffCase } from "../../fetchAll";
 import { Empty, Loading } from "../../components/ui";
 import { onLabDesk } from "../../workflow";
 
@@ -101,10 +101,12 @@ function statusName(status: string): string {
 
 const SERIES: { key: Series; label: string; noun: string }[] = [
   { key: "all", label: "Every type", noun: "cases" },
-  { key: "aligner", label: "Aligner series", noun: "aligner cases" },
+  { key: "aligner", label: "Aligner cases", noun: "aligner cases" },
+  // An enquiry becomes an aligner case, so it reads next to one rather than
+  // below the shelf items.
+  { key: "enquiry", label: "Enquiries", noun: "enquiries" },
   { key: "product", label: "Other products", noun: "product orders" },
   { key: "accessory", label: "Accessories", noun: "accessory orders" },
-  { key: "enquiry", label: "Enquiries", noun: "enquiries" },
 ];
 
 type Cut = "all" | "desk" | "clinic" | "closed";
@@ -147,6 +149,19 @@ export default function StaffOrders() {
   const [planner, setPlanner] = useState("");
   const [express, setExpress] = useState(false);
   const [oldestFirst, setOldestFirst] = useState(true);
+  /* Which appliance or shelf item, not merely "a product". The bench works by
+     the thing being made. */
+  const [item, setItem] = useState("");
+
+  /* The names to offer. Matched against the line the case already carries, so
+     the server is asked for nothing new. */
+  const catalogue = useQuery({
+    queryKey: ["catalogue-names", series],
+    queryFn: async (): Promise<{ name: string }[]> =>
+      series === "accessory" ? await api.accessories() : await api.products(),
+    enabled: series === "product" || series === "accessory",
+    staleTime: 5 * 60 * 1000,
+  });
 
   const people = useQuery({
     queryKey: ["orthodontists"],
@@ -166,26 +181,54 @@ export default function StaffOrders() {
     setParams(p, { replace: true });
   }
 
-  const orders = useInfiniteQuery({
-    queryKey: ["staff-orders", series, status, search, planner],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api.staffOrders(
-        {
-          series: series === "all" ? undefined : series,
-          status: status || undefined,
-          search: search || undefined,
-          assignedTo: planner || undefined,
-        },
-        { limit: PAGE_SIZE + 1, offset: pageParam as number },
-      ),
-    getNextPageParam: (last, all) => (last.length > PAGE_SIZE ? all.length * PAGE_SIZE : undefined),
+  /* Everything that matches the filters, not the first page of it: the counts
+     on the cuts and the figure under the heading are counts of the lab's work,
+     and they used to grow with every press of "load more" — which made them
+     counts of how far the reader had scrolled. The table still draws a page at
+     a time, locally. */
+  const orders = useQuery({
+    queryKey: ["staff-orders", "every", series, status, search, planner],
+    queryFn: () =>
+      everyStaffCase({
+        series: series === "all" ? undefined : series,
+        status: status || undefined,
+        search: search || undefined,
+        assignedTo: planner || undefined,
+      }),
   });
 
-  const all = useMemo(() => (orders.data?.pages ?? []).flatMap((p) => p.slice(0, PAGE_SIZE)), [orders.data]);
+  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  const [limit, setLimit] = useState(PAGE_SIZE);
   const active = SERIES.find((s) => s.key === series)!;
 
-  const base = useMemo(() => (express ? all.filter((o) => o.priority === "EXPRESS") : all), [all, express]);
+  const base = useMemo(() => {
+    let rows = express ? all.filter((o) => o.priority === "EXPRESS") : all;
+    if (item) rows = rows.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()));
+    return rows;
+  }, [all, express, item]);
+
+  // Only names something on the page actually is, each with its count, so the
+  // menu never offers a filter that empties the table.
+  const items = useMemo(() => {
+    if (series !== "product" && series !== "accessory") return [];
+    return (catalogue.data ?? [])
+      .map((c) => ({
+        name: c.name,
+        n: all.filter((o) => o.product_label.toLowerCase().includes(c.name.toLowerCase())).length,
+      }))
+      .filter((c) => c.n > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogue.data, all, series]);
+
+  // Changing the type, or a name that no longer appears, drops the choice.
+  useEffect(() => {
+    if (item && !items.some((i) => i.name === item)) setItem("");
+  }, [items, item]);
+
+  // A new filter starts the table at the top again.
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [series, status, search, planner, cut, express, item, oldestFirst]);
   const counts = useMemo(
     () => Object.fromEntries(CUTS.map((c) => [c.key, base.filter((o) => inCut(o, c.key)).length])) as Record<Cut, number>,
     [base],
@@ -205,11 +248,12 @@ export default function StaffOrders() {
       });
   }, [base, cut, oldestFirst]);
 
-  const filtered = cut !== "all" || express || Boolean(status) || Boolean(planner);
+  const filtered = cut !== "all" || express || Boolean(status) || Boolean(planner) || Boolean(item);
   function clearFilters() {
     setCut("all");
     setExpress(false);
     setPlanner("");
+    setItem("");
     setFilter({ status: "" });
   }
 
@@ -224,10 +268,7 @@ export default function StaffOrders() {
               "Loading…"
             ) : (
               <>
-                <b>
-                  {all.length}
-                  {orders.hasNextPage ? "+" : ""}
-                </b>{" "}
+                <b>{all.length}</b>{" "}
                 {active.noun}
                 {status && (
                   <>
@@ -298,6 +339,20 @@ export default function StaffOrders() {
             ))}
           </select>
         </label>
+
+        {items.length > 0 && (
+          <label className="pick">
+            <span>{series === "product" ? "Product" : "Item"}</span>
+            <select value={item} onChange={(e) => setItem(e.target.value)}>
+              <option value="">{series === "product" ? "Every product" : "Every item"}</option>
+              {items.map((i) => (
+                <option key={i.name} value={i.name}>
+                  {i.name} ({i.n})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <label className="pick">
           <span>Stage</span>
@@ -388,12 +443,27 @@ export default function StaffOrders() {
       ) : (
         <div className="stack">
           <LabCaseTable
-            orders={shown}
+            orders={shown.slice(0, limit)}
             canAssign={canAssign}
             planner={series === "all" || series === "aligner"}
             onOpen={(id) => navigate(`/staff/orders/${id}`)}
           />
-          <LoadMore query={orders} noun="cases" shown={all.length} />
+          {shown.length > limit ? (
+            <div className="pt-more">
+              <button type="button" className="btn-ghost" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
+                Show {Math.min(PAGE_SIZE, shown.length - limit)} more
+              </button>
+              <span className="dim">
+                {limit} of {shown.length} shown
+              </span>
+            </div>
+          ) : (
+            shown.length > PAGE_SIZE && (
+              <p className="dim" style={{ textAlign: "center", padding: "10px 0" }}>
+                All {shown.length} cases shown.
+              </p>
+            )
+          )}
         </div>
       )}
     </main>

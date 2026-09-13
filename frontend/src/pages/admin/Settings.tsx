@@ -20,6 +20,7 @@ import { WEEKDAYS, api, formatMoney } from "../../api";
 import type { AlignerPrice, BookingSettings, DeliveryCity, ShippingRate } from "../../api";
 import { Banner, ErrorText, Field, Loading } from "../../components/ui";
 import OrthodontistRoster from "../../components/OrthodontistRoster";
+import TechnicianRoster from "../../components/TechnicianRoster";
 import { useToast } from "../../components/Toast";
 import LocationPicker from "../../components/LocationPicker";
 import { useAuth } from "../../auth";
@@ -122,8 +123,7 @@ const TABS: { key: Tab; label: string; hint: string; icon: ReactNode; admin?: bo
   {
     key: "people",
     label: "People",
-    hint: "Orthodontists who plan",
-    admin: true,
+    hint: "Technicians and orthodontists",
     icon: (
       <Glyph>
         <circle cx="9" cy="8.5" r="3.2" />
@@ -683,10 +683,13 @@ export default function AdminSettings() {
           <>
             <PaneHead
               kicker="People"
-              title="Orthodontists"
-              sub="They plan the cases assigned to them and see everything else the lab sees. Only the admin can add or close an account."
+              title="The lab's people"
+              sub="Technicians go out and take the scans; orthodontists plan the cases assigned to them. Accounts are made and closed here."
             />
-            <OrthodontistRoster />
+            <TechnicianRoster />
+            {/* Making a colleague who can plan is the same power as handing
+                cases around, so only the admin sees this half. */}
+            {me?.role === "ADMIN" && <OrthodontistRoster />}
           </>
         )}
 

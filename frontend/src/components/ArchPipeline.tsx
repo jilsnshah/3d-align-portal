@@ -7,6 +7,8 @@
 
 import type { CSSProperties, ReactNode } from "react";
 
+import ArchSpin from "./ArchSpin";
+
 import type { OrderSummary } from "../api";
 import { stageIndex, stagesFor } from "../workflow";
 
@@ -90,6 +92,7 @@ export default function ArchPipeline({
 
   return (
     <figure className="hm-pipe" role="group" aria-label={label}>
+      <ArchSpin />
       <svg viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
         <defs>
           <linearGradient id="pipeInk" x1="0" y1="0" x2="1" y2="0">
