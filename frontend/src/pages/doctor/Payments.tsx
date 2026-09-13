@@ -277,6 +277,29 @@ export default function Payments() {
           ) : (
             <p className="py-noupi">3D Align has not published a UPI ID yet. Contact the lab to pay.</p>
           )}
+          {to && owing.length > 0 && (
+            /* The code for the charge that is next to pay, in the panel that
+               says who to pay. The page told clinics to scan "a charge's code"
+               and then made them hunt one down the list; the commonest case is
+               one charge, and this is it. Each charge keeps its own code, so
+               nothing here replaces them. */
+            <div className="py-payqr">
+              <Qr text={owing[0].upi_link} />
+              <div className="py-payqr-say">
+                <b>{money(Number(owing[0].total))}</b>
+                <span>
+                  {owing[0].label}
+                  {owing[0].order_reference ? ` · ${owing[0].order_reference}` : ""}
+                </span>
+                <small>
+                  {owing.length === 1
+                    ? "Scan it, then send the screenshot below."
+                    : `The first of ${owing.length} charges — the rest carry their own codes below.`}
+                </small>
+              </div>
+            </div>
+          )}
+
           <ol className="py-steps">
             <li>
               <b>Pay by UPI</b>

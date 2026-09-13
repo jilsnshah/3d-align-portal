@@ -153,13 +153,18 @@ export default function StaffOrders() {
      the thing being made. */
   const [item, setItem] = useState("");
 
-  /* The names to offer. Matched against the line the case already carries, so
-     the server is asked for nothing new. */
-  const catalogue = useQuery({
-    queryKey: ["catalogue-names", series],
-    queryFn: async (): Promise<{ name: string }[]> =>
-      series === "accessory" ? await api.accessories() : await api.products(),
-    enabled: series === "product" || series === "accessory",
+  /* Both catalogues, always. The type menu names every appliance and every
+     shelf item, so picking one is a single choice rather than a choice of kind
+     followed by a choice of thing. Matched against the line the case already
+     carries, so the server is asked for nothing new. */
+  const madeThings = useQuery({
+    queryKey: ["catalogue", "products"],
+    queryFn: api.products,
+    staleTime: 5 * 60 * 1000,
+  });
+  const shelfThings = useQuery({
+    queryKey: ["catalogue", "accessories"],
+    queryFn: api.accessories,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -197,33 +202,28 @@ export default function StaffOrders() {
       }),
   });
 
-  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  /* Everything the server matched, then everything the name menu matches, so
+     the figure under the heading counts what is actually in the table. */
+  const fetched = useMemo(() => orders.data ?? [], [orders.data]);
+  const all = useMemo(
+    () =>
+      item
+        ? fetched.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()))
+        : fetched,
+    [fetched, item],
+  );
   const [limit, setLimit] = useState(PAGE_SIZE);
   const active = SERIES.find((s) => s.key === series)!;
 
-  const base = useMemo(() => {
-    let rows = express ? all.filter((o) => o.priority === "EXPRESS") : all;
-    if (item) rows = rows.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()));
-    return rows;
-  }, [all, express, item]);
+  const base = useMemo(() => (express ? all.filter((o) => o.priority === "EXPRESS") : all), [all, express]);
 
-  // Only names something on the page actually is, each with its count, so the
-  // menu never offers a filter that empties the table.
-  const items = useMemo(() => {
-    if (series !== "product" && series !== "accessory") return [];
-    return (catalogue.data ?? [])
-      .map((c) => ({
-        name: c.name,
-        n: all.filter((o) => o.product_label.toLowerCase().includes(c.name.toLowerCase())).length,
-      }))
-      .filter((c) => c.n > 0)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [catalogue.data, all, series]);
-
-  // Changing the type, or a name that no longer appears, drops the choice.
-  useEffect(() => {
-    if (item && !items.some((i) => i.name === item)) setItem("");
-  }, [items, item]);
+  const named = useMemo(
+    () => ({
+      product: (madeThings.data ?? []).map((p) => p.name).sort((a, b) => a.localeCompare(b)),
+      accessory: (shelfThings.data ?? []).map((a) => a.name).sort((a, b) => a.localeCompare(b)),
+    }),
+    [madeThings.data, shelfThings.data],
+  );
 
   // A new filter starts the table at the top again.
   useEffect(() => {
@@ -331,28 +331,41 @@ export default function StaffOrders() {
 
         <label className="pick">
           <span>Type</span>
-          <select value={series} onChange={(e) => setFilter({ series: e.target.value as Series })}>
+          <select
+            value={item ? `${series}:${item}` : series}
+            onChange={(e) => {
+              // "product:Essix Retainer" — the kind, and which one of it.
+              const value = e.target.value;
+              const cut = value.indexOf(":");
+              setItem(cut < 0 ? "" : value.slice(cut + 1));
+              setFilter({ series: (cut < 0 ? value : value.slice(0, cut)) as Series });
+            }}
+          >
             {SERIES.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.label}
               </option>
             ))}
+            {named.product.length > 0 && (
+              <optgroup label="Which product">
+                {named.product.map((n) => (
+                  <option key={`product:${n}`} value={`product:${n}`}>
+                    {n}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {named.accessory.length > 0 && (
+              <optgroup label="Which accessory">
+                {named.accessory.map((n) => (
+                  <option key={`accessory:${n}`} value={`accessory:${n}`}>
+                    {n}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
-
-        {items.length > 0 && (
-          <label className="pick">
-            <span>{series === "product" ? "Product" : "Item"}</span>
-            <select value={item} onChange={(e) => setItem(e.target.value)}>
-              <option value="">{series === "product" ? "Every product" : "Every item"}</option>
-              {items.map((i) => (
-                <option key={i.name} value={i.name}>
-                  {i.name} ({i.n})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
 
         <label className="pick">
           <span>Stage</span>

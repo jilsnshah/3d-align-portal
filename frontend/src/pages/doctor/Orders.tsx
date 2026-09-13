@@ -76,11 +76,14 @@ export default function DoctorOrders() {
      matched against the line the case already carries — "Essix Retainer ·
      0.8 mm · x3" for an appliance, the shelf items themselves for a box of
      accessories — so nothing new is asked of the server. */
-  const catalogue = useQuery({
-    queryKey: ["catalogue-names", series],
-    queryFn: async (): Promise<{ name: string }[]> =>
-      series === "accessory" ? await api.accessories() : await api.products(),
-    enabled: series === "product" || series === "accessory",
+  const madeThings = useQuery({
+    queryKey: ["catalogue", "products"],
+    queryFn: api.products,
+    staleTime: 5 * 60 * 1000,
+  });
+  const shelfThings = useQuery({
+    queryKey: ["catalogue", "accessories"],
+    queryFn: api.accessories,
     staleTime: 5 * 60 * 1000,
   });
   /* Where each case stands on money. The list endpoint does not carry it, but
@@ -135,7 +138,17 @@ export default function DoctorOrders() {
   });
   const active = SERIES.find((s) => s.key === series)!;
 
-  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  /* Everything the server matched, then everything the name menu matches:
+     the figures under the heading and on the cuts count what the reader has
+     asked for, not the type it belongs to. */
+  const fetched = useMemo(() => orders.data ?? [], [orders.data]);
+  const all = useMemo(
+    () =>
+      item
+        ? fetched.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()))
+        : fetched,
+    [fetched, item],
+  );
   const [limit, setLimit] = useState(PAGE_SIZE);
 
   const isClosed = (o: OrderSummary) => o.status === "COMPLETED" || o.status === "CANCELLED";
@@ -182,7 +195,6 @@ export default function DoctorOrders() {
     else if (attention === "closed") rows = rows.filter(isClosed);
     if (stage) rows = rows.filter((o) => o.status === stage);
     if (express) rows = rows.filter((o) => o.priority === "EXPRESS");
-    if (item) rows = rows.filter((o) => o.product_label.toLowerCase().includes(item.toLowerCase()));
 
     const byAge = (a: OrderSummary, b: OrderSummary) =>
       oldestFirst
@@ -202,24 +214,18 @@ export default function DoctorOrders() {
       }
       return byAge(a, b);
     });
-  }, [all, attention, stage, express, item, oldestFirst]);
+  }, [all, attention, stage, express, oldestFirst]);
 
-  const items = useMemo(() => {
-    if (series !== "product" && series !== "accessory") return [];
-    return (catalogue.data ?? [])
-      .map((c) => ({
-        name: c.name,
-        n: all.filter((o) => o.product_label.toLowerCase().includes(c.name.toLowerCase())).length,
-      }))
-      .filter((c) => c.n > 0)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [catalogue.data, all, series]);
-
-  // Changing the kind, or a name that no longer appears, drops the choice
-  // rather than leaving an empty table behind a filter nothing matches.
-  useEffect(() => {
-    if (item && !items.some((i) => i.name === item)) setItem("");
-  }, [items, item]);
+  /* Every appliance and every shelf item, named. The menu offers them
+     whatever type the list is showing, so "which one" is a single choice
+     rather than a choice made after another choice. */
+  const named = useMemo(
+    () => ({
+      product: (madeThings.data ?? []).map((p) => p.name).sort((a, b) => a.localeCompare(b)),
+      accessory: (shelfThings.data ?? []).map((a) => a.name).sort((a, b) => a.localeCompare(b)),
+    }),
+    [madeThings.data, shelfThings.data],
+  );
 
   /* What the practice owes across the cases on this page, for the line under
      the masthead. */
@@ -325,28 +331,41 @@ export default function DoctorOrders() {
 
           <label className="pick">
             <span>Type</span>
-            <select value={series} onChange={(e) => setSeries(e.target.value as CaseSeries)}>
+            <select
+              value={item ? `${series}:${item}` : series}
+              onChange={(e) => {
+                // "product:Essix Retainer" — the kind, and which one of it.
+                const value = e.target.value;
+                const cut = value.indexOf(":");
+                setSeries((cut < 0 ? value : value.slice(0, cut)) as CaseSeries);
+                setItem(cut < 0 ? "" : value.slice(cut + 1));
+              }}
+            >
               {SERIES.map((s) => (
                 <option key={s.key} value={s.key}>
                   {s.label}
                 </option>
               ))}
+              {named.product.length > 0 && (
+                <optgroup label="Which product">
+                  {named.product.map((n) => (
+                    <option key={`product:${n}`} value={`product:${n}`}>
+                      {n}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {named.accessory.length > 0 && (
+                <optgroup label="Which accessory">
+                  {named.accessory.map((n) => (
+                    <option key={`accessory:${n}`} value={`accessory:${n}`}>
+                      {n}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
-
-          {items.length > 0 && (
-            <label className="pick">
-              <span>{series === "product" ? "Product" : "Item"}</span>
-              <select value={item} onChange={(e) => setItem(e.target.value)}>
-                <option value="">{series === "product" ? "Every product" : "Every item"}</option>
-                {items.map((i) => (
-                  <option key={i.name} value={i.name}>
-                    {i.name} ({i.n})
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
 
           {multiBranch && (
             <label className="pick">
