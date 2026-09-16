@@ -238,7 +238,12 @@ def create_order(
         kind = OrderKind.ALIGNER
 
     order = Order(
-        enquiry_number=next_enquiry_number(db),
+        enquiry_number=next_enquiry_number(
+            db,
+            kind,
+            product.code if product else "",
+            size.label if size else "",
+        ),
         doctor_id=doctor.id,
         patient_id=patient.id if patient is not None else None,
         kind=kind,

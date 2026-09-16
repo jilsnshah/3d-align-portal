@@ -21,11 +21,42 @@ def _next(db: Session, key: str) -> int:
     return counter.value
 
 
-def next_enquiry_number(db: Session) -> str:
-    """EN-2026-0001. Handed out at case creation, so every case has a reference
-    a doctor can quote on the phone. Cheap: an enquiry that dies costs nothing."""
+def next_enquiry_number(
+    db: Session,
+    kind: object = None,
+    product_code: str = "",
+    size_label: str = "",
+) -> str:
+    """The reference an order carries from the moment it is placed.
+
+    Handed out at creation, so every order has something a doctor can quote on
+    the phone, and cheap: an enquiry that dies costs nothing. It used to be one
+    series for everything, EN-2026-0001, which meant a list of enquiries could
+    not say which were aligner cases and which were a bleaching tray waiting
+    for its scan. It now carries what the order is, shaped like the number it
+    will be given later:
+
+        aligner case    EN-AL-2026-0001   (becomes AL-2026-0001)
+        appliance       EN-ER(1.0)-001    (becomes 3DAER(1.0)001)
+        accessories     EN-ACC-001        (becomes 3DAACC001)
+
+    Each has its own count, so no kind of order spends another's numbers, and
+    each follows its final series: the aligner count restarts every year, the
+    appliance count runs per product across its thicknesses, and neither
+    appliances nor accessories carry a year.
+
+    Called without a kind it numbers an aligner case, which is what every
+    caller meant before orders had kinds.
+    """
+    k = str(getattr(kind, "value", kind) or "ALIGNER").upper()
+    if k == "PRODUCT" and product_code:
+        code = product_code.upper()
+        n = _next(db, f"enquiry:product:{code}")
+        return f"EN-{code}{size_token(size_label)}-{n:03d}"
+    if k == "ACCESSORY":
+        return f"EN-ACC-{_next(db, 'enquiry:accessory'):03d}"
     year = datetime.now(timezone.utc).year
-    return f"EN-{year}-{_next(db, f'enquiry:{year}'):04d}"
+    return f"EN-AL-{year}-{_next(db, f'enquiry:AL:{year}'):04d}"
 
 
 def next_order_number(db: Session) -> str:
