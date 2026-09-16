@@ -655,7 +655,7 @@ export default function Catalogue() {
                     onChange={(e) => setPatientId(e.target.value)}
                     aria-label="Patient"
                   >
-                    <option value="">A patient not on file yet</option>
+                    <option value="">SELECT</option>
                     {patients.data?.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.full_name}
