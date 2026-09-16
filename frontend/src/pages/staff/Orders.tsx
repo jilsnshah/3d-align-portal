@@ -100,12 +100,12 @@ function statusName(status: string): string {
 }
 
 const SERIES: { key: Series; label: string; noun: string }[] = [
-  { key: "all", label: "Every type", noun: "cases" },
-  { key: "aligner", label: "Aligner cases", noun: "aligner cases" },
+  { key: "all", label: "Every Type", noun: "cases" },
+  { key: "aligner", label: "Aligner Cases", noun: "aligner cases" },
   // An enquiry becomes an aligner case, so it reads next to one rather than
   // below the shelf items.
   { key: "enquiry", label: "Enquiries", noun: "enquiries" },
-  { key: "product", label: "Other products", noun: "product orders" },
+  { key: "product", label: "Other Products", noun: "product orders" },
   { key: "accessory", label: "Accessories", noun: "accessory orders" },
 ];
 
@@ -342,12 +342,16 @@ export default function StaffOrders() {
             }}
           >
             {SERIES.map((s) => (
-              <option key={s.key} value={s.key}>
+              <option
+                key={s.key}
+                value={s.key}
+                style={s.key === "aligner" || s.key === "enquiry" ? { fontWeight: 700 } : undefined}
+              >
                 {s.label}
               </option>
             ))}
             {named.product.length > 0 && (
-              <optgroup label="Which product">
+              <optgroup label="Aligner Product Range">
                 {named.product.map((n) => (
                   <option key={`product:${n}`} value={`product:${n}`}>
                     {n}
@@ -356,7 +360,7 @@ export default function StaffOrders() {
               </optgroup>
             )}
             {named.accessory.length > 0 && (
-              <optgroup label="Which accessory">
+              <optgroup label="Aligner Accessory">
                 {named.accessory.map((n) => (
                   <option key={`accessory:${n}`} value={`accessory:${n}`}>
                     {n}

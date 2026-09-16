@@ -308,10 +308,10 @@ def order_summary(order: Order, viewer_role=None) -> schemas.OrderSummary:
             if order.assigned_to is not None
             else ""
         ),
-        # An accessory order names no one. "Practice stock" is what it is,
+        # An accessory order names no one. "Aligner accessories" is what it is,
         # and reads better on a board than a blank cell.
         patient_name=(
-            order.patient.full_name if order.patient is not None else "Practice stock"
+            order.patient.full_name if order.patient is not None else "Aligner accessories"
         ),
         patient_id=order.patient_id or "",
         patient_number=(

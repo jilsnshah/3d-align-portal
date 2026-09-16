@@ -12,7 +12,7 @@ import StageTrack from "../../components/StageTrack";
 const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   {
     key: "aligner",
-    label: "Aligner cases",
+    label: "Aligner Cases",
     hint: "Cases in planning or production, carrying an AL number.",
   },
   {
@@ -22,7 +22,7 @@ const SERIES: { key: CaseSeries; label: string; hint: string }[] = [
   },
   {
     key: "product",
-    label: "Other products",
+    label: "Other Products",
     hint: "Retainers, splints, trays and guards — made from a scan, no planning stage.",
   },
   {
@@ -342,12 +342,16 @@ export default function DoctorOrders() {
               }}
             >
               {SERIES.map((s) => (
-                <option key={s.key} value={s.key}>
+                <option
+                  key={s.key}
+                  value={s.key}
+                  style={s.key === "aligner" || s.key === "enquiry" ? { fontWeight: 700 } : undefined}
+                >
                   {s.label}
                 </option>
               ))}
               {named.product.length > 0 && (
-                <optgroup label="Which product">
+                <optgroup label="Aligner Product Range">
                   {named.product.map((n) => (
                     <option key={`product:${n}`} value={`product:${n}`}>
                       {n}
@@ -356,7 +360,7 @@ export default function DoctorOrders() {
                 </optgroup>
               )}
               {named.accessory.length > 0 && (
-                <optgroup label="Which accessory">
+                <optgroup label="Aligner Accessory">
                   {named.accessory.map((n) => (
                     <option key={`accessory:${n}`} value={`accessory:${n}`}>
                       {n}

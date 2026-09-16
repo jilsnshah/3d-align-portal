@@ -293,7 +293,7 @@ export default function StaffOrderDetail() {
           </svg>
           {isTechnician ? "Visits" : "Cases"}
         </Link>
-        <h1>{data.patient_name || "Practice stock"}</h1>
+        <h1>{data.patient_name || "Aligner accessories"}</h1>
         <span className="ws-ref mono">{data.order_number}</span>
         <StatusPill status={data.status} label={data.status_label} />
         {data.priority === "EXPRESS" && (

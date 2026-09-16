@@ -54,7 +54,7 @@ def subject(order: Order) -> str:
     """
     if order.patient is not None:
         return order.patient.full_name
-    return catalogue.describe(order) or "Practice stock"
+    return catalogue.describe(order) or "Aligner accessories"
 
 
 def refresh(db: Session, orders) -> None:

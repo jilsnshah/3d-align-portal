@@ -145,7 +145,7 @@ export default function LabCaseTable({
                 <td className="col-case mono">{order.order_number}</td>
                 <td className="col-patient">
                   <span className="cell-title" title={order.patient_number || undefined}>
-                    {order.patient_name || "Practice stock"}
+                    {order.patient_name || "Aligner accessories"}
                     {order.priority === "EXPRESS" && (
                       <span className="tag-express" title="Express">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">

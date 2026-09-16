@@ -32,7 +32,7 @@ import { api } from "../../api";
 import type { Accessory as AccessoryType, Product } from "../../api";
 import { Banner, ErrorText, Field, Skeleton } from "../../components/ui";
 import ProductImage from "../../components/ProductImage";
-import { BLURB, FEATURED, LIFE, RESULTS, SHOT, TAGLINE } from "../../productArt";
+import { BLURB, CARD_TEXT, FEATURED, LIFE, RESULTS, SHOT, TAGLINE } from "../../productArt";
 
 /** "an Essix Retainer", not "a Essix Retainer". */
 function article(name: string): string {
@@ -337,16 +337,6 @@ export default function Catalogue() {
   const shown = need === "all" ? range : range.filter((p) => needOf(p.code)?.key === need);
   const activeNeed = NEEDS.find((n) => n.key === need);
 
-  const deliveryFact =
-    delivery.data && delivery.data.amount !== "0.00"
-      ? {
-          b: `${rupees(delivery.data.amount)} delivery`,
-          s: `Couriered to ${
-            delivery.data.is_city_rate && delivery.data.city ? delivery.data.city : "your clinic"
-          }, once per order`,
-        }
-      : { b: "Couriered to you", s: "Straight to your clinic's address" };
-
   const orderingNeed = ordering ? needOf(ordering.code) : undefined;
 
   return (
@@ -454,8 +444,8 @@ export default function Catalogue() {
             </li>
             <li>
               <Icon name="truck" />
-              <b>{deliveryFact.b}</b>
-              <span>{deliveryFact.s}.</span>
+              <b>Tracked to your clinic</b>
+              <span>Every parcel carries its courier and tracking number, on the order.</span>
             </li>
           </ul>
         </div>
@@ -465,7 +455,7 @@ export default function Catalogue() {
         <section id="shelf" className="shop-section" aria-labelledby="shelf-title">
           <header className="shop-head">
             <div>
-              <span className="shop-eyebrow">Practice stock</span>
+              <span className="shop-eyebrow">Aligner accessories</span>
               <h2 id="shelf-title">Add to the box</h2>
               <p>
                 Nothing to make and nothing to scan. Order on their own, or with an appliance and
@@ -521,7 +511,8 @@ export default function Catalogue() {
       {/* What happens after the button — the first question a doctor has
           about a product order. Numbered because it is a sequence. */}
       <section className="store-how" aria-labelledby="store-how-title">
-        <h2 id="store-how-title">From scan to your clinic</h2>
+        <h2 id="store-how-title">Scan · Plan · Align</h2>
+        <p className="store-how-tag">#DesignToAlign</p>
         <ol>
           <li>
             <span className="store-how-n">Step 1</span>
@@ -600,7 +591,7 @@ export default function Catalogue() {
                   <div className="sheet-title">
                     {orderingNeed && <span className="shop-eyebrow">{orderingNeed.label}</span>}
                     <h2>{ordering.name}</h2>
-                    <p>{BLURB[ordering.code] ?? ordering.description}</p>
+                    <p>{CARD_TEXT[ordering.code] ?? BLURB[ordering.code] ?? ordering.description}</p>
                   </div>
                   <button
                     type="button"
@@ -734,7 +725,7 @@ export default function Catalogue() {
                 {(shelf.data?.length ?? 0) > 0 && (
                   <details className="addons" open={basketLines.length > 0}>
                     <summary>
-                      Anything else in the same box?
+                      Aligner accessories required?
                       {basketLines.length > 0 && (
                         <span className="addons-count">
                           {basketLines.length} added · {rupees(basketTotal)}

@@ -327,7 +327,7 @@ def _notify(
         order.kind != OrderKind.ALIGNER or order.intake == AlignerIntake.SCAN_DIRECT
     ):
         title = "Scan required"
-    who = order.patient.full_name if order.patient is not None else "Practice stock"
+    who = order.patient.full_name if order.patient is not None else "Aligner accessories"
     body = f"{order.reference} — {who}"
     if note:
         body = f"{body}\n{note}"

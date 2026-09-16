@@ -68,3 +68,16 @@ export const BLURB: Record<string, string> = {
   PBP: "Posterior bite plate for posterior disclusion.",
   JA: "Twin-block appliance for mandibular advancement.",
 };
+
+/** What each product's catalogue card says about it, word for word, for the
+    order sheet. Products with no card (the bite plates) fall back to BLURB. */
+export const CARD_TEXT: Record<string, string> = {
+  ER: "Clear transparent trays are used to retain the results of teeth alignment obtained by your orthodontist/dentist through aligners or braces.",
+  GER: "Designed to incorporate artificial teeth into clear transparent trays to preserve looks of the patient undergoing teeth replacement through implants. Avoid chewing/drinking as it might stain the retainer and lose its transparency.",
+  JA: "Simple bite blocks with occlusal inclined planes. Comprises of separate upper and lower units which are not joined together. Designed to be worn 24 hours a day. To be removed while eating/drinking.",
+  LEACH: "Clear transparent trays (0.7 mm – 1.0 mm thickness) which are used to hold tooth whitening (bleach) gel to be applied onto the tooth surface to change the shade (whiten) of your teeth.",
+  NG: "Designed to protect natural and artificial surface of teeth from wear and tear through clenching and grinding habits and relieve muscle tension and pain arising from temporomandibular (jaw) joints.",
+  PR: "Prevents space loss due to premature exfoliation of deciduous (milk) teeth and helps to guide eruption of permanent teeth. Also preserves esthetics of patient (looks).",
+  SG: "Sports Guard (also known as mouth guard or athletic mouthguard) is a custom made appliance designed to cover the upper teeth (and sometimes lower teeth) to cushion the impact during contact sports. Helps prevent chipping of teeth, reduces chances of jaw fractures by absorbing shock, protects against lip and tongue injuries, and preserves orthodontic appliances (braces) during impact.",
+  TMJ: "Temporomandibular Splints are intended to provide changes in occlusal bite and jaw positions and also provide relief from pain and improve jaw function.",
+};

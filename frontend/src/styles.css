@@ -5051,6 +5051,13 @@ button.progress-step:hover .progress-label { color: var(--ink); }
   font-size: 2rem;
   letter-spacing: -0.01em;
 }
+.store-how-tag {
+  margin: -8px 0 var(--s-4);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--gold-deep);
+}
 .store-how ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
 .store-how li { padding-right: var(--s-5); }
 .store-how li + li { padding-left: var(--s-5); border-left: 1px solid var(--rule); }

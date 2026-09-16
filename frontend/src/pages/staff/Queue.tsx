@@ -222,7 +222,7 @@ function LabNext({ group, loading }: { group?: Group; loading: boolean }) {
       </p>
       <p className="hm-next-note">
         {group.cases.length === 1
-          ? `${oldest.patient_name || "Practice stock"} · ${oldest.clinic_name || oldest.doctor_name}`
+          ? `${oldest.patient_name || "Aligner accessories"} · ${oldest.clinic_name || oldest.doctor_name}`
           : `${group.cases.length} cases`}{" "}
         · waiting {since(oldest.updated_at)}
       </p>
@@ -600,7 +600,7 @@ export default function StaffQueue() {
                         <b>{label}</b>
                         <span>
                           {g.cases.length === 1
-                            ? `${oldest.patient_name || "Practice stock"} · ${oldest.clinic_name || oldest.doctor_name}`
+                            ? `${oldest.patient_name || "Aligner accessories"} · ${oldest.clinic_name || oldest.doctor_name}`
                             : `Oldest waiting ${since(oldest.updated_at)}`}
                         </span>
                       </span>

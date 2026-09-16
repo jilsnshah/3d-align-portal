@@ -265,7 +265,7 @@ export default function DoctorOrderDetail() {
             what identify it; everything else about it is detail, set small and
             kept on the same row so the work itself starts at the top of the
             screen rather than a scroll below it. */}
-        <h1>{data.patient_name || "Practice stock"}</h1>
+        <h1>{data.patient_name || "Aligner accessories"}</h1>
         <span className="ws-ref mono">{data.order_number}</span>
         <StatusPill status={data.status} label={data.status_label} />
         {data.priority === "EXPRESS" && (
@@ -429,7 +429,7 @@ export default function DoctorOrderDetail() {
                           .filter(Boolean)
                           .join(" · ")
                       : `${data.quantity} set${data.quantity === 1 ? "" : "s"}, upper and lower`
-                    : "Practice stock"
+                    : "Aligner accessories"
                   : plan && plan.total_aligners > 0
                     ? `${plan.aligners_upper} upper · ${plan.aligners_lower} lower`
                     : quote
