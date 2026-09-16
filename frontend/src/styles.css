@@ -6308,33 +6308,6 @@ button.ws-tile:hover .go { color: var(--gold-deep); transform: translateX(2px); 
   transition: transform var(--fast) var(--ease);
 }
 .py-copy:hover { transform: translateY(-1px); }
-/* The code for the next charge, in the "pay to" panel. White behind the code
-   whatever the panel is doing: a UPI code on a tinted ground is a code some
-   phones refuse to read. */
-.py-payqr {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 14px 0 4px;
-  padding: 12px;
-  background: var(--white);
-  border: 1px solid var(--rule);
-  border-radius: 14px;
-}
-.py-payqr .py-qr { flex: 0 0 96px; width: 96px; height: 96px; border-radius: 8px; }
-.py-payqr-say { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.py-payqr-say b {
-  font-size: 1.15rem;
-  font-weight: 680;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-}
-.py-payqr-say span { font-size: var(--t-sm); color: var(--ink-2); overflow-wrap: anywhere; }
-.py-payqr-say small { font-size: var(--t-xs); color: var(--ink-3); }
-@media (max-width: 560px) {
-  .py-payqr { flex-direction: column; align-items: flex-start; }
-}
-
 .py-steps { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 0; padding: 0; list-style: none; counter-reset: step; }
 .py-steps li { position: relative; display: flex; flex-direction: column; padding-left: 34px; }
 .py-steps li::before {

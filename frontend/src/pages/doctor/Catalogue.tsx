@@ -169,9 +169,14 @@ export default function Catalogue() {
   const [mediaAt, setMediaAt] = useState(0);
   /* The gallery turns itself. The sheet is read while the order is filled in,
      and thumbnails nobody thinks to click mean one photograph is all most
-     clinics ever see of the appliance. It holds still under the pointer, so a
-     picture being studied does not slide away. */
-  const [mediaHeld, setMediaHeld] = useState(false);
+     clinics ever see of the appliance.
+
+     It used to hold still under the pointer and stop for readers who ask for
+     less motion. Both made it look broken: the sheet opens right under the
+     click that opened it, so the pointer is already resting on the gallery,
+     and Reduce Motion is on for a lot of Macs. The pictures only swap — the
+     entrance animation is already off under Reduce Motion in the stylesheet —
+     so nothing moves that should not. Picking a thumbnail restarts the wait. */
   // ?patient=<id> from a patient's panel: the order sheet opens with them chosen.
   const [patientId, setPatientId] = useState(() => params.get("patient") ?? "");
   // Two fields, as everywhere else.
@@ -312,13 +317,12 @@ export default function Catalogue() {
   }, [ordering]);
 
   useEffect(() => {
-    if (!ordering || media.length < 2 || mediaHeld) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (!ordering || media.length < 2) return;
     // mediaAt is a dependency on purpose: picking a thumbnail restarts the
     // wait rather than cutting it short.
-    const turn = window.setInterval(() => setMediaAt((n) => (n + 1) % media.length), 4200);
+    const turn = window.setInterval(() => setMediaAt((n) => (n + 1) % media.length), 4000);
     return () => window.clearInterval(turn);
-  }, [ordering, media.length, mediaHeld, mediaAt]);
+  }, [ordering, media.length, mediaAt]);
 
   if (products.isLoading) {
     return (
@@ -560,13 +564,7 @@ export default function Catalogue() {
             {/* A gallery of the thing being ordered, kept in view the whole time
                 it is configured: the boxed shot, the appliance in use, a case
                 it was used on, and the lab's catalogue card. */}
-            <div
-              className="sheet-media"
-              onMouseEnter={() => setMediaHeld(true)}
-              onMouseLeave={() => setMediaHeld(false)}
-              onFocusCapture={() => setMediaHeld(true)}
-              onBlurCapture={() => setMediaHeld(false)}
-            >
+            <div className="sheet-media">
               <div className="g-main" key={shownMedia?.key}>
                 {shownMedia?.node}
               </div>
