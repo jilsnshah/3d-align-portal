@@ -442,4 +442,32 @@ with engine.begin() as conn:
 
 
 
+# --------------------------------------------------------------------------
+# Columns the code has stopped writing
+# --------------------------------------------------------------------------
+# Removing a field from a model leaves its column in a deployed database, and
+# a column that is NOT NULL with no default then refuses every new row, because
+# nothing supplies it any more. patients.external_ref did exactly that: the
+# field was dropped from the code, the column stayed required in production, and
+# every order for a new patient failed with a 500. The column is kept — dropping
+# data is not this script's to do — but it stops being required. Postgres only:
+# SQLite cannot alter a constraint in place, and a dev database is rebuilt anyway.
+if not sqlite:
+    from app.db import Base
+    import app.models  # noqa: F401 — registers every table on Base.metadata
+
+    with engine.begin() as conn:
+        live = inspect(conn)
+        for name, table in Base.metadata.tables.items():
+            if name not in live.get_table_names():
+                continue
+            declared = set(table.columns.keys())
+            for col in live.get_columns(name):
+                if col["name"] in declared or col["nullable"] or col.get("default") is not None:
+                    continue
+                conn.exec_driver_sql(f'ALTER TABLE "{name}" ALTER COLUMN "{col["name"]}" DROP NOT NULL')
+                print(f"  ~ {name}.{col['name']} is no longer required (the code does not write it)")
+                applied += 1
+
+
 print(f"\n{applied} change(s) applied.")
