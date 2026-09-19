@@ -36,7 +36,7 @@ doc.post("/api/auth/register", json={
     "address": {"line1": "1 Rd", "city": "Surat", "state": "Gujarat", "pincode": "395001"},
 })
 with SessionLocal() as db:
-    db.query(Doctor).one().verification_status = "VERIFIED"
+    db.query(Doctor).order_by(Doctor.created_at.desc()).first().verification_status = "VERIFIED"  # the doctor just registered; a real database already has others
     db.add(ShippingRate(city="Surat", amount=250))
     db.commit()
 lab.post("/api/auth/login", json={"email": "staff@e.com", "password": "staffpassword"})
@@ -128,7 +128,7 @@ if a.status_code >= 300:
 else:
     ad = doc.get(f"/api/orders/{a.json()['id']}").json()
     print(f"reads as               {ad['patient_name']}")
-    if ad["patient_name"] != "Practice stock":
+    if ad["patient_name"] != "Aligner accessories":
         fails.append(f"patient_name on a stock order: {ad['patient_name']}")
     with SessionLocal() as db:
         row = db.get(Order, a.json()["id"])

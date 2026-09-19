@@ -40,7 +40,7 @@ from ..enums import (
 )
 from ..models import Doctor, Order, OrderFile, User, utcnow
 from ..serializers import binned_file_out, file_out
-from ..services.storage import get_storage, guess_mime
+from ..services.storage import case_folder, get_storage, guess_mime
 from ..transitions import transition
 
 router = APIRouter(prefix="/orders/{order_id}/files", tags=["files"])
@@ -186,10 +186,7 @@ async def upload_file(
     mime_type = guess_mime(filename, upload.content_type)
     subfolder = CATEGORY_FOLDER[category]
 
-    if not order.storage_folder_ref:
-        order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
-
-    stored = get_storage().save(order.reference, subfolder, filename, upload.file, mime_type)
+    stored = get_storage().save(case_folder(order), subfolder, filename, upload.file, mime_type)
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if stored.size_bytes > max_bytes:

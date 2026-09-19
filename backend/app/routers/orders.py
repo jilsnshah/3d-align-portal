@@ -62,7 +62,7 @@ from ..services.numbering import next_enquiry_number, next_patient_number
 from ..services import catalogue
 from ..services import scans as scan_service
 from ..services import shipments
-from ..services.storage import get_storage
+from ..services.storage import case_folder, get_storage
 from ..services import payments as payment_service
 from ..services import phases as phase_service
 from .files import guess_mime
@@ -284,8 +284,7 @@ def create_order(
     )
     if starts_now and order.shipping_address_id:
         db.flush()
-        if not order.storage_folder_ref:
-            order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
+        case_folder(order)
         _begin(db, order, user)
 
     db.commit()
@@ -434,8 +433,7 @@ def submit_order(
     if not order.shipping_address_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a shipping address before submitting.")
 
-    if not order.storage_folder_ref:
-        order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
+    case_folder(order)
 
     _begin(db, order, user)
     db.commit()
@@ -526,10 +524,8 @@ async def upload_payment_proof(
 
     filename = (upload.filename or "receipt.jpg").strip()
     mime_type = guess_mime(filename, upload.content_type)
-    if not order.storage_folder_ref:
-        order.storage_folder_ref = get_storage().ensure_order_folder(order.reference)
     stored = get_storage().save(
-        order.reference, CATEGORY_FOLDER[FileCategory.PAYMENT_PROOF], filename, upload.file, mime_type
+        case_folder(order), CATEGORY_FOLDER[FileCategory.PAYMENT_PROOF], filename, upload.file, mime_type
     )
 
     record = OrderFile(

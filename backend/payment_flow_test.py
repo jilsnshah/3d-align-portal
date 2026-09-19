@@ -37,7 +37,7 @@ doc.post("/api/auth/register", json={
     "address": {"line1": "1 Rd", "city": "Surat", "state": "Gujarat", "pincode": "395001"},
 })
 with SessionLocal() as db:
-    db.query(Doctor).one().verification_status = "VERIFIED"
+    db.query(Doctor).order_by(Doctor.created_at.desc()).first().verification_status = "VERIFIED"  # the doctor just registered; a real database already has others
     db.add(ShippingRate(city="Surat", amount=250))
     db.commit()
 lab.post("/api/auth/login", json={"email": "staff@e.com", "password": "staffpassword"})

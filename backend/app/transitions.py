@@ -186,23 +186,30 @@ def _rename_storage_folder(db: Session, order: Order) -> None:
     it fails now the lab is told, because the divergence is real and someone
     has to go and look.
     """
-    old_name = order.enquiry_number
+    from .services.storage import folder_name_of, get_storage
+
+    old_name = folder_name_of(order.storage_folder_ref) or order.enquiry_number
     new_name = order.order_number
     if not order.files and order.storage_folder_ref is None:
         return
     try:
-        from .services.storage import get_storage
-
         storage = get_storage()
-        moved = storage.rename_order_folder(old_name, new_name)
-        if moved is None:
-            return
-        order.storage_folder_ref = moved
+        target = new_name
+        # A folder by this name that holds files which are not this case's
+        # belongs to an order removed from the database without its files.
+        # Never merge into it: this case takes a folder of its own.
+        if storage.folder_has_files(target) and not any(
+            f.storage_ref and f.storage_ref.startswith(f"Orders/{target}/") for f in order.files
+        ):
+            target = f"{new_name}~{order.id[:8]}"
+        moved = storage.rename_order_folder(old_name, target)
+        # Nothing to move still settles where this case's files go from now on.
+        order.storage_folder_ref = moved or f"Orders/{target}"
         # Local refs embed the folder name; Drive refs are ids and need nothing.
         prefix = f"Orders/{old_name}/"
         for f in order.files:
             if f.storage_ref and f.storage_ref.startswith(prefix):
-                f.storage_ref = f"Orders/{new_name}/" + f.storage_ref[len(prefix) :]
+                f.storage_ref = f"Orders/{target}/" + f.storage_ref[len(prefix) :]
     except Exception as exc:  # pragma: no cover - storage is best effort here
         log.exception("Could not rename case folder %s -> %s", old_name, new_name)
         _warn_staff(

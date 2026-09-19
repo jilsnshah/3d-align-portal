@@ -41,7 +41,7 @@ doc.post("/api/auth/register", json={
     "address": {"line1": "1 Rd", "city": "Surat", "state": "Gujarat", "pincode": "395001"},
 })
 with SessionLocal() as db:
-    db.query(Doctor).one().verification_status = "VERIFIED"
+    db.query(Doctor).order_by(Doctor.created_at.desc()).first().verification_status = "VERIFIED"  # the doctor just registered; a real database already has others
     db.add(ShippingRate(city="Surat", amount=250))
     db.commit()
 lab.post("/api/auth/login", json={"email": "staff@e.com", "password": "staffpassword"})
@@ -259,7 +259,7 @@ print("=" * 72)
 shelf = doc.get("/api/accessories").json()
 r = doc.post("/api/orders", json={"accessories": [{"accessory_id": shelf[0]["id"], "quantity": 3}]})
 check("a shelf order is placed with no patient at all", r.status_code == 201, r.text[:140])
-check("and reads as practice stock", r.json()["patient_name"] == "Practice stock",
+check("and reads as aligner accessories", r.json()["patient_name"] == "Aligner accessories",
       r.json()["patient_name"])
 check("it goes straight to packing", r.json()["status"] == "PRODUCT_FABRICATION",
       r.json()["status"])
@@ -271,7 +271,7 @@ r = doc.post("/api/orders", json={
     "accessories": [{"accessory_id": shelf[0]["id"], "quantity": 1}]})
 check("a name sent with a shelf order is ignored, not refused", r.status_code == 201,
       f"{r.status_code} {r.text[:110]}")
-check("and it is still practice stock", r.json()["patient_name"] == "Practice stock",
+check("and it is still aligner accessories", r.json()["patient_name"] == "Aligner accessories",
       r.json()["patient_name"])
 
 # An appliance is still made for someone, accessories riding along or not.

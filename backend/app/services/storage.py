@@ -81,6 +81,10 @@ class LocalStorage:
             shutil.copyfileobj(fileobj, out)
         return StoredFile(ref=str(target.relative_to(self.root)), size_bytes=target.stat().st_size)
 
+    def folder_has_files(self, name: str) -> bool:
+        folder = self.root / "Orders" / name
+        return folder.is_dir() and any(p.is_file() for p in folder.rglob("*"))
+
     def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
         """Renames the case folder when a case is given its number. Local refs
         embed the folder name, so the caller has to rewrite them too."""
@@ -179,6 +183,11 @@ class DriveStorage:
         for sub in SUBFOLDERS:
             self._get_or_create_folder(sub, order_id)
         return order_id
+
+    def folder_has_files(self, name: str) -> bool:
+        # Drive folders are addressed by id, not by name, so a name can never
+        # collide with another case's folder.
+        return False
 
     def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
         """Drive refs are file ids, so renaming the parent folder leaves every
@@ -393,6 +402,9 @@ class S3Storage:
                 return
             token = page.get("NextContinuationToken")
 
+    def folder_has_files(self, name: str) -> bool:
+        return any(self._keys_under(f"Orders/{name}/"))
+
     def rename_order_folder(self, old_name: str, new_name: str) -> Optional[str]:
         """Move every object from one case prefix to another.
 
@@ -402,11 +414,21 @@ class S3Storage:
         """
         old_prefix = f"Orders/{old_name}/"
         new_prefix = f"Orders/{new_name}/"
-        if any(self._keys_under(new_prefix)):
+        old_keys = list(self._keys_under(old_prefix))
+        target_taken = any(self._keys_under(new_prefix))
+        # Same order of questions as the local backend. Nothing left under the
+        # old name means the move already happened — a retry, or a second pass
+        # over the same case — and that is success, not a collision. Checking
+        # the target first made every retry in production raise, and the lab
+        # was told a case's files had gone astray when they were exactly where
+        # they belonged.
+        if not old_keys:
+            return new_prefix.rstrip("/") if target_taken else None
+        if target_taken:
             raise StorageError(f"Cannot rename to {new_name}: that folder already exists.")
 
         moved = []
-        for key in self._keys_under(old_prefix):
+        for key in old_keys:
             self.client.copy_object(
                 Bucket=self.bucket,
                 Key=new_prefix + key[len(old_prefix):],
@@ -489,3 +511,40 @@ def guess_mime(filename: str, provided: Optional[str]) -> str:
         return provided
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or "application/octet-stream"
+
+
+def folder_name_of(ref: Optional[str]) -> Optional[str]:
+    """The case folder's name, read from what a backend returned for it:
+    "Orders/AL-2026-0001" from S3, a full path ending in it from local disk.
+    None for a Drive folder id, which carries no name."""
+    if ref and "Orders/" in ref:
+        name = ref.rsplit("Orders/", 1)[1].strip("/")
+        return name or None
+    return None
+
+
+def case_folder(order, storage=None) -> str:
+    """The folder a case's files go in — decided once, then always the same.
+
+    Every save goes through here rather than naming the folder after the case
+    reference itself. A reference is a human number that can be handed out
+    again: when orders are removed from the database but their files are not,
+    numbering starts over and the next case is given a number whose folder still
+    holds someone else's files. Saving by reference then put a new case's scans
+    in among a deleted case's. So the first save claims a folder, avoiding one
+    that already holds files that are not this case's, and records it on the
+    case; every later save, and every rename, uses what was recorded.
+    """
+    storage = storage or get_storage()
+    recorded = folder_name_of(order.storage_folder_ref)
+    if recorded:
+        return recorded
+    name = order.reference
+    if storage.folder_has_files(name) and not any(
+        f.storage_ref and f.storage_ref.startswith(f"Orders/{name}/") for f in order.files
+    ):
+        name = f"{name}~{order.id[:8]}"
+    ref = storage.ensure_order_folder(name)
+    # Drive hands back an id; keep a name-bearing ref so later saves agree.
+    order.storage_folder_ref = ref if folder_name_of(ref) else f"Orders/{name}"
+    return name
