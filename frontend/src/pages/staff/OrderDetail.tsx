@@ -374,9 +374,9 @@ export default function StaffOrderDetail() {
                 onChange={(e) => {
                   const day = e.target.value;
                   if (!day) return;
-                  /* Keep the time of day it already had, so a case does not
-                     jump around the queue within its day. */
-                  setCaseDate.mutate(new Date(`${day}T${data.created_at.slice(11, 19)}`).toISOString());
+                  // Midday, so the date reads the same wherever it is read —
+                  // see the note in LabCaseTable's DateCell.
+                  setCaseDate.mutate(`${day}T12:00:00Z`);
                 }}
               />
             </label>

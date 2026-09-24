@@ -10,6 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { api, formatDate, since } from "../api";
 import type { OrderSummary } from "../api";
@@ -104,6 +105,64 @@ export function AssigneeCell({ order, canAssign }: { order: OrderSummary; canAss
   );
 }
 
+/** The date a case was opened, changed where it is read.
+ *
+ *  The lab corrects these in runs — a morning's worth of cases typed up from
+ *  paper, each belonging to a different day — and opening every case to fix one
+ *  field is the slow way round. Clicking the date turns it into a date field;
+ *  the click never reaches the row, so the case does not open underneath it.
+ *  Only the lab sees this table at all, which is what keeps a clinic from
+ *  dating its own place in the queue.
+ */
+function DateCell({ order }: { order: OrderSummary }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const setDate = useMutation({
+    /* Midday, not the time the case happened to carry. A date typed off a
+       paper form is a day, not a moment, and a day stored at its edges reads
+       as the day before or after wherever the reader sits: 23:01 in London is
+       already tomorrow in Ahmedabad. Midday is the same date everywhere. */
+    mutationFn: (day: string) => api.setCaseDate(order.id, `${day}T12:00:00Z`),
+    onSuccess: () => {
+      setOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["staff-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["staff-order", order.id] });
+    },
+  });
+
+  if (open) {
+    return (
+      <span className="lc-date-edit" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="date"
+          autoFocus
+          defaultValue={order.created_at.slice(0, 10)}
+          max={new Date().toISOString().slice(0, 10)}
+          disabled={setDate.isPending}
+          onChange={(e) => e.target.value && setDate.mutate(e.target.value)}
+          onBlur={() => !setDate.isPending && setOpen(false)}
+          onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="lc-date"
+      title={`Opened ${formatDate(order.created_at)} · last change ${since(order.updated_at)} ago — click to change`}
+      onClick={(e) => {
+        e.stopPropagation();
+        setOpen(true);
+      }}
+    >
+      {shortWhen(order.created_at)}
+    </button>
+  );
+}
+
 export default function LabCaseTable({
   orders,
   canAssign,
@@ -189,11 +248,8 @@ export default function LabCaseTable({
                 <td className="col-progress">
                   <StageTrack order={order} />
                 </td>
-                <td
-                  className="col-when"
-                  title={`Opened ${formatDate(order.created_at)} · last change ${since(order.updated_at)} ago`}
-                >
-                  {shortWhen(order.created_at)}
+                <td className="col-when">
+                  <DateCell order={order} />
                 </td>
               </tr>
             );

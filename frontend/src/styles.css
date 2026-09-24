@@ -5517,6 +5517,27 @@ button.progress-step:hover .progress-label { color: var(--ink); }
 
 /* the journey */
 /* The case's date, which the lab can change and the clinic cannot. */
+/* The date in the lab's case list: read, then changed in place. */
+.lc-date {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  white-space: nowrap;
+}
+tr:hover .lc-date { border-bottom-color: var(--rule-strong); }
+.lc-date:hover { color: var(--gold-deep); border-bottom-color: var(--gold); }
+.lc-date-edit input {
+  padding: 3px 6px;
+  font: inherit;
+  font-size: var(--t-xs);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+}
+
 .ws-date {
   font: inherit;
   color: var(--ink-3);
