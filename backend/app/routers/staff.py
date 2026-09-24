@@ -325,18 +325,18 @@ def set_case_date(
     staff: User = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
-    """Set the date a case counts as sent.
+    """Set the date a case counts as opened — the date the lists show.
 
     Cases reach the lab by phone, by WhatsApp and on paper long before anyone
-    types them in, so the date the record was made is often not the date the
-    work arrived. The lab can correct it to whatever the truth is. Only the
-    lab: a clinic dating its own case is a clinic dating its own place in the
+    types them in, so the day the record was made is often not the day the case
+    really opened. The lab can correct it to whatever the truth is. Only the
+    lab: a clinic dating its own case is a clinic choosing its own place in the
     queue. The change is written into the case's history, because a date that
     can be moved silently is a date nobody can rely on.
     """
     order = any_order(order_id, db, staff)
-    was = order.submitted_at
-    order.submitted_at = payload.submitted_at
+    was = order.created_at
+    order.created_at = payload.opened_at
     db.add(
         StatusEvent(
             order_id=order.id,
@@ -344,8 +344,8 @@ def set_case_date(
             to_status=order.status,
             actor_id=staff.id,
             note=(
-                f"Date set to {payload.submitted_at:%d %b %Y}"
-                + (f", was {was:%d %b %Y}" if was else " (it had none)")
+                f"Case opened date set to {payload.opened_at:%d %b %Y}"
+                + (f", was {was:%d %b %Y}" if was else "")
             ),
         )
     )

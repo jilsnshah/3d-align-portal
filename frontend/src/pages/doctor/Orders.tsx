@@ -635,13 +635,9 @@ function CaseTable({
                     without spending a column on it. */}
                 <td
                   className="col-when"
-                  title={
-                    order.submitted_at
-                      ? `Sent ${formatDate(order.submitted_at)}`
-                      : `Not sent yet · last change ${since(order.updated_at)} ago`
-                  }
+                  title={`Opened ${formatDate(order.created_at)} · last change ${since(order.updated_at)} ago`}
                 >
-                  {order.submitted_at ? shortWhen(order.submitted_at) : "—"}
+                  {shortWhen(order.created_at)}
                 </td>
                 <td className="col-branch dim" title={order.branch_label}>
                   {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}

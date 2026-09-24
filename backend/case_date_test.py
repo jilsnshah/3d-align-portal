@@ -1,4 +1,4 @@
-"""The lab can set the date a case counts as sent; a clinic cannot.
+"""The lab can set the date a case counts as opened; a clinic cannot.
 
 Cases reach the lab by phone, on WhatsApp and on paper, so the day a case is
 typed in is often not the day the work arrived.
@@ -63,25 +63,25 @@ with TestClient(app) as client:
     check("a case is created", r.status_code == 201, r.text)
     order_id = r.json()["id"]
 
-    WANTED = "2026-03-04T09:30:00+00:00"
-    r = doctor.patch(f"/api/staff/orders/{order_id}/date", json={"submitted_at": WANTED})
+    WANTED = "2026-03-04T09:30:00+00:00"  # the day the case really opened
+    r = doctor.patch(f"/api/staff/orders/{order_id}/date", json={"opened_at": WANTED})
     check("the clinic cannot set its own date", r.status_code in (401, 403), f"{r.status_code} {r.text[:80]}")
 
-    r = staff.patch(f"/api/staff/orders/{order_id}/date", json={"submitted_at": WANTED})
+    r = staff.patch(f"/api/staff/orders/{order_id}/date", json={"opened_at": WANTED})
     check("the lab can set it", r.status_code == 200, r.text[:120])
-    check("and it comes back on the case", (r.json().get("submitted_at") or "").startswith("2026-03-04"), r.json().get("submitted_at"))
+    check("and it comes back on the case", (r.json().get("created_at") or "").startswith("2026-03-04"), r.json().get("created_at"))
 
     db = SessionLocal()
     stored = db.get(Order, order_id)
-    check("it is stored", stored.submitted_at.strftime("%Y-%m-%d") == "2026-03-04", str(stored.submitted_at))
-    noted = [e for e in db.query(StatusEvent).filter(StatusEvent.order_id == order_id) if "Date set to" in (e.note or "")]
+    check("it is stored", stored.created_at.strftime("%Y-%m-%d") == "2026-03-04", str(stored.created_at))
+    noted = [e for e in db.query(StatusEvent).filter(StatusEvent.order_id == order_id) if "Case opened date set to" in (e.note or "")]
     check("the change is in the case's history", len(noted) == 1, [e.note for e in noted])
     db.close()
 
     r = staff.get("/api/staff/orders")
     row = next((o for o in r.json() if o["id"] == order_id), None)
-    check("the case list carries the date", bool(row) and (row.get("submitted_at") or "").startswith("2026-03-04"),
-          row and row.get("submitted_at"))
+    check("the case list carries the date", bool(row) and (row.get("created_at") or "").startswith("2026-03-04"),
+          row and row.get("created_at"))
 
 print("\nFAIL:" if fails else "\nall good")
 for f in fails:

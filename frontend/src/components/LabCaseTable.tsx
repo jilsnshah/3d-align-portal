@@ -191,13 +191,9 @@ export default function LabCaseTable({
                 </td>
                 <td
                   className="col-when"
-                  title={
-                    order.submitted_at
-                      ? `Sent ${formatDate(order.submitted_at)}`
-                      : `Not sent yet · last change ${since(order.updated_at)} ago`
-                  }
+                  title={`Opened ${formatDate(order.created_at)} · last change ${since(order.updated_at)} ago`}
                 >
-                  {order.submitted_at ? shortWhen(order.submitted_at) : "—"}
+                  {shortWhen(order.created_at)}
                 </td>
               </tr>
             );

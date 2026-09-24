@@ -1323,9 +1323,9 @@ class RecordsRequestIn(BaseModel):
 
 
 class CaseDateIn(BaseModel):
-    """The date a case counts as having been sent."""
+    """The date a case counts as having been opened."""
 
-    submitted_at: datetime
+    opened_at: datetime
 
 
 class CancelIn(BaseModel):

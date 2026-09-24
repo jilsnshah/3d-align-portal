@@ -1188,9 +1188,9 @@ export const api = {
     ),
   staffOrder: (id: string) => get<OrderDetail>(`/staff/orders/${id}`),
 
-  /** Lab only: set the date a case counts as sent. */
-  setCaseDate: (id: string, submittedAt: string) =>
-    patch<OrderDetail>(`/staff/orders/${id}/date`, { submitted_at: submittedAt }),
+  /** Lab only: set the date a case counts as opened. */
+  setCaseDate: (id: string, openedAt: string) =>
+    patch<OrderDetail>(`/staff/orders/${id}/date`, { opened_at: openedAt }),
   startReview: (id: string) => post<OrderDetail>(`/staff/orders/${id}/start-review`),
   requestRecords: (id: string, note: string) =>
     post<OrderDetail>(`/staff/orders/${id}/request-records`, { note }),

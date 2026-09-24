@@ -175,7 +175,7 @@ export default function StaffOrderDetail() {
       invalidate();
       toast({
         title: "Date changed",
-        body: `This case now counts as sent on ${formatDate(updated.submitted_at)}.`,
+        body: `This case now counts as opened on ${formatDate(updated.created_at)}.`,
       });
     },
   });
@@ -346,22 +346,18 @@ export default function StaffOrderDetail() {
             <span>{data.product_label || "Accessories"}</span>
           )}
           {isTechnician ? (
-            data.submitted_at && (
-              <span title={`Sent ${formatDate(data.submitted_at)}`}>Sent {shortDate(data.submitted_at)}</span>
-            )
+            <span title={`Opened ${formatDate(data.created_at)}`}>
+              Opened {shortDate(data.created_at)}
+            </span>
           ) : (
             <span>
               <button
                 type="button"
                 className="ws-date"
                 onClick={() => setDateOpen((open) => !open)}
-                title={
-                  data.submitted_at
-                    ? `Sent ${formatDate(data.submitted_at)} — change it`
-                    : "Set the date this case came in"
-                }
+                title={`Opened ${formatDate(data.created_at)} — change it`}
               >
-                {data.submitted_at ? `Sent ${shortDate(data.submitted_at)}` : "No date"}
+                Opened {shortDate(data.created_at)}
               </button>
             </span>
           )}
@@ -370,18 +366,17 @@ export default function StaffOrderDetail() {
         {dateOpen && (
           <div className="ws-datefix">
             <label>
-              <span>Came in on</span>
+              <span>Case opened on</span>
               <input
                 type="date"
-                defaultValue={(data.submitted_at ?? new Date().toISOString()).slice(0, 10)}
+                defaultValue={data.created_at.slice(0, 10)}
                 max={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => {
                   const day = e.target.value;
                   if (!day) return;
                   /* Keep the time of day it already had, so a case does not
                      jump around the queue within its day. */
-                  const clock = (data.submitted_at ?? new Date().toISOString()).slice(11, 19);
-                  setCaseDate.mutate(new Date(`${day}T${clock}`).toISOString());
+                  setCaseDate.mutate(new Date(`${day}T${data.created_at.slice(11, 19)}`).toISOString());
                 }}
               />
             </label>
