@@ -53,6 +53,7 @@ from ..models import (
     PhaseIssueMessage,
     Shipment,
     ShippingRate,
+    StatusEvent,
     TreatmentPlan,
     User,
     utcnow,
@@ -310,6 +311,42 @@ def assign_case(
             order_id=order.id,
             title="Case assigned to you",
             body=f"{order.reference} — {order.patient.full_name if order.patient else ''}",
+        )
+    )
+    db.commit()
+    db.refresh(order)
+    return order_detail(order, UserRole.ADMIN)
+
+
+@router.patch("/orders/{order_id}/date", response_model=schemas.OrderDetail)
+def set_case_date(
+    order_id: str,
+    payload: schemas.CaseDateIn,
+    staff: User = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Set the date a case counts as sent.
+
+    Cases reach the lab by phone, by WhatsApp and on paper long before anyone
+    types them in, so the date the record was made is often not the date the
+    work arrived. The lab can correct it to whatever the truth is. Only the
+    lab: a clinic dating its own case is a clinic dating its own place in the
+    queue. The change is written into the case's history, because a date that
+    can be moved silently is a date nobody can rely on.
+    """
+    order = any_order(order_id, db, staff)
+    was = order.submitted_at
+    order.submitted_at = payload.submitted_at
+    db.add(
+        StatusEvent(
+            order_id=order.id,
+            from_status=order.status,
+            to_status=order.status,
+            actor_id=staff.id,
+            note=(
+                f"Date set to {payload.submitted_at:%d %b %Y}"
+                + (f", was {was:%d %b %Y}" if was else " (it had none)")
+            ),
         )
     )
     db.commit()

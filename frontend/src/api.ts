@@ -409,6 +409,8 @@ export interface OrderSummary {
   quantity_lower: number;
   priority: "STANDARD" | "EXPRESS";
   needs_doctor_action: boolean;
+  /** When the clinic sent it. Null on a draft. */
+  submitted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1185,6 +1187,10 @@ export const api = {
       })}`,
     ),
   staffOrder: (id: string) => get<OrderDetail>(`/staff/orders/${id}`),
+
+  /** Lab only: set the date a case counts as sent. */
+  setCaseDate: (id: string, submittedAt: string) =>
+    patch<OrderDetail>(`/staff/orders/${id}/date`, { submitted_at: submittedAt }),
   startReview: (id: string) => post<OrderDetail>(`/staff/orders/${id}/start-review`),
   requestRecords: (id: string, note: string) =>
     post<OrderDetail>(`/staff/orders/${id}/request-records`, { note }),

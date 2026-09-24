@@ -1242,6 +1242,9 @@ class OrderSummary(BaseModel):
     quantity_lower: int = 0
     priority: enums.Priority
     needs_doctor_action: bool
+    # When the clinic sent it. The lists show this as the case's date; a draft
+    # has not been sent and carries none.
+    submitted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -1317,6 +1320,12 @@ class NoteIn(BaseModel):
 
 class RecordsRequestIn(BaseModel):
     note: str = Field(min_length=1)
+
+
+class CaseDateIn(BaseModel):
+    """The date a case counts as having been sent."""
+
+    submitted_at: datetime
 
 
 class CancelIn(BaseModel):

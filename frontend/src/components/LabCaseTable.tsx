@@ -128,7 +128,7 @@ export default function LabCaseTable({
             <th>Treatment</th>
             <th>Stage</th>
             <th className="col-progress">Progress</th>
-            <th>Last updated</th>
+            <th>Date</th>
           </tr>
         </thead>
         <tbody>
@@ -189,8 +189,15 @@ export default function LabCaseTable({
                 <td className="col-progress">
                   <StageTrack order={order} />
                 </td>
-                <td className="col-when" title={`${formatDate(order.updated_at)} · ${since(order.updated_at)} ago`}>
-                  {shortWhen(order.updated_at)}
+                <td
+                  className="col-when"
+                  title={
+                    order.submitted_at
+                      ? `Sent ${formatDate(order.submitted_at)}`
+                      : `Not sent yet · last change ${since(order.updated_at)} ago`
+                  }
+                >
+                  {order.submitted_at ? shortWhen(order.submitted_at) : "—"}
                 </td>
               </tr>
             );

@@ -163,6 +163,22 @@ export default function StaffOrderDetail() {
      stage is open. */
   const [viewing, setViewing] = useState<number | null>(null);
   const [params, setParams] = useSearchParams();
+  /* Cases arrive by phone, on WhatsApp and on paper, so the day a case was
+     typed in is often not the day it came in. The lab can set the date to
+     whatever actually happened; the clinic cannot. */
+  const [dateOpen, setDateOpen] = useState(false);
+
+  const setCaseDate = useMutation({
+    mutationFn: (submittedAt: string) => api.setCaseDate(orderId, submittedAt),
+    onSuccess: (updated) => {
+      setDateOpen(false);
+      invalidate();
+      toast({
+        title: "Date changed",
+        body: `This case now counts as sent on ${formatDate(updated.submitted_at)}.`,
+      });
+    },
+  });
 
   const markDelivered = useMutation({
     mutationFn: (shipmentId: string) => api.updateShipment(shipmentId, { mark_delivered: true }),
@@ -329,10 +345,53 @@ export default function StaffOrderDetail() {
           ) : (
             <span>{data.product_label || "Accessories"}</span>
           )}
-          {data.submitted_at && (
-            <span title={`Sent ${formatDate(data.submitted_at)}`}>Sent {shortDate(data.submitted_at)}</span>
+          {isTechnician ? (
+            data.submitted_at && (
+              <span title={`Sent ${formatDate(data.submitted_at)}`}>Sent {shortDate(data.submitted_at)}</span>
+            )
+          ) : (
+            <span>
+              <button
+                type="button"
+                className="ws-date"
+                onClick={() => setDateOpen((open) => !open)}
+                title={
+                  data.submitted_at
+                    ? `Sent ${formatDate(data.submitted_at)} — change it`
+                    : "Set the date this case came in"
+                }
+              >
+                {data.submitted_at ? `Sent ${shortDate(data.submitted_at)}` : "No date"}
+              </button>
+            </span>
           )}
         </p>
+
+        {dateOpen && (
+          <div className="ws-datefix">
+            <label>
+              <span>Came in on</span>
+              <input
+                type="date"
+                defaultValue={(data.submitted_at ?? new Date().toISOString()).slice(0, 10)}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => {
+                  const day = e.target.value;
+                  if (!day) return;
+                  /* Keep the time of day it already had, so a case does not
+                     jump around the queue within its day. */
+                  const clock = (data.submitted_at ?? new Date().toISOString()).slice(11, 19);
+                  setCaseDate.mutate(new Date(`${day}T${clock}`).toISOString());
+                }}
+              />
+            </label>
+            {setCaseDate.isPending && <span className="dim">Saving…</span>}
+            <ErrorText error={setCaseDate.error} />
+            <button type="button" className="btn-link" onClick={() => setDateOpen(false)}>
+              Close
+            </button>
+          </div>
+        )}
         {data.has_simulation && (
           <div className="ws-head-do">
             <Link to={`/viewer/${data.id}`} className="ws-sim" title="Step through the planned movement">

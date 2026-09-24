@@ -579,7 +579,7 @@ function CaseTable({
             <th>Payment</th>
             <th>Stage</th>
             <th className="col-progress">Progress</th>
-            <th>Last updated</th>
+            <th>Date</th>
             <th className="col-branch">Branch</th>
           </tr>
         </thead>
@@ -633,8 +633,15 @@ function CaseTable({
                 {/* The date and time as asked for, with how long ago on the
                     hover — the figure that decides what to open first, kept
                     without spending a column on it. */}
-                <td className="col-when" title={`${formatDate(order.updated_at)} · ${since(order.updated_at)} ago`}>
-                  {shortWhen(order.updated_at)}
+                <td
+                  className="col-when"
+                  title={
+                    order.submitted_at
+                      ? `Sent ${formatDate(order.submitted_at)}`
+                      : `Not sent yet · last change ${since(order.updated_at)} ago`
+                  }
+                >
+                  {order.submitted_at ? shortWhen(order.submitted_at) : "—"}
                 </td>
                 <td className="col-branch dim" title={order.branch_label}>
                   {order.branch_label ? order.branch_label.split(" · ")[0] : "—"}
